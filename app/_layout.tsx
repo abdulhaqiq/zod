@@ -43,7 +43,14 @@ function RootLayoutInner() {
           <Stack.Screen name="prompts"   options={{ headerShown: false }} />
           <Stack.Screen name="photos"    options={{ headerShown: false }} />
           <Stack.Screen name="feed"         options={{ headerShown: false }} />
-          <Stack.Screen name="profile-view" options={{ headerShown: false, presentation: 'card' }} />
+          <Stack.Screen name="profile-view"  options={{ headerShown: false, presentation: 'card' }} />
+          <Stack.Screen name="edit-profile"    options={{ headerShown: false }} />
+          <Stack.Screen name="verification"    options={{ headerShown: false }} />
+          <Stack.Screen name="work-experience" options={{ headerShown: false }} />
+          <Stack.Screen name="education"       options={{ headerShown: false }} />
+          <Stack.Screen name="location-search"  options={{ headerShown: false }} />
+          <Stack.Screen name="subscription"    options={{ headerShown: false, presentation: 'fullScreenModal' }} />
+          <Stack.Screen name="chat"           options={{ headerShown: false }} />
           <Stack.Screen name="modal"     options={{ presentation: 'modal', title: 'Modal' }} />
         </Stack>
         <StatusBar style={isDark ? 'light' : 'dark'} />

@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import SliderRN from '@react-native-community/slider';
+import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
@@ -27,6 +28,8 @@ import { useAppTheme } from '@/context/ThemeContext';
 const { width: W, height: H } = Dimensions.get('window');
 const CARD_W          = W - 32;
 const CARD_H          = H * 0.68;
+const LIKED_CARD_W    = Math.floor((W - 44) / 2);
+const LIKED_PHOTO_H   = Math.floor(LIKED_CARD_W * 4 / 3);
 const PHOTO_H         = CARD_H;
 const SWIPE_THRESHOLD = W * 0.27;
 
@@ -419,6 +422,7 @@ function RangeSlider({
         const clamped = Math.max(0, Math.min(raw, highPxRef.current - MIN_GAP));
         lowPxRef.current = clamped;
         lowAnim.setValue(clamped);
+        onLowChange(pxToVal(clamped, tw));
       },
       onPanResponderRelease: () => {
         const tw  = trackWRef.current;
@@ -445,6 +449,7 @@ function RangeSlider({
         const clamped = Math.max(lowPxRef.current + MIN_GAP, Math.min(raw, tw));
         highPxRef.current = clamped;
         highAnim.setValue(clamped);
+        onHighChange(pxToVal(clamped, tw));
       },
       onPanResponderRelease: () => {
         const tw  = trackWRef.current;
@@ -576,30 +581,17 @@ function FilterSheet({ visible, onClose, colors, insets }: { visible: boolean; o
         </View>
 
           {/* Basic / Pro tabs */}
-          <View style={[styles.filterTabRow, { backgroundColor: colors.surface2 }]}>
-            <Pressable onPress={() => setActiveTab('basic')} style={{ flex: 1 }}>
-              {activeTab === 'basic' ? (
-                <Squircle style={styles.filterTabActive} cornerRadius={14} cornerSmoothing={1} fillColor={colors.text}>
-                  <Text style={[styles.filterTabText, { color: colors.bg }]}>Basic</Text>
-                </Squircle>
-              ) : (
-                <View style={styles.filterTabInactive}>
-                  <Text style={[styles.filterTabText, { color: colors.text }]}>Basic</Text>
-                </View>
-              )}
+          <View style={styles.filterTabRow}>
+            <Pressable onPress={() => setActiveTab('basic')}>
+              <View style={[styles.filterTabPill, activeTab === 'basic' && { backgroundColor: colors.text }]}>
+                <Text style={[styles.filterTabText, { color: activeTab === 'basic' ? colors.bg : colors.textSecondary }]}>Basic</Text>
+              </View>
             </Pressable>
-            <Pressable onPress={() => setActiveTab('pro')} style={{ flex: 1 }}>
-              {activeTab === 'pro' ? (
-                <Squircle style={styles.filterTabActive} cornerRadius={14} cornerSmoothing={1} fillColor={colors.text}>
-                  <Ionicons name="sparkles" size={11} color={colors.bg} style={{ marginRight: 4 }} />
-                  <Text style={[styles.filterTabText, { color: colors.bg }]}>Pro</Text>
-                </Squircle>
-              ) : (
-                <View style={styles.filterTabInactive}>
-                  <Ionicons name="sparkles" size={11} color={colors.text} style={{ marginRight: 4 }} />
-                  <Text style={[styles.filterTabText, { color: colors.text }]}>Pro</Text>
-                </View>
-              )}
+            <Pressable onPress={() => setActiveTab('pro')}>
+              <View style={[styles.filterTabPill, activeTab === 'pro' && { backgroundColor: colors.text }]}>
+                <Ionicons name="sparkles" size={11} color={activeTab === 'pro' ? colors.bg : colors.textSecondary} style={{ marginRight: 4 }} />
+                <Text style={[styles.filterTabText, { color: activeTab === 'pro' ? colors.bg : colors.textSecondary }]}>Pro</Text>
+              </View>
             </Pressable>
           </View>
         </LinearGradient>
@@ -801,11 +793,11 @@ function FilterSheet({ visible, onClose, colors, insets }: { visible: boolean; o
 
             {/* AI feature cards — dimmed */}
             {[
-              { icon: 'analytics-outline',   title: 'AI Compatibility Score',  sub: 'See your % match with each person before you swipe' },
-              { icon: 'flash-outline',        title: 'Smart Deal-Breakers',     sub: 'Auto-filter anyone who breaks your non-negotiables' },
-              { icon: 'pulse-outline',        title: 'AI Vibe Check',           sub: 'Find people with matching energy and communication style' },
-              { icon: 'telescope-outline',    title: 'Personality Insights',    sub: 'Filter by MBTI, love language and attachment style' },
-              { icon: 'trending-up-outline',  title: 'Boost Predictions',       sub: 'AI tells you the best time to boost your profile' },
+              { icon: 'analytics-outline',   title: 'Match Score',             sub: 'Every profile shows a % of how well you two match — before you swipe' },
+              { icon: 'shield-checkmark-outline', title: 'Must-Haves Filter',  sub: 'Set things you can\'t compromise on (kids, smoking, etc.) and we hide everyone who doesn\'t fit' },
+              { icon: 'pulse-outline',        title: 'Vibe Check',              sub: 'We look at how you both communicate and tell you if your energy naturally clicks' },
+              { icon: 'heart-circle-outline', title: 'Personality Match',       sub: 'Filter by love language, attachment style or personality type so you find someone who gets you' },
+              { icon: 'time-outline',         title: 'Best Time to Be Active',  sub: 'We show you the exact times to go online for the most views and likes on your profile' },
             ].map(f => (
               <View key={f.title}>
                 <Squircle style={[styles.filterCard, { flexDirection: 'row', alignItems: 'center', gap: 14 }]} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
@@ -868,27 +860,196 @@ function FilterSheet({ visible, onClose, colors, insets }: { visible: boolean; o
 
 // ─── Liked You Page ───────────────────────────────────────────────────────────
 
+const FREE_VISIBLE = 2; // first 2 profiles are clear, rest blurred (free tier)
+
 function LikedYouPage({ colors, insets }: { colors: any; insets: any }) {
+  const router = useRouter();
+  const [passed,   setPassed]   = useState<string[]>([]);
+  const [matched,  setMatched]  = useState<string[]>([]);
+  const [isPro,    setIsPro]    = useState(false);   // toggle to see both states
+
+  const visible = LIKED_PROFILES.filter(p => !passed.includes(p.id));
+  const count   = visible.length;
+
+  const handleLike = (id: string, name: string, image: string) => {
+    setMatched(prev => [...prev, id]);
+    setTimeout(() => {
+      setPassed(prev => [...prev, id]);
+      router.push({ pathname: '/chat', params: { name, image, online: 'true' } });
+    }, 600);
+  };
+
+  const handlePass = (id: string) => {
+    setPassed(prev => [...prev, id]);
+  };
+
   return (
-    <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 90 }} showsVerticalScrollIndicator={false}>
-      <Text style={[styles.pageTitle, { color: colors.text }]}>Liked You</Text>
-      <Text style={[styles.pageSub, { color: colors.textSecondary }]}>People who already like you</Text>
-      <View style={styles.likedGrid}>
-        {LIKED_PROFILES.map(p => (
-          <View key={p.id} style={[styles.likedCard, { backgroundColor: colors.surface }]}>
-            <Image source={{ uri: p.images[0] }} style={styles.likedPhoto} resizeMode="cover" />
-            {/* Heart badge */}
-            <View style={styles.likedBadge}>
-              <Ionicons name="heart" size={12} color="#fff" />
-            </View>
-            {/* Blur bottom */}
-            <LinearGradient colors={['transparent', 'rgba(0,0,0,0.75)']} style={styles.likedGrad}>
-              <Text style={styles.likedName}>{p.name}, {p.age}</Text>
-              {p.verified && <Ionicons name="checkmark-circle" size={12} color="#4FC3F7" />}
-            </LinearGradient>
-          </View>
-        ))}
+    <ScrollView
+      style={{ flex: 1 }}
+      contentContainerStyle={{ paddingBottom: insets.bottom + 90 }}
+      showsVerticalScrollIndicator={false}
+    >
+      {/* ── Header ── */}
+      <View style={styles.likedHeader}>
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.pageTitle, { color: colors.text }]}>Liked You</Text>
+          <Text style={[styles.pageSub, { color: colors.textSecondary }]}>{count} people already like you</Text>
+        </View>
+        {/* Pro toggle (demo) */}
+        <Pressable onPress={() => setIsPro(v => !v)} style={({ pressed }) => [pressed && { opacity: 0.7 }]}>
+          <Squircle style={styles.likedProBtn} cornerRadius={20} cornerSmoothing={1} fillColor={isPro ? colors.text : colors.surface2} strokeColor={colors.border} strokeWidth={StyleSheet.hairlineWidth}>
+            <Ionicons name="star" size={13} color={isPro ? colors.bg : colors.text} />
+            <Text style={[styles.likedProBtnText, { color: isPro ? colors.bg : colors.text }]}>{isPro ? 'Pro' : 'Free'}</Text>
+          </Squircle>
+        </Pressable>
       </View>
+
+      {/* ── Upgrade banner (free tier) ── */}
+      {!isPro && (
+        <Pressable
+          onPress={() => router.push('/subscription')}
+          style={({ pressed }) => [pressed && { opacity: 0.85 }]}
+        >
+          <Squircle
+            style={styles.likedUpgradeBanner}
+            cornerRadius={20}
+            cornerSmoothing={1}
+            fillColor={colors.surface}
+            strokeColor={colors.border}
+            strokeWidth={StyleSheet.hairlineWidth}
+          >
+            <Squircle style={styles.likedUpgradeIcon} cornerRadius={14} cornerSmoothing={1} fillColor={colors.surface2}>
+              <Ionicons name="lock-closed" size={18} color={colors.text} />
+            </Squircle>
+            <View style={{ flex: 1, gap: 2 }}>
+              <Text style={[styles.likedUpgradeTitle, { color: colors.text }]}>See everyone who liked you</Text>
+              <Text style={[styles.likedUpgradeSub, { color: colors.textSecondary }]}>Upgrade to Zod Pro to unlock all profiles</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />
+          </Squircle>
+        </Pressable>
+      )}
+
+      {/* ── Cards grid ── */}
+      <View style={styles.likedGrid}>
+        {visible.map((p, i) => {
+          const isBlurred  = !isPro && i >= FREE_VISIBLE;
+          const isMatching = matched.includes(p.id);
+
+          return (
+            <View key={p.id} style={[styles.likedCardWrap, { width: (W - 44) / 2 }]}>
+              <Squircle
+                style={styles.likedCard}
+                cornerRadius={24}
+                cornerSmoothing={1}
+                fillColor={colors.surface}
+                strokeColor={colors.border}
+                strokeWidth={StyleSheet.hairlineWidth}
+              >
+                {/* Photo */}
+                <View style={styles.likedPhotoWrap}>
+                  <Image
+                    source={{ uri: p.images[0] }}
+                    style={[styles.likedPhoto, isBlurred && styles.likedPhotoBlurred]}
+                    contentFit="cover"
+                    blurRadius={isBlurred ? 18 : 0}
+                  />
+
+                  {/* Gradient overlay */}
+                  {!isBlurred && (
+                    <LinearGradient
+                      colors={['transparent', 'rgba(0,0,0,0.72)']}
+                      style={styles.likedPhotoGrad}
+                    >
+                      <Text style={styles.likedPhotoName}>{p.name}, {p.age}</Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                        <Ionicons name="location-outline" size={10} color="rgba(255,255,255,0.7)" />
+                        <Text style={styles.likedPhotoDist}>{p.distance}</Text>
+                        {p.verified && <Ionicons name="checkmark-circle" size={11} color="#fff" />}
+                      </View>
+                    </LinearGradient>
+                  )}
+
+                  {/* Matched pulse */}
+                  {isMatching && (
+                    <View style={[StyleSheet.absoluteFill, styles.likedMatchOverlay]}>
+                      <Ionicons name="heart" size={40} color="#fff" />
+                      <Text style={styles.likedMatchText}>Matched!</Text>
+                    </View>
+                  )}
+
+                  {/* Lock overlay */}
+                  {isBlurred && (
+                    <Pressable
+                      style={[StyleSheet.absoluteFill, styles.likedLockOverlay]}
+                      onPress={() => router.push('/subscription')}
+                    >
+                      <Squircle style={styles.likedLockIcon} cornerRadius={14} cornerSmoothing={1} fillColor="rgba(0,0,0,0.45)">
+                        <Ionicons name="lock-closed" size={18} color="#fff" />
+                      </Squircle>
+                      <Text style={styles.likedLockText}>Upgrade{'\n'}to see</Text>
+                    </Pressable>
+                  )}
+
+                  {/* Heart liked badge top-right */}
+                  {!isBlurred && (
+                    <View style={[styles.likedHeartBadge, { backgroundColor: colors.text }]}>
+                      <Ionicons name="heart" size={11} color={colors.bg} />
+                    </View>
+                  )}
+                </View>
+
+                {/* Info row (non-blurred only) */}
+                {!isBlurred && (
+                  <View style={styles.likedInfo}>
+                    {/* Shared interest chip */}
+                    {p.interests[0] && (
+                      <Squircle style={styles.likedChip} cornerRadius={20} cornerSmoothing={1} fillColor={colors.surface2}>
+                        <Text style={styles.likedChipEmoji}>{p.interests[0].emoji}</Text>
+                        <Text style={[styles.likedChipLabel, { color: colors.text }]}>{p.interests[0].label}</Text>
+                      </Squircle>
+                    )}
+
+                    {/* Action buttons */}
+                    <View style={styles.likedActions}>
+                      <Pressable
+                        onPress={() => handlePass(p.id)}
+                        style={({ pressed }) => [pressed && { opacity: 0.65 }]}
+                        hitSlop={6}
+                      >
+                        <Squircle style={styles.likedPassBtn} cornerRadius={50} cornerSmoothing={1} fillColor={colors.surface2} strokeColor={colors.border} strokeWidth={StyleSheet.hairlineWidth}>
+                          <Ionicons name="close" size={18} color={colors.text} />
+                        </Squircle>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => handleLike(p.id, p.name, p.images[0])}
+                        style={({ pressed }) => [pressed && { opacity: 0.65 }, { flex: 1 }]}
+                        hitSlop={6}
+                      >
+                        <Squircle style={styles.likedLikeBtn} cornerRadius={50} cornerSmoothing={1} fillColor={colors.text}>
+                          <Ionicons name="heart" size={15} color={colors.bg} />
+                          <Text style={[styles.likedLikeBtnText, { color: colors.bg }]}>Like back</Text>
+                        </Squircle>
+                      </Pressable>
+                    </View>
+                  </View>
+                )}
+              </Squircle>
+            </View>
+          );
+        })}
+      </View>
+
+      {/* Empty state */}
+      {visible.length === 0 && (
+        <View style={styles.likedEmpty}>
+          <Squircle style={styles.likedEmptyIcon} cornerRadius={28} cornerSmoothing={1} fillColor={colors.surface}>
+            <Ionicons name="heart-outline" size={32} color={colors.textTertiary} />
+          </Squircle>
+          <Text style={[styles.likedEmptyTitle, { color: colors.text }]}>You're all caught up</Text>
+          <Text style={[styles.likedEmptySub, { color: colors.textSecondary }]}>Keep swiping to get more likes</Text>
+        </View>
+      )}
     </ScrollView>
   );
 }
@@ -903,29 +1064,50 @@ const AI_PICKS = [
 
 function AiMatchPage({ colors, insets }: { colors: any; insets: any }) {
   return (
-    <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 90, gap: 16 }} showsVerticalScrollIndicator={false}>
+    <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: insets.bottom + 90, gap: 12 }} showsVerticalScrollIndicator={false}>
+
+      {/* Header */}
       <View style={{ marginBottom: 4 }}>
-        <Text style={[styles.pageTitle, { color: colors.text }]}>AI Matches</Text>
-        <Text style={[styles.pageSub, { color: colors.textSecondary }]}>Curated picks based on your profile</Text>
+        <View style={styles.aiHeaderRow}>
+          <Squircle style={styles.aiHeaderIcon} cornerRadius={14} cornerSmoothing={1} fillColor={colors.surface2}>
+            <Ionicons name="sparkles" size={18} color={colors.text} />
+          </Squircle>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.pageTitle, { color: colors.text }]}>AI Matches</Text>
+            <Text style={[styles.pageSub, { color: colors.textSecondary }]}>Curated picks based on your profile</Text>
+          </View>
+        </View>
       </View>
 
       {AI_PICKS.map(({ profile, score, sharedInterests, reason }) => (
-        <View key={profile.id} style={[styles.aiCard, { backgroundColor: colors.surface }]}>
+        <Squircle
+          key={profile.id}
+          style={styles.aiCard}
+          cornerRadius={24}
+          cornerSmoothing={1}
+          fillColor={colors.surface}
+          strokeColor={colors.border}
+          strokeWidth={StyleSheet.hairlineWidth}
+        >
+          {/* Top: photo + info */}
           <View style={styles.aiCardTop}>
             <Image source={{ uri: profile.images[0] }} style={styles.aiPhoto} resizeMode="cover" />
             <View style={styles.aiInfo}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 <Text style={[styles.aiName, { color: colors.text }]}>{profile.name}, {profile.age}</Text>
-                {profile.verified && <Ionicons name="checkmark-circle" size={14} color="#4FC3F7" />}
+                {profile.verified && <Ionicons name="checkmark-circle" size={14} color={colors.text} />}
               </View>
               <Text style={[styles.aiLocation, { color: colors.textSecondary }]}>{profile.distance} away</Text>
-              {/* Score bar */}
-              <View style={{ gap: 4, marginTop: 8 }}>
-                <Text style={[styles.aiScoreLabel, { color: colors.textSecondary }]}>Compatibility</Text>
-                <View style={[styles.aiScoreTrack, { backgroundColor: colors.surface2 }]}>
-                  <LinearGradient colors={['#a855f7','#ec4899']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={[styles.aiScoreFill, { width: `${score}%` as any }]} />
-                </View>
+
+              {/* Score pill */}
+              <Squircle style={styles.aiScorePill} cornerRadius={20} cornerSmoothing={1} fillColor={colors.surface2}>
+                <Ionicons name="pulse" size={12} color={colors.text} />
                 <Text style={[styles.aiScoreNum, { color: colors.text }]}>{score}% match</Text>
+              </Squircle>
+
+              {/* Score bar */}
+              <View style={[styles.aiScoreTrack, { backgroundColor: colors.surface2, marginTop: 8 }]}>
+                <View style={[styles.aiScoreFill, { width: `${score}%` as any, backgroundColor: colors.text }]} />
               </View>
             </View>
           </View>
@@ -936,22 +1118,32 @@ function AiMatchPage({ colors, insets }: { colors: any; insets: any }) {
           <View style={{ gap: 8 }}>
             <Text style={[styles.aiSecLabel, { color: colors.textSecondary }]}>SHARED INTERESTS</Text>
             <View style={styles.chipRow}>
-              {sharedInterests.map(i => (
-                <View key={i} style={[styles.chip, { backgroundColor: colors.surface2 }]}>
-                  <Text style={[styles.chipLabel, { color: colors.text }]}>{i}</Text>
-                </View>
+              {sharedInterests.map(interest => (
+                <Squircle key={interest} style={styles.aiChip} cornerRadius={20} cornerSmoothing={1} fillColor={colors.surface2}>
+                  <Text style={[styles.aiChipText, { color: colors.text }]}>{interest}</Text>
+                </Squircle>
               ))}
             </View>
           </View>
 
           <View style={[styles.aiDivider, { backgroundColor: colors.border }]} />
 
-          {/* Why we matched */}
+          {/* Why matched */}
           <View style={{ gap: 6 }}>
             <Text style={[styles.aiSecLabel, { color: colors.textSecondary }]}>WHY YOU MATCH</Text>
             <Text style={[styles.aiReason, { color: colors.text }]}>{reason}</Text>
           </View>
-        </View>
+
+          {/* Actions */}
+          <View style={styles.aiActions}>
+            <Squircle style={[styles.aiActionBtn, styles.aiActionBtnOutline]} cornerRadius={50} cornerSmoothing={1} fillColor="transparent" strokeColor={colors.border} strokeWidth={1.5}>
+              <Text style={[styles.aiActionBtnText, { color: colors.text }]}>View Profile</Text>
+            </Squircle>
+            <Squircle style={[styles.aiActionBtn, styles.aiActionBtnFill]} cornerRadius={50} cornerSmoothing={1} fillColor={colors.text}>
+              <Text style={[styles.aiActionBtnText, { color: colors.bg }]}>Connect</Text>
+            </Squircle>
+          </View>
+        </Squircle>
       ))}
     </ScrollView>
   );
@@ -960,67 +1152,128 @@ function AiMatchPage({ colors, insets }: { colors: any; insets: any }) {
 // ─── Chats Page ───────────────────────────────────────────────────────────────
 
 const NEW_MATCHES = [
-  { id:'m1', name:'Sophia',  image:'https://randomuser.me/api/portraits/women/44.jpg' },
-  { id:'m2', name:'Elena',   image:'https://randomuser.me/api/portraits/women/68.jpg' },
-  { id:'m3', name:'Maya',    image:'https://randomuser.me/api/portraits/women/50.jpg' },
-  { id:'m4', name:'Zara',    image:'https://randomuser.me/api/portraits/women/32.jpg' },
+  { id:'m1', name:'Sophia',  image:'https://randomuser.me/api/portraits/women/44.jpg', online: true },
+  { id:'m2', name:'Elena',   image:'https://randomuser.me/api/portraits/women/68.jpg', online: true },
+  { id:'m3', name:'Maya',    image:'https://randomuser.me/api/portraits/women/50.jpg', online: false },
+  { id:'m4', name:'Zara',    image:'https://randomuser.me/api/portraits/women/32.jpg', online: true },
+  { id:'m5', name:'Aria',    image:'https://randomuser.me/api/portraits/women/79.jpg', online: false },
 ];
 
 const CONVERSATIONS = [
-  { id:'c1', name:'Sophia',  image:'https://randomuser.me/api/portraits/women/44.jpg', preview:"Order dessert before checking the menu 🍰", time:'2m',  unread:3 },
-  { id:'c2', name:'Elena',   image:'https://randomuser.me/api/portraits/women/68.jpg', preview:"That's so true! When are you free?",          time:'1h',  unread:0 },
-  { id:'c3', name:'Maya',    image:'https://randomuser.me/api/portraits/women/50.jpg', preview:"Miami has the best sunsets ☀️",               time:'3h',  unread:1 },
-  { id:'c4', name:'Aria',    image:'https://randomuser.me/api/portraits/women/79.jpg', preview:"Haha I would never lie about tacos 🌮",       time:'1d',  unread:0 },
+  { id:'c1', name:'Sophia',  image:'https://randomuser.me/api/portraits/women/44.jpg', preview:"Order dessert before checking the menu 🍰", time:'2m',  unread:3, online: true },
+  { id:'c2', name:'Elena',   image:'https://randomuser.me/api/portraits/women/68.jpg', preview:"That's so true! When are you free?",          time:'1h',  unread:0, online: true },
+  { id:'c3', name:'Maya',    image:'https://randomuser.me/api/portraits/women/50.jpg', preview:"Miami has the best sunsets ☀️",               time:'3h',  unread:1, online: false },
+  { id:'c4', name:'Aria',    image:'https://randomuser.me/api/portraits/women/79.jpg', preview:"Haha I would never lie about tacos 🌮",       time:'1d',  unread:0, online: false },
 ];
 
 function ChatsPage({ colors, insets }: { colors: any; insets: any }) {
+  const router = useRouter();
+  const [search, setSearch] = useState('');
+  const filtered = search.trim()
+    ? CONVERSATIONS.filter(c => c.name.toLowerCase().includes(search.toLowerCase()))
+    : CONVERSATIONS;
+
   return (
-    <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: insets.bottom + 90 }} showsVerticalScrollIndicator={false}>
-      <View style={{ paddingHorizontal: 16, paddingTop: 4, paddingBottom: 16 }}>
+    <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: insets.bottom + 90 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+
+      {/* Header */}
+      <View style={styles.chatHeader}>
         <Text style={[styles.pageTitle, { color: colors.text }]}>Chats</Text>
+        <Squircle style={styles.chatComposeBtn} cornerRadius={14} cornerSmoothing={1} fillColor={colors.surface2}>
+          <Ionicons name="create-outline" size={19} color={colors.text} />
+        </Squircle>
       </View>
 
-      {/* New Matches row */}
-      <View style={{ paddingLeft: 16, marginBottom: 20 }}>
-        <Text style={[styles.chatSecLabel, { color: colors.textSecondary }]}>NEW MATCHES</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 14, paddingRight: 16, marginTop: 12 }}>
-          {NEW_MATCHES.map(m => (
-            <View key={m.id} style={{ alignItems: 'center', gap: 6 }}>
-              <View style={styles.matchAvatarWrap}>
-                <Image source={{ uri: m.image }} style={styles.matchAvatar} />
-                <View style={[styles.matchDot, { backgroundColor: '#00C853' }]} />
-              </View>
-              <Text style={[styles.matchName, { color: colors.text }]}>{m.name}</Text>
-            </View>
-          ))}
-        </ScrollView>
+      {/* Search */}
+      <View style={{ paddingHorizontal: 16, marginBottom: 20 }}>
+        <Squircle style={styles.chatSearch} cornerRadius={16} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={StyleSheet.hairlineWidth}>
+          <Ionicons name="search-outline" size={16} color={colors.textSecondary} />
+          <TextInput
+            style={[styles.chatSearchInput, { color: colors.text }]}
+            placeholder="Search conversations…"
+            placeholderTextColor={colors.placeholder}
+            value={search}
+            onChangeText={setSearch}
+            returnKeyType="search"
+            selectionColor={colors.text}
+          />
+          {search.length > 0 && (
+            <Pressable onPress={() => setSearch('')} hitSlop={8}>
+              <Ionicons name="close-circle" size={16} color={colors.textSecondary} />
+            </Pressable>
+          )}
+        </Squircle>
       </View>
+
+      {/* New Matches */}
+      {!search && (
+        <View style={{ marginBottom: 24 }}>
+          <Text style={[styles.chatSecLabel, { color: colors.textSecondary, paddingHorizontal: 16, marginBottom: 14 }]}>NEW MATCHES</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingHorizontal: 16 }}>
+            {NEW_MATCHES.map(m => (
+              <Pressable key={m.id} onPress={() => router.push({ pathname: '/chat', params: { name: m.name, image: m.image, online: m.online ? 'true' : 'false' } })} style={({ pressed }) => [{ alignItems: 'center', gap: 7 }, pressed && { opacity: 0.75 }]}>
+                <View style={styles.matchRingWrap}>
+                  <View style={[styles.matchRing, { borderColor: colors.text }]}>
+                    <Image source={{ uri: m.image }} style={styles.matchAvatar} />
+                  </View>
+                  {m.online && <View style={[styles.matchDot, { backgroundColor: colors.bg }]}><View style={styles.matchDotInner} /></View>}
+                </View>
+                <Text style={[styles.matchName, { color: colors.text }]}>{m.name}</Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+        </View>
+      )}
 
       {/* Messages */}
       <View style={{ paddingHorizontal: 16 }}>
-        <Text style={[styles.chatSecLabel, { color: colors.textSecondary }]}>MESSAGES</Text>
-        <View style={{ marginTop: 12, gap: 2 }}>
-          {CONVERSATIONS.map((c, i) => (
+        <Text style={[styles.chatSecLabel, { color: colors.textSecondary, marginBottom: 12 }]}>MESSAGES</Text>
+        <Squircle
+          style={styles.convGroup}
+          cornerRadius={22}
+          cornerSmoothing={1}
+          fillColor={colors.surface}
+          strokeColor={colors.border}
+          strokeWidth={StyleSheet.hairlineWidth}
+        >
+          {filtered.map((c, i) => (
             <View key={c.id}>
-              <Pressable style={({ pressed }) => [styles.convRow, pressed && { opacity: 0.7 }]}>
-                <Image source={{ uri: c.image }} style={styles.convAvatar} />
-                <View style={{ flex: 1 }}>
+              <Pressable onPress={() => router.push({ pathname: '/chat', params: { name: c.name, image: c.image, online: c.online ? 'true' : 'false' } })} style={({ pressed }) => [styles.convRow, pressed && { backgroundColor: colors.surface2 }]}>
+                {/* Avatar */}
+                <View style={styles.convAvatarWrap}>
+                  <Image source={{ uri: c.image }} style={styles.convAvatar} />
+                  {c.online && <View style={[styles.convOnlineDot, { borderColor: colors.surface, backgroundColor: '#22c55e' }]} />}
+                </View>
+                {/* Text */}
+                <View style={{ flex: 1, gap: 3 }}>
                   <View style={styles.convTopRow}>
                     <Text style={[styles.convName, { color: colors.text }]}>{c.name}</Text>
-                    <Text style={[styles.convTime, { color: colors.textSecondary }]}>{c.time}</Text>
+                    <Text style={[styles.convTime, { color: c.unread > 0 ? colors.text : colors.textSecondary, fontFamily: c.unread > 0 ? 'ProductSans-Bold' : 'ProductSans-Regular' }]}>{c.time}</Text>
                   </View>
-                  <Text style={[styles.convPreview, { color: colors.textSecondary }]} numberOfLines={1}>{c.preview}</Text>
+                  <Text
+                    style={[styles.convPreview, { color: c.unread > 0 ? colors.text : colors.textSecondary, fontFamily: c.unread > 0 ? 'ProductSans-Medium' : 'ProductSans-Regular' }]}
+                    numberOfLines={1}
+                  >{c.preview}</Text>
                 </View>
+                {/* Unread badge */}
                 {c.unread > 0 && (
-                  <View style={[styles.unreadBadge, { backgroundColor: colors.text }]}>
+                  <Squircle style={styles.unreadBadge} cornerRadius={20} cornerSmoothing={1} fillColor={colors.text}>
                     <Text style={[styles.unreadText, { color: colors.bg }]}>{c.unread}</Text>
-                  </View>
+                  </Squircle>
                 )}
               </Pressable>
-              {i < CONVERSATIONS.length - 1 && <View style={[styles.convDivider, { backgroundColor: colors.border }]} />}
+              {i < filtered.length - 1 && (
+                <View style={[styles.convDivider, { backgroundColor: colors.border }]} />
+              )}
             </View>
           ))}
-        </View>
+          {filtered.length === 0 && (
+            <View style={{ alignItems: 'center', padding: 32, gap: 8 }}>
+              <Ionicons name="chatbubble-outline" size={28} color={colors.textTertiary} />
+              <Text style={[styles.convPreview, { color: colors.textSecondary, textAlign: 'center' }]}>No conversations found</Text>
+            </View>
+          )}
+        </Squircle>
       </View>
     </ScrollView>
   );
@@ -1202,10 +1455,9 @@ const styles = StyleSheet.create({
   sheetFooter:      { paddingHorizontal: 20, paddingTop: 12, borderTopWidth: StyleSheet.hairlineWidth },
   applyBtn:         { height: 52, overflow: 'hidden' },
   applyBtnText:     { fontSize: 16, fontFamily: 'ProductSans-Bold' },
-  filterTabRow:     { flexDirection: 'row', borderRadius: 18, padding: 4, gap: 4, overflow: 'hidden' },
-  filterTabActive:  { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 10 },
-  filterTabInactive:{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 10 },
-  filterTabText:    { fontSize: 14, fontFamily: 'ProductSans-Bold' },
+  filterTabRow:  { flexDirection: 'row', gap: 10, marginTop: 14, justifyContent: 'center' },
+  filterTabPill: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 22, paddingVertical: 9, borderRadius: 20 },
+  filterTabText: { fontSize: 14, fontFamily: 'ProductSans-Bold' },
   filterCard:       { padding: 16 },
   filterRow:        { flexDirection: 'row', alignItems: 'center', gap: 12 },
   filterRowIcon:    { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
@@ -1246,42 +1498,88 @@ const styles = StyleSheet.create({
   // Liked you
   pageTitle:   { fontSize: 24, fontFamily: 'ProductSans-Black' },
   pageSub:     { fontSize: 13, fontFamily: 'ProductSans-Regular', marginTop: 2, marginBottom: 16 },
-  likedGrid:   { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  likedCard:   { width: (W - 42) / 2, borderRadius: 18, overflow: 'hidden', height: 240 },
-  likedPhoto:  { width: '100%', height: '100%' },
-  likedBadge:  { position: 'absolute', top: 10, right: 10, backgroundColor: '#ec4899', width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  likedGrad:   { position: 'absolute', bottom: 0, left: 0, right: 0, flexDirection: 'row', alignItems: 'flex-end', gap: 4, padding: 12, paddingBottom: 14 },
-  likedName:   { fontSize: 14, fontFamily: 'ProductSans-Bold', color: '#fff' },
+  likedHeader:          { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 4, paddingBottom: 16 },
+  likedProBtn:          { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 7 },
+  likedProBtnText:      { fontSize: 12, fontFamily: 'ProductSans-Bold' },
+  likedUpgradeBanner:   { flexDirection: 'row', alignItems: 'center', gap: 12, marginHorizontal: 16, marginBottom: 16, paddingHorizontal: 14, paddingVertical: 14 },
+  likedUpgradeIcon:     { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+  likedUpgradeTitle:    { fontSize: 14, fontFamily: 'ProductSans-Black' },
+  likedUpgradeSub:      { fontSize: 12, fontFamily: 'ProductSans-Regular' },
+  likedGrid:            { flexDirection: 'row', flexWrap: 'wrap', gap: 10, paddingHorizontal: 16 },
+  likedCardWrap:        { },
+  likedCard:            { width: '100%', overflow: 'hidden' },
+  likedPhotoWrap:       { width: LIKED_CARD_W, height: LIKED_PHOTO_H, position: 'relative' },
+  likedPhoto:           { width: LIKED_CARD_W, height: LIKED_PHOTO_H },
+  likedPhotoBlurred:    { opacity: 0.6 },
+  likedPhotoGrad:       { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 10, gap: 2 },
+  likedPhotoName:       { fontSize: 14, fontFamily: 'ProductSans-Black', color: '#fff' },
+  likedPhotoDist:       { fontSize: 10, fontFamily: 'ProductSans-Regular', color: 'rgba(255,255,255,0.75)' },
+  likedHeartBadge:      { position: 'absolute', top: 10, right: 10, width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
+  likedMatchOverlay:    { alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: 'rgba(0,0,0,0.45)' },
+  likedMatchText:       { fontSize: 18, fontFamily: 'ProductSans-Black', color: '#fff' },
+  likedLockOverlay:     { alignItems: 'center', justifyContent: 'center', gap: 8 },
+  likedLockIcon:        { width: 42, height: 42, alignItems: 'center', justifyContent: 'center' },
+  likedLockText:        { fontSize: 12, fontFamily: 'ProductSans-Bold', color: '#fff', textAlign: 'center' },
+  likedInfo:            { padding: 10, gap: 8 },
+  likedChip:            { flexDirection: 'row', alignItems: 'center', gap: 5, alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 5 },
+  likedChipEmoji:       { fontSize: 13 },
+  likedChipLabel:       { fontSize: 12, fontFamily: 'ProductSans-Medium' },
+  likedActions:         { flexDirection: 'row', gap: 8, alignItems: 'center' },
+  likedPassBtn:         { width: 38, height: 38, alignItems: 'center', justifyContent: 'center' },
+  likedLikeBtn:         { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10 },
+  likedLikeBtnText:     { fontSize: 13, fontFamily: 'ProductSans-Bold' },
+  likedEmpty:           { alignItems: 'center', paddingTop: 60, gap: 12 },
+  likedEmptyIcon:       { width: 72, height: 72, alignItems: 'center', justifyContent: 'center' },
+  likedEmptyTitle:      { fontSize: 18, fontFamily: 'ProductSans-Black' },
+  likedEmptySub:        { fontSize: 14, fontFamily: 'ProductSans-Regular', textAlign: 'center' },
 
   // AI match
-  aiCard:      { borderRadius: 20, padding: 16, gap: 12 },
-  aiCardTop:   { flexDirection: 'row', gap: 14, alignItems: 'flex-start' },
-  aiPhoto:     { width: 80, height: 80, borderRadius: 16 },
-  aiInfo:      { flex: 1 },
-  aiName:      { fontSize: 16, fontFamily: 'ProductSans-Black' },
-  aiLocation:  { fontSize: 12, fontFamily: 'ProductSans-Regular', marginTop: 2 },
-  aiScoreLabel:{ fontSize: 10, fontFamily: 'ProductSans-Bold', letterSpacing: 1 },
-  aiScoreTrack:{ height: 6, borderRadius: 3, overflow: 'hidden' },
-  aiScoreFill: { height: 6, borderRadius: 3 },
-  aiScoreNum:  { fontSize: 13, fontFamily: 'ProductSans-Bold' },
-  aiDivider:   { height: StyleSheet.hairlineWidth },
-  aiSecLabel:  { fontSize: 10, fontFamily: 'ProductSans-Bold', letterSpacing: 1.5 },
-  aiReason:    { fontSize: 14, fontFamily: 'ProductSans-Regular', lineHeight: 21 },
+  aiHeaderRow:     { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 2 },
+  aiHeaderIcon:    { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+  aiCard:          { overflow: 'hidden', padding: 16, gap: 14 },
+  aiCardTop:       { flexDirection: 'row', gap: 14, alignItems: 'flex-start' },
+  aiPhoto:         { width: 76, height: 76, borderRadius: 18 },
+  aiInfo:          { flex: 1, gap: 4 },
+  aiName:          { fontSize: 16, fontFamily: 'ProductSans-Black' },
+  aiLocation:      { fontSize: 12, fontFamily: 'ProductSans-Regular' },
+  aiScorePill:     { flexDirection: 'row', alignItems: 'center', gap: 5, alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 5, marginTop: 4 },
+  aiScoreNum:      { fontSize: 12, fontFamily: 'ProductSans-Bold' },
+  aiScoreTrack:    { height: 4, borderRadius: 2, overflow: 'hidden' },
+  aiScoreFill:     { height: 4, borderRadius: 2 },
+  aiDivider:       { height: StyleSheet.hairlineWidth },
+  aiSecLabel:      { fontSize: 10, fontFamily: 'ProductSans-Bold', letterSpacing: 1.5 },
+  aiReason:        { fontSize: 14, fontFamily: 'ProductSans-Regular', lineHeight: 21 },
+  aiChip:          { paddingHorizontal: 12, paddingVertical: 6 },
+  aiChipText:      { fontSize: 13, fontFamily: 'ProductSans-Medium' },
+  aiActions:       { flexDirection: 'row', gap: 10 },
+  aiActionBtn:     { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 13 },
+  aiActionBtnOutline: {},
+  aiActionBtnFill: {},
+  aiActionBtnText: { fontSize: 14, fontFamily: 'ProductSans-Bold' },
 
   // Chats
+  chatHeader:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 4, paddingBottom: 16 },
+  chatComposeBtn:  { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+  chatSearch:      { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, height: 44 },
+  chatSearchInput: { flex: 1, fontSize: 15, fontFamily: 'ProductSans-Regular' },
   chatSecLabel:    { fontSize: 10, fontFamily: 'ProductSans-Bold', letterSpacing: 1.5 },
-  matchAvatarWrap: { width: 62, height: 62, borderRadius: 31, position: 'relative' },
-  matchAvatar:     { width: 62, height: 62, borderRadius: 31 },
-  matchDot:        { position: 'absolute', bottom: 1, right: 1, width: 13, height: 13, borderRadius: 7, borderWidth: 2, borderColor: '#fff' },
+  matchRingWrap:   { position: 'relative' },
+  matchRing:       { width: 66, height: 66, borderRadius: 33, borderWidth: 2, padding: 2 },
+  matchAvatar:     { width: 58, height: 58, borderRadius: 29 },
+  matchDot:        { position: 'absolute', bottom: 0, right: 0, width: 18, height: 18, borderRadius: 9, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
+  matchDotInner:   { width: 10, height: 10, borderRadius: 5, backgroundColor: '#22c55e' },
   matchName:       { fontSize: 12, fontFamily: 'ProductSans-Medium', textAlign: 'center' },
-  convRow:         { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12 },
-  convAvatar:      { width: 54, height: 54, borderRadius: 27 },
+  convGroup:       { overflow: 'hidden' },
+  convRow:         { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 13, paddingHorizontal: 14 },
+  convAvatarWrap:  { position: 'relative' },
+  convAvatar:      { width: 52, height: 52, borderRadius: 26 },
+  convOnlineDot:   { position: 'absolute', bottom: 1, right: 1, width: 13, height: 13, borderRadius: 7, borderWidth: 2 },
   convTopRow:      { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   convName:        { fontSize: 15, fontFamily: 'ProductSans-Bold' },
-  convTime:        { fontSize: 12, fontFamily: 'ProductSans-Regular' },
-  convPreview:     { fontSize: 13, fontFamily: 'ProductSans-Regular', marginTop: 3 },
-  convDivider:     { height: StyleSheet.hairlineWidth, marginLeft: 66 },
-  unreadBadge:     { width: 20, height: 20, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-  unreadText:      { fontSize: 10, fontFamily: 'ProductSans-Bold' },
+  convTime:        { fontSize: 12 },
+  convPreview:     { fontSize: 13 },
+  convDivider:     { height: StyleSheet.hairlineWidth, marginLeft: 78 },
+  unreadBadge:     { minWidth: 22, height: 22, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 },
+  unreadText:      { fontSize: 11, fontFamily: 'ProductSans-Black' },
 
 });
