@@ -1,1 +1,2 @@
-export { default } from '@/components/RelationshipGoals';
+import GoalsScreen from '@/components/onboarding/GoalsScreen';
+export default GoalsScreen;

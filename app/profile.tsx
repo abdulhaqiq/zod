@@ -1,5 +1,2 @@
-import PersonalInfo from '@/components/PersonalInfo';
-
-export default function ProfileRoute() {
-  return <PersonalInfo />;
-}
+import ProfileScreen from '@/components/onboarding/ProfileScreen';
+export default ProfileScreen;

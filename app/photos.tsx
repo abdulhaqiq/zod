@@ -1,1 +1,2 @@
-export { default } from '@/components/Photos';
+import PhotosScreen from '@/components/onboarding/PhotosScreen';
+export default PhotosScreen;

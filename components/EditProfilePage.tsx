@@ -1,8 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Dimensions,
   Image,
@@ -19,29 +20,32 @@ import {
 import ChipSelectorSheet, { type ChipOption } from '@/components/ui/ChipSelectorSheet';
 import ScreenHeader from '@/components/ui/ScreenHeader';
 import Squircle from '@/components/ui/Squircle';
+import { API_BASE } from '@/constants/api';
+import { apiFetch } from '@/constants/api';
+import { useAuth } from '@/context/AuthContext';
 import { useAppTheme } from '@/context/ThemeContext';
 import type { AppColors } from '@/constants/appColors';
 
 const { width: W } = Dimensions.get('window');
 const GRID_PADDING = 12;
 const GRID_GAP = 8;
-const SLOT_SIZE = (W - 32 - GRID_PADDING * 2 - GRID_GAP * 2) / 3; // square side
+const SLOT_SIZE = (W - 32 - GRID_PADDING * 2 - GRID_GAP * 2) / 3;
 
 // ─── Chip data ────────────────────────────────────────────────────────────────
 
 const INTERESTS: ChipOption[] = [
-  { emoji: '☕', label: 'Coffee' },   { emoji: '✈️', label: 'Travel' },
-  { emoji: '📚', label: 'Books' },    { emoji: '🎨', label: 'Art' },
-  { emoji: '🎵', label: 'Music' },    { emoji: '🎮', label: 'Gaming' },
-  { emoji: '🍕', label: 'Food' },     { emoji: '🧘', label: 'Yoga' },
-  { emoji: '🏋️', label: 'Fitness' }, { emoji: '📸', label: 'Photography' },
-  { emoji: '🍷', label: 'Wine' },     { emoji: '🥾', label: 'Hiking' },
-  { emoji: '🎬', label: 'Movies' },   { emoji: '🌿', label: 'Nature' },
-  { emoji: '🧁', label: 'Baking' },   { emoji: '🎤', label: 'Karaoke' },
-  { emoji: '🐾', label: 'Pets' },     { emoji: '🏄', label: 'Surfing' },
-  { emoji: '🎸', label: 'Guitar' },   { emoji: '🌍', label: 'Languages' },
-  { emoji: '🏀', label: 'Basketball' },{ emoji: '⚽', label: 'Football' },
-  { emoji: '🎭', label: 'Theatre' },  { emoji: '🚴', label: 'Cycling' },
+  { emoji: '☕', label: 'Coffee' },    { emoji: '✈️', label: 'Travel' },
+  { emoji: '📚', label: 'Books' },     { emoji: '🎨', label: 'Art' },
+  { emoji: '🎵', label: 'Music' },     { emoji: '🎮', label: 'Gaming' },
+  { emoji: '🍕', label: 'Food' },      { emoji: '🧘', label: 'Yoga' },
+  { emoji: '🏋️', label: 'Fitness' },  { emoji: '📸', label: 'Photography' },
+  { emoji: '🍷', label: 'Wine' },      { emoji: '🥾', label: 'Hiking' },
+  { emoji: '🎬', label: 'Movies' },    { emoji: '🌿', label: 'Nature' },
+  { emoji: '🧁', label: 'Baking' },    { emoji: '🎤', label: 'Karaoke' },
+  { emoji: '🐾', label: 'Pets' },      { emoji: '🏄', label: 'Surfing' },
+  { emoji: '🎸', label: 'Guitar' },    { emoji: '🌍', label: 'Languages' },
+  { emoji: '🏀', label: 'Basketball' }, { emoji: '⚽', label: 'Football' },
+  { emoji: '🎭', label: 'Theatre' },   { emoji: '🚴', label: 'Cycling' },
 ];
 
 const CAUSES: ChipOption[] = [
@@ -118,13 +122,15 @@ function EditRow({
 
 // ─── Photo Grid ───────────────────────────────────────────────────────────────
 
-const INITIAL_PHOTOS: (string | null)[] = [
-  'https://randomuser.me/api/portraits/men/32.jpg',
-  null, null, null, null, null,
-];
-
-function PhotoGrid({ colors }: { colors: AppColors }) {
-  const [photos, setPhotos] = useState<(string | null)[]>(INITIAL_PHOTOS);
+function PhotoGrid({
+  photos, onPhotosChange, colors,
+}: {
+  photos: (string | null)[];
+  onPhotosChange: (next: (string | null)[]) => void;
+  colors: AppColors;
+}) {
+  const [uploading, setUploading] = useState<number | null>(null);
+  const { token } = useAuth();
 
   const pickPhoto = async (index: number) => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -138,10 +144,38 @@ function PhotoGrid({ colors }: { colors: AppColors }) {
       aspect: [1, 1],
       quality: 0.85,
     });
-    if (!result.canceled) {
+    if (result.canceled) return;
+
+    const asset = result.assets[0];
+    setUploading(index);
+    try {
+      const form = new FormData();
+      form.append('file', {
+        uri: asset.uri,
+        name: asset.fileName ?? 'photo.jpg',
+        type: asset.mimeType ?? 'image/jpeg',
+      } as any);
+
+      const res = await apiFetch(`${API_BASE}/api/v1/upload/photo`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: form,
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        Alert.alert('Photo rejected', (err as any).detail ?? 'Upload failed');
+        return;
+      }
+
+      const data = await res.json() as { url: string };
       const next = [...photos];
-      next[index] = result.assets[0].uri;
-      setPhotos(next);
+      next[index] = data.url;
+      onPhotosChange(next);
+    } catch (e) {
+      Alert.alert('Upload failed', 'Please try again.');
+    } finally {
+      setUploading(null);
     }
   };
 
@@ -153,7 +187,7 @@ function PhotoGrid({ colors }: { colors: AppColors }) {
         onPress: () => {
           const next = [...photos];
           next[index] = null;
-          setPhotos(next);
+          onPhotosChange(next);
         },
       },
     ]);
@@ -164,14 +198,16 @@ function PhotoGrid({ colors }: { colors: AppColors }) {
       {photos.map((uri, i) => (
         <Pressable
           key={i}
-          onPress={() => uri ? removePhoto(i) : pickPhoto(i)}
+          onPress={() => uploading === null && (uri ? removePhoto(i) : pickPhoto(i))}
           style={({ pressed }) => [
             styles.photoSlot,
             { backgroundColor: colors.surface2, borderColor: colors.border },
             pressed && { opacity: 0.75 },
           ]}
         >
-          {uri ? (
+          {uploading === i ? (
+            <ActivityIndicator size="small" color={colors.text} />
+          ) : uri ? (
             <>
               <Image source={{ uri }} style={styles.photoImg} resizeMode="cover" />
               <Pressable style={styles.photoRemoveBtn} onPress={() => removePhoto(i)} hitSlop={4}>
@@ -259,52 +295,108 @@ function ChipEditRow({
   );
 }
 
-// ─── Bio Section ──────────────────────────────────────────────────────────────
-
-function BioSection({ colors }: { colors: AppColors }) {
-  const [bio, setBio] = useState("Hey! I'm Alex 👋 I love long drives, spontaneous plans, and great conversations.");
-  const MAX = 300;
-
-  return (
-    <View style={styles.bioWrap}>
-      <Squircle
-        style={styles.bioBox}
-        cornerRadius={18} cornerSmoothing={1}
-        fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1.5}
-      >
-        <TextInput
-          style={[styles.bioInput, { color: colors.text }]}
-          placeholder="Write something about yourself…"
-          placeholderTextColor={colors.placeholder}
-          value={bio}
-          onChangeText={t => setBio(t.slice(0, MAX))}
-          multiline maxLength={MAX}
-          selectionColor={colors.text}
-        />
-      </Squircle>
-      <Text style={[styles.bioCount, { color: colors.textTertiary }]}>
-        {bio.length}/{MAX}
-      </Text>
-    </View>
-  );
-}
-
 // ─── Edit Profile Page ────────────────────────────────────────────────────────
 
 export default function EditProfilePage() {
   const router = useRouter();
   const { colors } = useAppTheme();
+  const { profile, token, updateProfile } = useAuth();
 
-  const [interests, setInterests]   = useState<string[]>(['Coffee', 'Travel', 'Books']);
-  const [causes, setCauses]         = useState<string[]>([]);
-  const [qualities, setQualities]   = useState<string[]>([]);
+  // ── Photos ───────────────────────────────────────────────────────────────
+  const buildPhotoSlots = (urls: string[] | null): (string | null)[] => {
+    const filled = (urls ?? []).slice(0, 6);
+    const slots: (string | null)[] = [...filled];
+    while (slots.length < 6) slots.push(null);
+    return slots;
+  };
+
+  const [photos, setPhotos] = useState<(string | null)[]>(() =>
+    buildPhotoSlots(profile?.photos ?? null)
+  );
+
+  // ── Bio ──────────────────────────────────────────────────────────────────
+  const [bio, setBio] = useState(profile?.bio ?? '');
+  const MAX_BIO = 300;
+
+  // ── Chip selections ───────────────────────────────────────────────────────
+  const [interests, setInterests]   = useState<string[]>(profile?.interests ?? []);
+  const [causes, setCauses]         = useState<string[]>(profile?.causes ?? []);
+  const [qualities, setQualities]   = useState<string[]>(profile?.values_list ?? []);
 
   const [showInterests, setShowInterests]   = useState(false);
   const [showCauses, setShowCauses]         = useState(false);
   const [showQualities, setShowQualities]   = useState(false);
 
-  const handleSave = () => {
-    Alert.alert('Saved', 'Profile updated successfully.');
+  const [saving, setSaving] = useState(false);
+
+  // Patch helper
+  const patch = useCallback(async (payload: Record<string, unknown>) => {
+    try {
+      const res = await apiFetch(`${API_BASE}/api/v1/profile/me`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        updateProfile(updated);
+      }
+    } catch {
+      // silently fail — local state still updated
+    }
+  }, [token, updateProfile]);
+
+  // Auto-save photos whenever the slots change
+  const isFirstMount = useRef(true);
+  useEffect(() => {
+    if (isFirstMount.current) { isFirstMount.current = false; return; }
+    const urls = photos.filter((u): u is string => !!u);
+    patch({ photos: urls });
+  }, [photos]);
+
+  // Auto-save chip arrays on close
+  const saveInterests = useCallback((vals: string[]) => {
+    setInterests(vals);
+    setShowInterests(false);
+    patch({ interests: vals });
+  }, [patch]);
+
+  const saveCauses = useCallback((vals: string[]) => {
+    setCauses(vals);
+    setShowCauses(false);
+    patch({ causes: vals });
+  }, [patch]);
+
+  const saveQualities = useCallback((vals: string[]) => {
+    setQualities(vals);
+    setShowQualities(false);
+    patch({ values_list: vals });
+  }, [patch]);
+
+  // ── Derived display values ────────────────────────────────────────────────
+  const workLabel = (() => {
+    const we = profile?.work_experience;
+    if (!we?.length) return undefined;
+    const latest = we[0];
+    const parts = [latest.job_title, latest.company].filter(Boolean);
+    return parts.join(' · ') || undefined;
+  })();
+
+  const eduLabel = (() => {
+    const ed = profile?.education;
+    if (!ed?.length) return undefined;
+    const latest = ed[0];
+    const parts = [latest.institution, latest.course].filter(Boolean);
+    return parts.join(' – ') || undefined;
+  })();
+
+  const handleSave = async () => {
+    setSaving(true);
+    await patch({ bio: bio.trim() || null });
+    setSaving(false);
     router.back();
   };
 
@@ -314,8 +406,8 @@ export default function EditProfilePage() {
         <ScreenHeader
           title="Edit Profile"
           onClose={() => router.back()}
-          rightLabel="Save"
-          onRightPress={handleSave}
+          rightLabel={saving ? '…' : 'Save'}
+          onRightPress={saving ? undefined : handleSave}
           colors={colors}
         />
 
@@ -331,7 +423,7 @@ export default function EditProfilePage() {
             <SectionLabel title="PHOTOS & VIDEOS" colors={colors} />
             <Group colors={colors}>
               <View style={styles.photosInner}>
-                <PhotoGrid colors={colors} />
+                <PhotoGrid photos={photos} onPhotosChange={setPhotos} colors={colors} />
                 <Pressable style={[styles.videoBtn, { borderColor: colors.border, backgroundColor: colors.surface2 }]}>
                   <Ionicons name="videocam-outline" size={18} color={colors.text} />
                   <Text style={[styles.videoBtnText, { color: colors.text }]}>Add Video Loop</Text>
@@ -389,7 +481,26 @@ export default function EditProfilePage() {
           {/* ── BIO ─────────────────────────────────────────────────────── */}
           <View style={styles.section}>
             <SectionLabel title="BIO" colors={colors} />
-            <BioSection colors={colors} />
+            <View style={styles.bioWrap}>
+              <Squircle
+                style={styles.bioBox}
+                cornerRadius={18} cornerSmoothing={1}
+                fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1.5}
+              >
+                <TextInput
+                  style={[styles.bioInput, { color: colors.text }]}
+                  placeholder="Write something about yourself…"
+                  placeholderTextColor={colors.placeholder}
+                  value={bio}
+                  onChangeText={t => setBio(t.slice(0, MAX_BIO))}
+                  multiline maxLength={MAX_BIO}
+                  selectionColor={colors.text}
+                />
+              </Squircle>
+              <Text style={[styles.bioCount, { color: colors.textTertiary }]}>
+                {bio.length}/{MAX_BIO}
+              </Text>
+            </View>
           </View>
 
           {/* ── IDENTITY ────────────────────────────────────────────────── */}
@@ -399,7 +510,7 @@ export default function EditProfilePage() {
               <EditRow
                 icon="person-outline"
                 label="Gender"
-                value="Man"
+                value={profile?.gender ? profile.gender.charAt(0).toUpperCase() + profile.gender.slice(1) : undefined}
                 onPress={() =>
                   Alert.alert(
                     "Can't change gender",
@@ -420,14 +531,16 @@ export default function EditProfilePage() {
               <EditRow
                 icon="briefcase-outline"
                 label="Work"
-                value="UX Designer · Adobe"
+                value={workLabel}
+                preview={workLabel ? undefined : 'Tap to add'}
                 onPress={() => router.push('/work-experience')}
                 colors={colors}
               />
               <EditRow
                 icon="school-outline"
                 label="Education"
-                value="UCLA – Design"
+                value={eduLabel}
+                preview={eduLabel ? undefined : 'Tap to add'}
                 onPress={() => router.push('/education')}
                 colors={colors}
                 last
@@ -442,14 +555,16 @@ export default function EditProfilePage() {
               <EditRow
                 icon="location-outline"
                 label="Living Now"
-                value="Los Angeles, CA"
+                value={profile?.city ?? undefined}
+                preview={profile?.city ? undefined : 'Tap to set'}
                 onPress={() => router.push('/location-search?type=living')}
                 colors={colors}
               />
               <EditRow
                 icon="home-outline"
                 label="Hometown"
-                value="Chicago, IL"
+                value={profile?.hometown ?? undefined}
+                preview={profile?.hometown ? undefined : 'Tap to set'}
                 onPress={() => router.push('/location-search?type=hometown')}
                 colors={colors}
                 last
@@ -469,7 +584,7 @@ export default function EditProfilePage() {
         maxSelect={5}
         options={INTERESTS}
         selected={interests}
-        onChange={setInterests}
+        onChange={saveInterests}
         colors={colors}
       />
       <ChipSelectorSheet
@@ -480,7 +595,7 @@ export default function EditProfilePage() {
         maxSelect={6}
         options={CAUSES}
         selected={causes}
-        onChange={setCauses}
+        onChange={saveCauses}
         colors={colors}
       />
       <ChipSelectorSheet
@@ -491,7 +606,7 @@ export default function EditProfilePage() {
         maxSelect={5}
         options={QUALITIES}
         selected={qualities}
-        onChange={setQualities}
+        onChange={saveQualities}
         colors={colors}
       />
     </View>
@@ -519,12 +634,11 @@ const styles = StyleSheet.create({
   chipCountBadge: { width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center', marginRight: 2 },
   chipCountText:  { fontSize: 11, fontFamily: 'ProductSans-Bold' },
 
-  // Photo grid — square slots
   photosInner:    { padding: GRID_PADDING, gap: GRID_GAP },
   photoGrid:      { flexDirection: 'row', flexWrap: 'wrap', gap: GRID_GAP },
   photoSlot:      {
     width: SLOT_SIZE,
-    height: SLOT_SIZE / 2,        // height is half of width → landscape
+    height: SLOT_SIZE / 2,
     borderRadius: 12,
     borderWidth: StyleSheet.hairlineWidth,
     alignItems: 'center',
@@ -535,11 +649,9 @@ const styles = StyleSheet.create({
   photoRemoveBtn: { position: 'absolute', top: 4, right: 4 },
   photoRemoveBg:  { width: 20, height: 20, borderRadius: 10, backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center' },
 
-  // Video
   videoBtn:       { flexDirection: 'row', alignItems: 'center', gap: 10, borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 14, paddingVertical: 13 },
   videoBtnText:   { fontSize: 14, fontFamily: 'ProductSans-Regular' },
 
-  // Bio
   bioWrap:        { gap: 6 },
   bioBox:         { padding: 14, minHeight: 120 },
   bioInput:       { fontSize: 15, fontFamily: 'ProductSans-Regular', lineHeight: 22, textAlignVertical: 'top' },

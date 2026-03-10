@@ -1,5 +1,2 @@
-import AboutYou from '@/components/AboutYou';
-
-export default function GenderRoute() {
-  return <AboutYou />;
-}
+import GenderScreen from '@/components/onboarding/GenderScreen';
+export default GenderScreen;

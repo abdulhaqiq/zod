@@ -1,0 +1,208 @@
+import * as SecureStore from 'expo-secure-store';
+import { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { API_V1, registerAuthHandlers } from '@/constants/api';
+
+const ACCESS_KEY  = 'auth_token';
+const REFRESH_KEY = 'refresh_token';
+
+// Mirrors backend MeResponse schema
+export interface UserProfile {
+  id: string;
+  phone: string | null;
+  full_name: string | null;
+  date_of_birth: string | null; // YYYY-MM-DD
+  gender: string | null;
+  purpose: string[] | null;
+  height_cm: number | null;
+  interests: string[] | null;
+  lifestyle: Record<string, string> | null;
+  values_list: string[] | null;
+  bio: string | null;
+  prompts: Record<string, string>[] | null;
+  photos: string[] | null;
+  education_level: string | null;
+  looking_for: string | null;
+  family_plans: string | null;
+  have_kids: string | null;
+  star_sign: string | null;
+  religion: string | null;
+  languages: string[] | null;
+  causes: string[] | null;
+  work_experience: Array<{ job_title: string; company: string; start_year: string; end_year: string; current: boolean }> | null;
+  education: Array<{ institution: string; course: string; degree: string; grad_year: string }> | null;
+  city: string | null;
+  hometown: string | null;
+  is_onboarded: boolean;
+  is_active: boolean;
+  created_at: string;
+}
+
+interface AuthContextValue {
+  token: string | null;
+  refreshToken: string | null;
+  isOnboarded: boolean;
+  isLoading: boolean;
+  profile: UserProfile | null;
+  signIn: (accessToken: string, refreshToken: string, isOnboarded: boolean) => Promise<void>;
+  signOut: () => Promise<void>;
+  setOnboarded: () => Promise<void>;
+  updateProfile: (patch: Partial<UserProfile>) => void;
+  tryRefresh: () => Promise<string | null>;
+}
+
+const AuthContext = createContext<AuthContextValue>({
+  token: null,
+  refreshToken: null,
+  isOnboarded: false,
+  isLoading: true,
+  profile: null,
+  signIn: async () => {},
+  signOut: async () => {},
+  setOnboarded: async () => {},
+  updateProfile: () => {},
+  tryRefresh: async () => null,
+});
+
+export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const [token, setToken]               = useState<string | null>(null);
+  const [refreshToken, setRefresh]      = useState<string | null>(null);
+  const [isOnboarded, setIsOnboarded]   = useState(false);
+  const [isLoading, setIsLoading]       = useState(true);
+  const [profile, setProfile]           = useState<UserProfile | null>(null);
+
+  const refreshTokenRef = useRef<string | null>(null);
+  refreshTokenRef.current = refreshToken;
+
+  async function _fetchProfile(accessToken: string): Promise<UserProfile | null> {
+    try {
+      const res = await fetch(`${API_V1}/profile/me`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (res.ok) return res.json() as Promise<UserProfile>;
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  useEffect(() => {
+    async function bootstrap() {
+      const [access, refresh] = await Promise.all([
+        SecureStore.getItemAsync(ACCESS_KEY),
+        SecureStore.getItemAsync(REFRESH_KEY),
+      ]);
+
+      if (!access) {
+        setIsLoading(false);
+        return;
+      }
+
+      let activeToken = access; // tracks whichever token is currently valid
+      let me = await _fetchProfile(access);
+
+      if (!me && refresh) {
+        // Access token expired — try a refresh
+        const newAccess = await _doRefresh(refresh);
+        if (newAccess) {
+          activeToken = newAccess; // use the refreshed token going forward
+          me = await _fetchProfile(newAccess);
+        }
+      }
+
+      if (me) {
+        // Always set the correct (possibly refreshed) token — never overwrite
+        // with the old expired one
+        setToken(activeToken);
+        setRefresh(refresh ?? null);
+        setProfile(me);
+        setIsOnboarded(me.is_onboarded);
+      } else {
+        // Token unusable — clear session
+        await _clearSession();
+      }
+
+      setIsLoading(false);
+    }
+
+    bootstrap();
+  }, []);
+
+  async function _clearSession() {
+    await SecureStore.deleteItemAsync(ACCESS_KEY);
+    await SecureStore.deleteItemAsync(REFRESH_KEY);
+  }
+
+  async function _doRefresh(refresh: string): Promise<string | null> {
+    try {
+      const res = await fetch(`${API_V1}/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token: refresh }),
+      });
+      if (!res.ok) return null;
+      // Backend rotates on every refresh — BOTH tokens must be saved
+      const data: { access_token: string; refresh_token: string } = await res.json();
+      const newAccess  = data.access_token;
+      const newRefresh = data.refresh_token;
+      await SecureStore.setItemAsync(ACCESS_KEY,  newAccess);
+      await SecureStore.setItemAsync(REFRESH_KEY, newRefresh);
+      setToken(newAccess);
+      setRefresh(newRefresh);
+      return newAccess;
+    } catch {
+      return null;
+    }
+  }
+
+  const tryRefresh = async (): Promise<string | null> => {
+    const refresh = refreshTokenRef.current;
+    if (!refresh) return null;
+    return _doRefresh(refresh);
+  };
+
+  const signIn = async (accessToken: string, newRefresh: string, onboarded: boolean) => {
+    await SecureStore.setItemAsync(ACCESS_KEY, accessToken);
+    await SecureStore.setItemAsync(REFRESH_KEY, newRefresh);
+    setToken(accessToken);
+    setRefresh(newRefresh);
+    setIsOnboarded(onboarded);
+    // Fetch fresh profile immediately after login
+    const me = await _fetchProfile(accessToken);
+    if (me) setProfile(me);
+  };
+
+  const signOut = async () => {
+    await _clearSession();
+    setToken(null);
+    setRefresh(null);
+    setIsOnboarded(false);
+    setProfile(null);
+  };
+
+  const setOnboarded = async () => {
+    setIsOnboarded(true);
+    setProfile((p) => p ? { ...p, is_onboarded: true } : p);
+  };
+
+  const updateProfile = (patch: Partial<UserProfile>) => {
+    setProfile((prev) => prev ? { ...prev, ...patch } : prev);
+    if (patch.is_onboarded !== undefined) setIsOnboarded(patch.is_onboarded);
+  };
+
+  useEffect(() => {
+    registerAuthHandlers(tryRefresh, signOut);
+  }, [refreshToken]);
+
+  return (
+    <AuthContext.Provider value={{
+      token, refreshToken, isOnboarded, isLoading, profile,
+      signIn, signOut, setOnboarded, updateProfile, tryRefresh,
+    }}>
+      {children}
+    </AuthContext.Provider>
+  );
+}
+
+export function useAuth() {
+  return useContext(AuthContext);
+}

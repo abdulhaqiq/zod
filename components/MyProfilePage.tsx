@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Image,
@@ -12,52 +12,60 @@ import {
   View,
 } from 'react-native';
 import ChipSelectorSheet, { type ChipOption } from '@/components/ui/ChipSelectorSheet';
+import PremiumFeatureSheet from '@/components/ui/PremiumFeatureSheet';
 import WheelPickerSheet from '@/components/ui/WheelPickerSheet';
 import Squircle from '@/components/ui/Squircle';
+import { API_BASE, apiFetch } from '@/constants/api';
+import { useAuth } from '@/context/AuthContext';
+import { useProfileSave } from '@/hooks/useProfileSave';
 import type { AppColors } from '@/constants/appColors';
 
-const MY_AVATAR = 'https://randomuser.me/api/portraits/men/32.jpg';
+// ─── Height helpers ───────────────────────────────────────────────────────────
 
-// ─── Picker option data ───────────────────────────────────────────────────────
+const HEIGHT_LABELS: { cm: number; label: string }[] = [
+  { cm: 147, label: "4'10\" (147cm)" }, { cm: 150, label: "4'11\" (150cm)" },
+  { cm: 152, label: "5'0\" (152cm)" },  { cm: 155, label: "5'1\" (155cm)" },
+  { cm: 157, label: "5'2\" (157cm)" },  { cm: 160, label: "5'3\" (160cm)" },
+  { cm: 163, label: "5'4\" (163cm)" },  { cm: 165, label: "5'5\" (165cm)" },
+  { cm: 168, label: "5'6\" (168cm)" },  { cm: 170, label: "5'7\" (170cm)" },
+  { cm: 173, label: "5'8\" (173cm)" },  { cm: 175, label: "5'9\" (175cm)" },
+  { cm: 178, label: "5'10\" (178cm)" }, { cm: 180, label: "5'11\" (180cm)" },
+  { cm: 183, label: "6'0\" (183cm)" },  { cm: 185, label: "6'1\" (185cm)" },
+  { cm: 188, label: "6'2\" (188cm)" },  { cm: 191, label: "6'3\" (191cm)" },
+  { cm: 193, label: "6'4\" (193cm)" },  { cm: 196, label: "6'5\" (196cm)" },
+];
 
-const opts = (arr: string[]): ChipOption[] => arr.map(label => ({ label }));
+const cmToLabel = (cm: number | null): string => {
+  if (!cm) return '—';
+  const match = HEIGHT_LABELS.find(h => h.cm === cm);
+  return match?.label ?? `${cm}cm`;
+};
 
-const HEIGHT_OPTIONS   = opts(["4'10\" (147cm)","4'11\" (150cm)","5'0\" (152cm)","5'1\" (155cm)","5'2\" (157cm)","5'3\" (160cm)","5'4\" (163cm)","5'5\" (165cm)","5'6\" (168cm)","5'7\" (170cm)","5'8\" (173cm)","5'9\" (175cm)","5'10\" (178cm)","5'11\" (180cm)","6'0\" (183cm)","6'1\" (185cm)","6'2\" (188cm)","6'3\" (191cm)","6'4\" (193cm)","6'5\" (196cm)"]);
-const EXERCISE_OPTIONS = opts(["Never", "Sometimes", "Often", "Every day"]);
-const EDU_LVL_OPTIONS  = opts(["High School", "Some College", "Associate's", "Bachelor's", "Master's", "PhD", "Other"]);
-const DRINKING_OPTIONS = opts(["Never", "Socially", "Regularly"]);
-const SMOKING_OPTIONS  = opts(["Never", "Socially", "Regularly", "Yes"]);
-const LOOKING_OPTIONS  = opts(["Casual dating", "Something serious", "Marriage", "Open to it", "Friends first"]);
-const FAMILY_OPTIONS   = opts(["Want kids", "Open to it", "Don't want kids", "Have kids"]);
-const KIDS_OPTIONS     = opts(["No", "Yes, live with me", "Yes, elsewhere"]);
-const SIGN_OPTIONS     = opts(["♈ Aries","♉ Taurus","♊ Gemini","♋ Cancer","♌ Leo","♍ Virgo","♎ Libra","♏ Scorpio","♐ Sagittarius","♑ Capricorn","♒ Aquarius","♓ Pisces"]);
-const RELIGION_OPTIONS = opts(["Agnostic","Atheist","Buddhist","Christian","Hindu","Jewish","Muslim","Spiritual","Other"]);
-const LANG_OPTIONS     = opts(["English","Spanish","French","German","Portuguese","Italian","Arabic","Mandarin","Japanese","Korean","Hindi","Russian","Dutch","Swedish","Polish","Turkish"]);
+const labelToCm = (label: string): number | null => {
+  const match = HEIGHT_LABELS.find(h => h.label === label);
+  return match?.cm ?? null;
+};
 
-// ─── Profile state ────────────────────────────────────────────────────────────
+// ─── Lookup option cache (module-level so it persists across renders) ─────────
 
-interface ProfileAbout {
-  height:        string;
-  exercise:      string;
-  educationLevel:string;
-  drinking:      string;
-  smoking:       string;
-  lookingFor:    string;
-  familyPlans:   string;
-  haveKids:      string;
-  starSign:      string;
-  religion:      string;
-  languages:     string[];
-}
+type LookupMap = Record<string, ChipOption[]>;
+let _cachedLookups: LookupMap | null = null;
 
-// ─── Picker config ────────────────────────────────────────────────────────────
-
-interface PickerCfg {
-  title:        string;
-  subtitle?:    string;
-  options:      ChipOption[];
-  singleSelect: boolean;
-  key:          keyof ProfileAbout;
+async function fetchAllLookups(): Promise<LookupMap> {
+  if (_cachedLookups) return _cachedLookups;
+  try {
+    const res = await fetch(`${API_BASE}/api/v1/lookup/options`);
+    if (!res.ok) throw new Error('lookup fetch failed');
+    const data = await res.json() as Record<string, Array<{ emoji?: string; label: string }>>;
+    const map: LookupMap = {};
+    for (const [cat, rows] of Object.entries(data)) {
+      map[cat] = rows.map(r => ({ emoji: r.emoji ?? undefined, label: r.label }));
+    }
+    _cachedLookups = map;
+    return map;
+  } catch {
+    return {};
+  }
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -137,9 +145,16 @@ function SettingRow({
         <Ionicons name={icon} size={17} color={danger ? colors.error : colors.text} />
       </Squircle>
       <Text style={[styles.settingLabel, { color: danger ? colors.error : colors.text }]}>{label}</Text>
-      {value ? <Text style={[styles.settingValue, { color: colors.textSecondary }]}>{value}</Text> : null}
+      {locked && value ? (
+        <View style={[styles.proTag, { backgroundColor: '#1a0a2e' }]}>
+          <Ionicons name="star" size={10} color="#FFD60A" />
+          <Text style={styles.proTagText}>{value}</Text>
+        </View>
+      ) : !locked && value ? (
+        <Text style={[styles.settingValue, { color: colors.textSecondary }]}>{value}</Text>
+      ) : null}
       {locked ? (
-        <Ionicons name="lock-closed" size={15} color={colors.textSecondary} />
+        <Ionicons name="lock-closed" size={14} color={colors.textTertiary} />
       ) : toggle ? (
         <Switch
           value={toggleVal}
@@ -158,41 +173,105 @@ function SettingRow({
 
 export default function MyProfilePage({ colors, insets }: { colors: AppColors; insets: any }) {
   const router = useRouter();
+  const { token, refreshToken, signOut, profile } = useAuth();
+  const { save } = useProfileSave();
 
-  const [snooze,      setSnooze]    = useState(false);
-  const [incognito,   setIncognito] = useState(false);
-  const [autoZod,     setAutoZod]   = useState(true);
-  const [igConnected, setIgConnected] = useState(false);
+  // ── Lookup options from backend ───────────────────────────────────────────
+  const [lookups, setLookups] = useState<LookupMap>(_cachedLookups ?? {});
+  const lookupsLoaded = useRef(false);
 
-  const [about, setAbout] = useState<ProfileAbout>({
-    height:         '5\'6" (168cm)',
-    exercise:       'Sometimes',
-    educationLevel: "Bachelor's",
-    drinking:       'Socially',
-    smoking:        'Never',
-    lookingFor:     'Something serious',
-    familyPlans:    'Open to it',
-    haveKids:       'No',
-    starSign:       '♊ Gemini',
-    religion:       'Spiritual',
-    languages:      ['English', 'Spanish'],
-  });
+  useEffect(() => {
+    if (lookupsLoaded.current) return;
+    lookupsLoaded.current = true;
+    fetchAllLookups().then(setLookups);
+  }, []);
 
-  const [activePicker,     setActivePicker]     = useState<PickerCfg | null>(null);
-  const [showHeightWheel, setShowHeightWheel] = useState(false);
+  const opts = (cat: string): ChipOption[] => lookups[cat] ?? [];
 
-  const openPicker = (cfg: PickerCfg) => setActivePicker(cfg);
+  // ── Derive display values from real profile ───────────────────────────────
+  const avatarUrl  = profile?.photos?.[0] ?? null;
+  const displayName = profile?.full_name ?? '—';
+  const heightLabel = cmToLabel(profile?.height_cm ?? null);
 
-  const handlePickerChange = (vals: string[]) => {
-    if (!activePicker) return;
-    setAbout(s => ({ ...s, [activePicker.key]: activePicker.singleSelect ? vals[0] ?? s[activePicker.key] : vals }));
+  // Lifestyle sub-fields live in the JSONB lifestyle dict
+  const lf = (profile?.lifestyle as Record<string, string> | null) ?? {};
+
+  // Local editable state initialised from real profile
+  const [height,         setHeight]         = useState(heightLabel);
+  const [exercise,       setExercise]       = useState(lf.exercise       ?? '');
+  const [educationLevel, setEducationLevel] = useState(profile?.education_level ?? '');
+  const [drinking,       setDrinking]       = useState(lf.drinking       ?? '');
+  const [smoking,        setSmoking]        = useState(lf.smoking        ?? '');
+  const [lookingFor,     setLookingFor]     = useState(profile?.looking_for   ?? '');
+  const [familyPlans,    setFamilyPlans]    = useState(profile?.family_plans  ?? '');
+  const [haveKids,       setHaveKids]       = useState(profile?.have_kids     ?? '');
+  const [starSign,       setStarSign]       = useState(profile?.star_sign     ?? '');
+  const [religion,       setReligion]       = useState(profile?.religion      ?? '');
+  const [languages,      setLanguages]      = useState<string[]>(profile?.languages ?? []);
+
+  const [snooze,       setSnooze]       = useState(false);
+  const [premiumSheet, setPremiumSheet] = useState<string | null>(null);
+
+  // Sync if profile loads after mount
+  useEffect(() => {
+    if (!profile) return;
+    const ls = (profile.lifestyle as Record<string, string> | null) ?? {};
+    setHeight(cmToLabel(profile.height_cm));
+    setExercise(ls.exercise       ?? '');
+    setEducationLevel(profile.education_level ?? '');
+    setDrinking(ls.drinking       ?? '');
+    setSmoking(ls.smoking         ?? '');
+    setLookingFor(profile.looking_for   ?? '');
+    setFamilyPlans(profile.family_plans ?? '');
+    setHaveKids(profile.have_kids       ?? '');
+    setStarSign(profile.star_sign       ?? '');
+    setReligion(profile.religion        ?? '');
+    setLanguages(profile.languages      ?? []);
+  }, [profile?.id]);
+
+  // ── Save helpers ─────────────────────────────────────────────────────────
+
+  const saveField = async (fields: Record<string, unknown>) => {
+    await save(fields);
   };
 
-  const currentSelected = (): string[] => {
-    if (!activePicker) return [];
-    const v = about[activePicker.key];
-    return Array.isArray(v) ? v : v ? [v] : [];
+  // ── Pickers ───────────────────────────────────────────────────────────────
+
+  // Native wheel picker (single-select fields)
+  interface WheelState { title: string; options: string[]; selected: string; onDone: (v: string) => void; }
+  const [wheel, setWheel] = useState<WheelState | null>(null);
+
+  // Chip sheet — single-select (About You fields) or multi-select (Languages)
+  interface ChipState { title: string; subtitle?: string; options: ChipOption[]; selected: string[]; single?: boolean; onDone: (vals: string[]) => void; }
+  const [chipPicker, setChipPicker] = useState<ChipState | null>(null);
+
+  const openWheel = (cfg: WheelState) => setWheel(cfg);
+  const [showHeightWheel] = useState(false); // kept for compat — height now uses wheel too
+
+  // ── Log out ───────────────────────────────────────────────────────────────
+
+  const handleLogOut = () => {
+    Alert.alert('Log Out', 'Are you sure you want to log out?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Log Out', style: 'destructive',
+        onPress: async () => {
+          try {
+            if (refreshToken) {
+              await apiFetch('/auth/logout', {
+                method: 'POST', token: token ?? undefined,
+                body: JSON.stringify({ refresh_token: refreshToken }),
+              });
+            }
+          } catch { /* sign out locally regardless */ }
+          await signOut();
+          router.replace('/welcome');
+        },
+      },
+    ]);
   };
+
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <ScrollView
@@ -200,12 +279,18 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
       contentContainerStyle={{ paddingBottom: insets.bottom + 90 }}
       showsVerticalScrollIndicator={false}
     >
-      {/* ── Header ────────────────────────────────────────────────────── */}
+      {/* ── Header ──────────────────────────────────────────────────────── */}
       <View style={[styles.igHeaderWrap, { borderBottomColor: colors.border }]}>
         <View style={styles.igHeader}>
-          <Image source={{ uri: MY_AVATAR }} style={styles.avatarImage} resizeMode="cover" />
+          {avatarUrl ? (
+            <Image source={{ uri: avatarUrl }} style={styles.avatarImage} resizeMode="cover" />
+          ) : (
+            <View style={[styles.avatarImage, styles.avatarPlaceholder, { backgroundColor: colors.surface2 }]}>
+              <Ionicons name="person" size={28} color={colors.textSecondary} />
+            </View>
+          )}
           <View style={styles.igRight}>
-            <Text style={[styles.igName, { color: colors.text }]}>Alex Johnson</Text>
+            <Text style={[styles.igName, { color: colors.text }]}>{displayName}</Text>
             <View style={styles.actionRow}>
               <Pressable
                 style={[styles.actionBtn, { borderWidth: 1, borderColor: colors.border }]}
@@ -219,15 +304,15 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
         </View>
 
         <View style={styles.statsRow}>
-          <StatCol label="Matches" value="143"  colors={colors} />
+          <StatCol label="Photos"  value={String(profile?.photos?.length ?? 0)} colors={colors} />
           <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
-          <StatCol label="Likes"   value="892"  colors={colors} />
+          <StatCol label="Matches" value="—"  colors={colors} />
           <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
-          <StatCol label="Views"   value="2.1k" colors={colors} />
+          <StatCol label="Views"   value="—" colors={colors} />
         </View>
       </View>
 
-      {/* ── Subscription banner ───────────────────────────────────────── */}
+      {/* ── Subscription banner ─────────────────────────────────────────── */}
       <View style={{ paddingHorizontal: 16, marginTop: 16 }}>
         <Pressable style={styles.subBanner} onPress={() => router.push('/subscription')}>
           <Ionicons name="star" size={14} color="#FFD60A" />
@@ -239,134 +324,178 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
         </Pressable>
       </View>
 
-      {/* ── ABOUT YOU ─────────────────────────────────────────────────── */}
+      {/* ── ABOUT YOU ───────────────────────────────────────────────────── */}
       <View style={styles.section}>
         <SectionLabel title="ABOUT YOU" colors={colors} />
         <Group colors={colors}>
-          <EditRow icon="resize-outline"  label="Height"          value={about.height}
-            onPress={() => setShowHeightWheel(true)}
-            colors={colors} />
-          <EditRow icon="fitness-outline" label="Exercise"        value={about.exercise}
-            onPress={() => openPicker({ title: 'Exercise', options: EXERCISE_OPTIONS, singleSelect: true, key: 'exercise' })}
-            colors={colors} />
-          <EditRow icon="ribbon-outline"  label="Education Level" value={about.educationLevel}
-            onPress={() => openPicker({ title: 'Education Level', options: EDU_LVL_OPTIONS, singleSelect: true, key: 'educationLevel' })}
-            colors={colors} />
-          <EditRow icon="wine-outline"    label="Drinking"        value={about.drinking}
-            onPress={() => openPicker({ title: 'Drinking', options: DRINKING_OPTIONS, singleSelect: true, key: 'drinking' })}
-            colors={colors} />
-          <EditRow icon="flame-outline"   label="Smoking"         value={about.smoking}
-            onPress={() => openPicker({ title: 'Smoking', options: SMOKING_OPTIONS, singleSelect: true, key: 'smoking' })}
-            colors={colors} />
-          <EditRow icon="heart-outline"   label="Looking For"     value={about.lookingFor}
-            onPress={() => openPicker({ title: 'Looking For', options: LOOKING_OPTIONS, singleSelect: true, key: 'lookingFor' })}
-            colors={colors} />
-          <EditRow icon="people-outline"  label="Family Plans"    value={about.familyPlans}
-            onPress={() => openPicker({ title: 'Family Plans', options: FAMILY_OPTIONS, singleSelect: true, key: 'familyPlans' })}
-            colors={colors} />
-          <EditRow icon="happy-outline"   label="Have Kids"       value={about.haveKids}
-            onPress={() => openPicker({ title: 'Have Kids', options: KIDS_OPTIONS, singleSelect: true, key: 'haveKids' })}
-            colors={colors} />
-          <EditRow icon="star-outline"    label="Star Sign"       value={about.starSign}
-            onPress={() => openPicker({ title: 'Star Sign', options: SIGN_OPTIONS, singleSelect: true, key: 'starSign' })}
-            colors={colors} />
-          <EditRow icon="book-outline"    label="Religion"        value={about.religion}
-            onPress={() => openPicker({ title: 'Religion', options: RELIGION_OPTIONS, singleSelect: true, key: 'religion' })}
-            colors={colors} />
-          <EditRow icon="language-outline" label="Languages"      value={about.languages.join(', ')}
-            onPress={() => openPicker({ title: 'Languages', subtitle: 'Pick all that apply', options: LANG_OPTIONS, singleSelect: false, key: 'languages' })}
-            colors={colors} last />
+          <EditRow icon="resize-outline" label="Height" value={height || '—'}
+            onPress={() => openWheel({
+              title: 'Height', options: HEIGHT_LABELS.map(h => h.label), selected: height,
+              onDone: (v) => { setHeight(v); const cm = labelToCm(v); if (cm) saveField({ height_cm: cm }); },
+            })} colors={colors} />
+
+          <EditRow icon="fitness-outline" label="Exercise" value={exercise || '—'}
+            onPress={() => setChipPicker({
+              title: 'Exercise', options: opts('exercise'), single: true,
+              selected: exercise ? [exercise] : [],
+              onDone: ([v]) => { setExercise(v); saveField({ lifestyle: { ...lf, exercise: v } }); },
+            })} colors={colors} />
+
+          <EditRow icon="ribbon-outline" label="Education Level" value={educationLevel || '—'}
+            onPress={() => setChipPicker({
+              title: 'Education Level', options: opts('education_level'), single: true,
+              selected: educationLevel ? [educationLevel] : [],
+              onDone: ([v]) => { setEducationLevel(v); saveField({ education_level: v }); },
+            })} colors={colors} />
+
+          <EditRow icon="wine-outline" label="Drinking" value={drinking || '—'}
+            onPress={() => setChipPicker({
+              title: 'Drinking', options: opts('drinking'), single: true,
+              selected: drinking ? [drinking] : [],
+              onDone: ([v]) => { setDrinking(v); saveField({ lifestyle: { ...lf, drinking: v } }); },
+            })} colors={colors} />
+
+          <EditRow icon="flame-outline" label="Smoking" value={smoking || '—'}
+            onPress={() => setChipPicker({
+              title: 'Smoking', options: opts('smoking'), single: true,
+              selected: smoking ? [smoking] : [],
+              onDone: ([v]) => { setSmoking(v); saveField({ lifestyle: { ...lf, smoking: v } }); },
+            })} colors={colors} />
+
+          <EditRow icon="heart-outline" label="Looking For" value={lookingFor || '—'}
+            onPress={() => setChipPicker({
+              title: 'Looking For', options: opts('looking_for'), single: true,
+              selected: lookingFor ? [lookingFor] : [],
+              onDone: ([v]) => { setLookingFor(v); saveField({ looking_for: v }); },
+            })} colors={colors} />
+
+          <EditRow icon="people-outline" label="Family Plans" value={familyPlans || '—'}
+            onPress={() => setChipPicker({
+              title: 'Family Plans', options: opts('family_plans'), single: true,
+              selected: familyPlans ? [familyPlans] : [],
+              onDone: ([v]) => { setFamilyPlans(v); saveField({ family_plans: v }); },
+            })} colors={colors} />
+
+          <EditRow icon="happy-outline" label="Have Kids" value={haveKids || '—'}
+            onPress={() => setChipPicker({
+              title: 'Have Kids', options: opts('have_kids'), single: true,
+              selected: haveKids ? [haveKids] : [],
+              onDone: ([v]) => { setHaveKids(v); saveField({ have_kids: v }); },
+            })} colors={colors} />
+
+          <EditRow icon="star-outline" label="Star Sign" value={starSign || '—'}
+            onPress={() => setChipPicker({
+              title: 'Star Sign', options: opts('star_sign'), single: true,
+              selected: starSign ? [starSign] : [],
+              onDone: ([v]) => { setStarSign(v); saveField({ star_sign: v }); },
+            })} colors={colors} />
+
+          <EditRow icon="book-outline" label="Religion" value={religion || '—'}
+            onPress={() => setChipPicker({
+              title: 'Religion', options: opts('religion'), single: true,
+              selected: religion ? [religion] : [],
+              onDone: ([v]) => { setReligion(v); saveField({ religion: v }); },
+            })} colors={colors} />
+
+          <EditRow icon="language-outline" label="Languages"
+            value={languages.length ? languages.join(', ') : '—'}
+            onPress={() => setChipPicker({
+              title: 'Languages', subtitle: 'Pick all that apply',
+              options: opts('language'), single: false, selected: languages,
+              onDone: (vals) => { setLanguages(vals); saveField({ languages: vals }); },
+            })} colors={colors} last />
         </Group>
       </View>
 
-      {/* ── CONNECTED ACCOUNTS ────────────────────────────────────────── */}
-      <View style={styles.section}>
-        <SectionLabel title="CONNECTED ACCOUNTS" colors={colors} />
-        <Group colors={colors}>
-          <Pressable
-            style={[styles.editRow, { borderBottomWidth: 0 }]}
-            onPress={() => setIgConnected(v => !v)}
-          >
-            <View style={[styles.editIconWrap, { backgroundColor: '#833ab4', borderRadius: 8 }]}>
-              <Ionicons name="logo-instagram" size={16} color="#fff" />
-            </View>
-            <View style={{ flex: 1, gap: 1 }}>
-              <Text style={[styles.editLabel, { color: colors.text }]}>Instagram</Text>
-              <Text style={[styles.editPreview, { color: colors.textSecondary }]}>
-                {igConnected ? 'Connected · @alexj' : 'Connect to show your photos'}
-              </Text>
-            </View>
-            {igConnected ? (
-              <Image source={{ uri: MY_AVATAR }} style={styles.igAvatar} />
-            ) : (
-              <View style={[styles.connectBtn, { borderColor: colors.border }]}>
-                <Text style={[styles.connectBtnText, { color: colors.text }]}>Connect</Text>
-              </View>
-            )}
-          </Pressable>
-        </Group>
-      </View>
-
-      {/* ── APP SETTINGS ──────────────────────────────────────────────── */}
+      {/* ── APP SETTINGS ────────────────────────────────────────────────── */}
       <View style={styles.section}>
         <SectionLabel title="APP SETTINGS" colors={colors} />
         <Group colors={colors}>
-          <SettingRow icon="moon-outline"     label="Snooze Mode"    colors={colors} toggle toggleVal={snooze}    onToggle={setSnooze} />
-          <SettingRow icon="eye-off-outline"  label="Incognito Mode" colors={colors} toggle toggleVal={incognito} onToggle={setIncognito} />
-          <SettingRow icon="sparkles-outline" label="Auto Zod (AI)"  colors={colors} toggle toggleVal={autoZod}   onToggle={setAutoZod} />
-          <SettingRow icon="airplane-outline" label="Travel Mode"    colors={colors} locked onPress={() => router.push('/subscription')} />
-          <SettingRow icon="location-outline" label="Change Location" colors={colors} onPress={() => router.push('/location-search?type=city')} />
+          <SettingRow
+            icon="moon-outline" label="Snooze Mode" colors={colors}
+            toggle toggleVal={snooze} onToggle={setSnooze}
+          />
+          <SettingRow
+            icon="eye-off-outline" label="Incognito Mode" colors={colors}
+            locked onPress={() => setPremiumSheet('incognito')}
+            value="Pro"
+          />
+          <SettingRow
+            icon="sparkles-outline" label="Auto Zod (AI)" colors={colors}
+            locked onPress={() => setPremiumSheet('autoZod')}
+            value="Pro"
+          />
+          <SettingRow
+            icon="airplane-outline" label="Travel Mode" colors={colors}
+            locked onPress={() => setPremiumSheet('travel')}
+            value="Pro"
+          />
+          <SettingRow
+            icon="location-outline" label="Change Location" colors={colors}
+            locked onPress={() => setPremiumSheet('changeLocation')}
+            value="Pro"
+          />
         </Group>
       </View>
 
-      {/* ── ACCOUNT ───────────────────────────────────────────────────── */}
+      {/* ── ACCOUNT ─────────────────────────────────────────────────────── */}
       <View style={styles.section}>
         <SectionLabel title="ACCOUNT" colors={colors} />
         <Group colors={colors}>
           <SettingRow icon="notifications-outline" label="Notifications"     colors={colors} />
-          <SettingRow icon="shield-outline"         label="Security"          colors={colors} />
-          <SettingRow icon="document-text-outline"  label="Legal Information" colors={colors} />
-          <SettingRow icon="help-circle-outline"    label="Get Help"          colors={colors} />
-          <SettingRow icon="card-outline"           label="Purchases"         colors={colors} />
+          <SettingRow icon="shield-outline"        label="Security"          colors={colors} />
+          <SettingRow icon="document-text-outline" label="Legal Information" colors={colors} />
+          <SettingRow icon="help-circle-outline"   label="Get Help"          colors={colors} />
+          <SettingRow icon="card-outline"          label="Purchases"         colors={colors} />
         </Group>
       </View>
 
-      {/* ── ACCOUNT ACTIONS ───────────────────────────────────────────── */}
+      {/* ── ACCOUNT ACTIONS ─────────────────────────────────────────────── */}
       <View style={[styles.section, { marginBottom: 10 }]}>
         <SectionLabel title="ACCOUNT ACTIONS" colors={colors} />
         <Group colors={colors}>
-          <SettingRow icon="log-out-outline" label="Log Out" colors={colors} danger
-            onPress={() => Alert.alert('Log Out', 'Are you sure you want to log out?',
-              [{ text: 'Cancel', style: 'cancel' }, { text: 'Log Out', style: 'destructive' }])} />
+          <SettingRow icon="log-out-outline" label="Log Out" colors={colors} danger onPress={handleLogOut} />
           <SettingRow icon="trash-outline" label="Delete Account" colors={colors} danger
             onPress={() => Alert.alert('Delete Account', 'This action is permanent and cannot be undone.',
               [{ text: 'Cancel', style: 'cancel' }, { text: 'Delete', style: 'destructive' }])} />
         </Group>
       </View>
 
-      {/* ── Height wheel picker ───────────────────────────────────────── */}
-      <WheelPickerSheet
-        visible={showHeightWheel}
-        onClose={() => setShowHeightWheel(false)}
-        title="Height"
-        options={HEIGHT_OPTIONS.map(o => o.label)}
-        selected={about.height}
-        onChange={val => setAbout(s => ({ ...s, height: val }))}
+      {/* ── Native wheel picker (single-select) ─────────────────────────── */}
+      {wheel && (
+        <WheelPickerSheet
+          visible={!!wheel}
+          onClose={() => setWheel(null)}
+          title={wheel.title}
+          options={wheel.options}
+          selected={wheel.selected}
+          onChange={val => { wheel.onDone(val); setWheel(null); }}
+          colors={colors}
+        />
+      )}
+
+      {/* ── Premium feature upsell sheet ────────────────────────────────── */}
+      <PremiumFeatureSheet
+        featureKey={premiumSheet}
+        onClose={() => setPremiumSheet(null)}
         colors={colors}
       />
 
-      {/* ── Chip picker sheet (all other single/multi fields) ─────────── */}
-      {activePicker && (
+      {/* ── Chip picker (single-select fields + multi-select Languages) ──── */}
+      {chipPicker && (
         <ChipSelectorSheet
-          visible={!!activePicker}
-          onClose={() => setActivePicker(null)}
-          title={activePicker.title}
-          subtitle={activePicker.subtitle}
-          singleSelect={activePicker.singleSelect}
-          maxSelect={activePicker.singleSelect ? 1 : 99}
-          options={activePicker.options}
-          selected={currentSelected()}
-          onChange={handlePickerChange}
+          visible={!!chipPicker}
+          onClose={() => setChipPicker(null)}
+          title={chipPicker.title}
+          subtitle={chipPicker.subtitle}
+          singleSelect={chipPicker.single ?? false}
+          maxSelect={chipPicker.single ? 1 : 99}
+          options={chipPicker.options}
+          selected={chipPicker.selected}
+          onChange={vals => {
+            chipPicker.onDone(vals);
+            setChipPicker(null);
+          }}
           colors={colors}
         />
       )}
@@ -377,44 +506,43 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  igHeaderWrap:   { borderBottomWidth: StyleSheet.hairlineWidth, paddingBottom: 14 },
-  igHeader:       { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 16, gap: 14 },
-  igRight:        { flex: 1, gap: 8 },
-  igName:         { fontSize: 18, fontFamily: 'ProductSans-Black' },
+  igHeaderWrap:      { borderBottomWidth: StyleSheet.hairlineWidth, paddingBottom: 14 },
+  igHeader:          { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 16, gap: 14 },
+  igRight:           { flex: 1, gap: 8 },
+  igName:            { fontSize: 18, fontFamily: 'ProductSans-Black' },
 
-  statsRow:       { flexDirection: 'row', alignItems: 'center', marginTop: 14, paddingHorizontal: 16, justifyContent: 'space-around' },
-  statVal:        { fontSize: 15, fontFamily: 'ProductSans-Black', textAlign: 'center' },
-  statLabel:      { fontSize: 10, fontFamily: 'ProductSans-Regular', textAlign: 'center', marginTop: 1 },
-  statDivider:    { width: StyleSheet.hairlineWidth, height: 26, marginHorizontal: 4 },
+  statsRow:          { flexDirection: 'row', alignItems: 'center', marginTop: 14, paddingHorizontal: 16, justifyContent: 'space-around' },
+  statVal:           { fontSize: 15, fontFamily: 'ProductSans-Black', textAlign: 'center' },
+  statLabel:         { fontSize: 10, fontFamily: 'ProductSans-Regular', textAlign: 'center', marginTop: 1 },
+  statDivider:       { width: StyleSheet.hairlineWidth, height: 26, marginHorizontal: 4 },
 
-  actionRow:      { flexDirection: 'row', gap: 8, marginTop: 2 },
-  actionBtn:      { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, borderRadius: 22, paddingVertical: 11 },
-  actionBtnText:  { fontSize: 12, fontFamily: 'ProductSans-Bold' },
+  actionRow:         { flexDirection: 'row', gap: 8, marginTop: 2 },
+  actionBtn:         { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, borderRadius: 22, paddingVertical: 11 },
+  actionBtnText:     { fontSize: 12, fontFamily: 'ProductSans-Bold' },
 
-  subBanner:      { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#1a0a2e', borderRadius: 14, paddingHorizontal: 14, paddingVertical: 13 },
-  subBannerPlan:  { fontSize: 13, fontFamily: 'ProductSans-Bold', color: '#fff' },
-  subBannerSub:   { fontSize: 12, fontFamily: 'ProductSans-Regular', color: 'rgba(255,255,255,0.45)' },
-  subBannerCta:   { fontSize: 12, fontFamily: 'ProductSans-Bold', color: '#c084fc' },
+  subBanner:         { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#1a0a2e', borderRadius: 14, paddingHorizontal: 14, paddingVertical: 13 },
+  subBannerPlan:     { fontSize: 13, fontFamily: 'ProductSans-Bold', color: '#fff' },
+  subBannerSub:      { fontSize: 12, fontFamily: 'ProductSans-Regular', color: 'rgba(255,255,255,0.45)' },
+  subBannerCta:      { fontSize: 12, fontFamily: 'ProductSans-Bold', color: '#c084fc' },
 
-  section:        { paddingHorizontal: 16, marginTop: 22, gap: 6 },
-  sectionLabel:   { fontSize: 12, fontFamily: 'ProductSans-Bold', letterSpacing: 1.5, marginLeft: 2, marginBottom: 2 },
+  section:           { paddingHorizontal: 16, marginTop: 22, gap: 6 },
+  sectionLabel:      { fontSize: 12, fontFamily: 'ProductSans-Bold', letterSpacing: 1.5, marginLeft: 2, marginBottom: 2 },
 
-  group:          { overflow: 'hidden' },
+  group:             { overflow: 'hidden' },
 
-  editRow:        { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 13 },
-  editIconWrap:   { width: 32, height: 32, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
-  editLabel:      { fontSize: 14, fontFamily: 'ProductSans-Regular' },
-  editPreview:    { fontSize: 11, fontFamily: 'ProductSans-Regular' },
-  editValue:      { fontSize: 12, fontFamily: 'ProductSans-Regular', maxWidth: 130, textAlign: 'right' },
+  editRow:           { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 13 },
+  editIconWrap:      { width: 32, height: 32, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+  editLabel:         { fontSize: 14, fontFamily: 'ProductSans-Regular' },
+  editPreview:       { fontSize: 11, fontFamily: 'ProductSans-Regular' },
+  editValue:         { fontSize: 12, fontFamily: 'ProductSans-Regular', maxWidth: 130, textAlign: 'right' },
 
-  settingRow:     { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14 },
-  settingIconWrap:{ width: 32, height: 32, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
-  settingLabel:   { flex: 1, fontSize: 15, fontFamily: 'ProductSans-Regular' },
-  settingValue:   { fontSize: 13, fontFamily: 'ProductSans-Regular', maxWidth: 120, textAlign: 'right' },
+  settingRow:        { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14 },
+  settingIconWrap:   { width: 32, height: 32, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+  settingLabel:      { flex: 1, fontSize: 15, fontFamily: 'ProductSans-Regular' },
+  settingValue:      { fontSize: 13, fontFamily: 'ProductSans-Regular', maxWidth: 120, textAlign: 'right' },
+  proTag:            { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20 },
+  proTagText:        { fontSize: 11, fontFamily: 'ProductSans-Bold', color: '#c084fc' },
 
-  avatarImage:    { width: 64, height: 64, borderRadius: 32 },
-
-  igAvatar:       { width: 32, height: 32, borderRadius: 10 },
-  connectBtn:     { borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6 },
-  connectBtnText: { fontSize: 12, fontFamily: 'ProductSans-Medium' },
+  avatarImage:       { width: 64, height: 64, borderRadius: 32 },
+  avatarPlaceholder: { alignItems: 'center', justifyContent: 'center' },
 });

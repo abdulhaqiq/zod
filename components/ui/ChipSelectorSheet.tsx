@@ -1,22 +1,15 @@
 /**
  * ChipSelectorSheet — reusable bottom-sheet chip picker.
  *
- * Usage:
- *   <ChipSelectorSheet
- *     visible={show}
- *     onClose={() => setShow(false)}
- *     title="Interests"
- *     subtitle="Pick up to 5"
- *     maxSelect={5}
- *     options={INTERESTS}
- *     selected={interests}
- *     onChange={setInterests}
- *     colors={colors}
- *   />
+ * - singleSelect=true  → chips + "Update" button (confirms selection, saves, closes)
+ * - singleSelect=false → multi-select chips + "Done (n)" button
+ *
+ * Internal state is used so toggles are instant regardless of parent re-renders.
+ * onChange is fired with the confirmed selection when Update / Done is pressed.
  */
 
 import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Animated,
   Dimensions,
@@ -40,7 +33,7 @@ interface Props {
   onClose: () => void;
   title: string;
   subtitle?: string;
-  /** When true: tapping a chip immediately selects it and closes the sheet */
+  /** When true: single-select mode with Update button */
   singleSelect?: boolean;
   maxSelect?: number;
   options: ChipOption[];
@@ -58,7 +51,14 @@ export default function ChipSelectorSheet({
   const insets = useSafeAreaInsets();
   const slideY = useRef(new Animated.Value(SCREEN_H)).current;
 
+  // Internal selection state — initialized from props each time sheet opens
+  const [localSelected, setLocalSelected] = useState<string[]>(selected);
+
   useEffect(() => {
+    if (visible) {
+      // Re-sync from parent when opening
+      setLocalSelected(selected);
+    }
     Animated.spring(slideY, {
       toValue: visible ? 0 : SCREEN_H,
       useNativeDriver: true,
@@ -69,18 +69,22 @@ export default function ChipSelectorSheet({
 
   const toggle = (label: string) => {
     if (singleSelect) {
-      onChange([label]);
-      onClose();
+      setLocalSelected([label]);
       return;
     }
-    if (selected.includes(label)) {
-      onChange(selected.filter(s => s !== label));
-    } else if (selected.length < maxSelect) {
-      onChange([...selected, label]);
-    }
+    setLocalSelected(prev => {
+      if (prev.includes(label)) return prev.filter(s => s !== label);
+      if (prev.length < maxSelect) return [...prev, label];
+      return prev;
+    });
   };
 
-  const atMax = !singleSelect && selected.length >= maxSelect;
+  const handleConfirm = () => {
+    onChange(localSelected);
+    onClose();
+  };
+
+  const atMax = !singleSelect && localSelected.length >= maxSelect;
 
   return (
     <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
@@ -111,14 +115,14 @@ export default function ChipSelectorSheet({
           </Pressable>
         </View>
 
-        {/* Selection counter — hidden in single-select mode */}
+        {/* Selection counter — only in multi-select mode */}
         {!singleSelect && maxSelect < 99 && (
           <View style={[styles.counterRow, { backgroundColor: colors.bg }]}>
             <Text style={[styles.counterText, { color: atMax ? colors.text : colors.textSecondary }]}>
-              {selected.length} / {maxSelect} selected
+              {localSelected.length} / {maxSelect} selected
             </Text>
-            {selected.length > 0 && (
-              <Pressable onPress={() => onChange([])} hitSlop={8}>
+            {localSelected.length > 0 && (
+              <Pressable onPress={() => setLocalSelected([])} hitSlop={8}>
                 <Text style={[styles.clearText, { color: colors.textSecondary }]}>Clear all</Text>
               </Pressable>
             )}
@@ -132,7 +136,7 @@ export default function ChipSelectorSheet({
           showsVerticalScrollIndicator={false}
         >
           {options.map(opt => {
-            const isSelected = selected.includes(opt.label);
+            const isSelected = localSelected.includes(opt.label);
             const disabled = !isSelected && atMax;
             return (
               <Pressable
@@ -150,12 +154,7 @@ export default function ChipSelectorSheet({
                 {opt.emoji ? (
                   <Text style={styles.chipEmoji}>{opt.emoji}</Text>
                 ) : null}
-                <Text
-                  style={[
-                    styles.chipLabel,
-                    { color: isSelected ? colors.bg : colors.text },
-                  ]}
-                >
+                <Text style={[styles.chipLabel, { color: isSelected ? colors.bg : colors.text }]}>
                   {opt.label}
                 </Text>
                 {isSelected && (
@@ -166,17 +165,21 @@ export default function ChipSelectorSheet({
           })}
         </ScrollView>
 
-        {/* Done button — hidden in single-select mode (selection closes sheet automatically) */}
-        {!singleSelect && (
-          <Pressable
-            style={[styles.doneBtn, { backgroundColor: colors.text }]}
-            onPress={onClose}
-          >
-            <Text style={[styles.doneBtnText, { color: colors.bg }]}>
-              Done{selected.length > 0 ? ` (${selected.length})` : ''}
-            </Text>
-          </Pressable>
-        )}
+        {/* Confirm button — "Update" for single-select, "Done (n)" for multi */}
+        <Pressable
+          style={[
+            styles.doneBtn,
+            { backgroundColor: localSelected.length > 0 ? colors.text : colors.surface2 },
+          ]}
+          onPress={handleConfirm}
+          disabled={localSelected.length === 0}
+        >
+          <Text style={[styles.doneBtnText, { color: localSelected.length > 0 ? colors.bg : colors.textTertiary }]}>
+            {singleSelect
+              ? 'Update'
+              : `Done${localSelected.length > 0 ? ` (${localSelected.length})` : ''}`}
+          </Text>
+        </Pressable>
       </Animated.View>
     </Modal>
   );

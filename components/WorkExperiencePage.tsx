@@ -15,6 +15,8 @@ import {
 } from 'react-native';
 import ScreenHeader from '@/components/ui/ScreenHeader';
 import Squircle from '@/components/ui/Squircle';
+import { API_BASE, apiFetch } from '@/constants/api';
+import { useAuth } from '@/context/AuthContext';
 import { useAppTheme } from '@/context/ThemeContext';
 import type { AppColors } from '@/constants/appColors';
 
@@ -147,11 +149,24 @@ function WorkCard({
 export default function WorkExperiencePage() {
   const router = useRouter();
   const { colors } = useAppTheme();
+  const { profile, token, updateProfile } = useAuth();
   const [linkedIn, setLinkedIn] = useState(false);
+  const [saving, setSaving] = useState(false);
 
-  const [entries, setEntries] = useState<WorkEntry[]>([
-    { id: '1', jobTitle: 'UX Designer', company: 'Adobe', startYear: '2021', endYear: '', current: true },
-  ]);
+  const [entries, setEntries] = useState<WorkEntry[]>(() => {
+    const we = profile?.work_experience;
+    if (we?.length) {
+      return we.map((w, i) => ({
+        id: String(i + 1),
+        jobTitle: w.job_title ?? '',
+        company: w.company ?? '',
+        startYear: w.start_year ?? '',
+        endYear: w.end_year ?? '',
+        current: w.current ?? false,
+      }));
+    }
+    return [{ id: '1', jobTitle: '', company: '', startYear: '', endYear: '', current: false }];
+  });
 
   const addEntry = () => {
     if (entries.length >= MAX_ENTRIES) return;
@@ -167,9 +182,36 @@ export default function WorkExperiencePage() {
   const removeEntry = (id: string) =>
     setEntries(prev => prev.filter(e => e.id !== id));
 
-  const handleSave = () => {
-    Alert.alert('Saved', 'Work experience updated.');
-    router.back();
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const payload = entries.map(e => ({
+        job_title: e.jobTitle.trim(),
+        company: e.company.trim(),
+        start_year: e.startYear.trim(),
+        end_year: e.endYear.trim(),
+        current: e.current,
+      }));
+      const res = await apiFetch(`${API_BASE}/api/v1/profile/me`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ work_experience: payload }),
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        updateProfile(updated);
+        router.back();
+      } else {
+        Alert.alert('Error', 'Failed to save. Please try again.');
+      }
+    } catch {
+      Alert.alert('Error', 'Network error. Please try again.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -178,8 +220,8 @@ export default function WorkExperiencePage() {
         <ScreenHeader
           title="Work Experience"
           onClose={() => router.back()}
-          rightLabel="Save"
-          onRightPress={handleSave}
+          rightLabel={saving ? '…' : 'Save'}
+          onRightPress={saving ? undefined : handleSave}
           colors={colors}
         />
 

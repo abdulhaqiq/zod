@@ -8,7 +8,10 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
+
+import { useAuth } from '@/context/AuthContext';
 
 const Logo = () => (
   <Svg width={120} height={56} viewBox="0 0 741 347" fill="none">
@@ -21,7 +24,14 @@ const Logo = () => (
 
 export default function WelcomeScreen() {
   const router = useRouter();
+  const { signIn } = useAuth();
   const [expanded, setExpanded] = useState(false);
+
+  // After a successful login (social / OTP) call this to unlock the app
+  const handleSignIn = async (token: string) => {
+    await signIn(token);
+    router.replace('/(tabs)' as any);
+  };
 
   return (
     <View style={styles.container}>
@@ -32,54 +42,59 @@ export default function WelcomeScreen() {
         contentFit="cover"
       />
 
-      {/* Dark overlay gradient effect */}
+      {/* Dark overlay */}
       <View style={styles.overlay} />
 
-      {/* Content */}
-      <View style={styles.content}>
-        {/* Logo */}
-        <View style={styles.logoRow}>
-          <Logo />
+      {/* Safe content */}
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.content}>
+          {/* Logo */}
+          <View style={styles.logoRow}>
+            <Logo />
+          </View>
+
+          {/* Tagline */}
+          <Text style={styles.tagline}>Find{'\n'}True Love</Text>
+
+          {/* Bottom section */}
+          <View style={styles.bottom}>
+            {expanded ? (
+              <View style={styles.authButtons}>
+                <TouchableOpacity style={styles.btnApple}>
+                  <Text style={styles.btnAppleText}>  Continue with Apple</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.btnFacebook}>
+                  <Text style={styles.btnFacebookText}>  Continue with Facebook</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.btnPhone}
+                  onPress={() => router.push('/phone' as any)}
+                >
+                  <Text style={styles.btnPhoneText}>Use phone number</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <>
+                <TouchableOpacity style={styles.btnPrimary} onPress={() => setExpanded(true)}>
+                  <Text style={styles.btnPrimaryText}>Quick sign in</Text>
+                </TouchableOpacity>
+
+                <Pressable onPress={() => setExpanded(true)}>
+                  <Text style={styles.otherMethods}>Continue with other methods</Text>
+                </Pressable>
+              </>
+            )}
+
+            <Text style={styles.legal}>
+              By signing up, you agree to our{' '}
+              <Text style={styles.legalLink}>Terms</Text>. See how we use your data in our{' '}
+              <Text style={styles.legalLink}>Privacy Policy</Text>.
+            </Text>
+          </View>
         </View>
-
-        {/* Tagline */}
-        <Text style={styles.tagline}>Find{'\n'}True Love</Text>
-
-        {/* Bottom section */}
-        <View style={styles.bottom}>
-          {expanded ? (
-            <View style={styles.authButtons}>
-              <TouchableOpacity style={styles.btnApple}>
-                <Text style={styles.btnAppleText}>  Continue with Apple</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity style={styles.btnFacebook}>
-                <Text style={styles.btnFacebookText}>  Continue with Facebook</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity style={styles.btnPhone} onPress={() => router.push('/phone')}>
-                <Text style={styles.btnPhoneText}>Use phone number</Text>
-              </TouchableOpacity>
-            </View>
-          ) : (
-            <>
-              <TouchableOpacity style={styles.btnPrimary}>
-                <Text style={styles.btnPrimaryText}>Quick sign in</Text>
-              </TouchableOpacity>
-
-              <Pressable onPress={() => setExpanded(true)}>
-                <Text style={styles.otherMethods}>Continue with other methods</Text>
-              </Pressable>
-            </>
-          )}
-
-          <Text style={styles.legal}>
-            By signing up, you agree to our{' '}
-            <Text style={styles.legalLink}>Terms</Text>. See how we use your data in our{' '}
-            <Text style={styles.legalLink}>Privacy Policy</Text>.
-          </Text>
-        </View>
-      </View>
+      </SafeAreaView>
     </View>
   );
 }
@@ -96,10 +111,13 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.35)',
   },
+  safeArea: {
+    flex: 1,
+  },
   content: {
     flex: 1,
     paddingHorizontal: 24,
-    paddingTop: 64,
+    paddingTop: 16,
     paddingBottom: 36,
     justifyContent: 'space-between',
   },

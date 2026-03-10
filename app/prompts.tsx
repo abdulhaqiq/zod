@@ -1,1 +1,2 @@
-export { default } from '@/components/Prompts';
+import PromptsScreen from '@/components/onboarding/PromptsScreen';
+export default PromptsScreen;

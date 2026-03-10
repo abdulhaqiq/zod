@@ -1,1 +1,2 @@
-export { default } from '@/components/Lifestyle';
+import LifestyleScreen from '@/components/onboarding/LifestyleScreen';
+export default LifestyleScreen;

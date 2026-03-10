@@ -14,6 +14,8 @@ import {
 } from 'react-native';
 import ScreenHeader from '@/components/ui/ScreenHeader';
 import Squircle from '@/components/ui/Squircle';
+import { API_BASE, apiFetch } from '@/constants/api';
+import { useAuth } from '@/context/AuthContext';
 import { useAppTheme } from '@/context/ThemeContext';
 import type { AppColors } from '@/constants/appColors';
 
@@ -170,10 +172,22 @@ function EduCard({
 export default function EducationPage() {
   const router = useRouter();
   const { colors } = useAppTheme();
+  const { profile, token, updateProfile } = useAuth();
+  const [saving, setSaving] = useState(false);
 
-  const [entries, setEntries] = useState<EduEntry[]>([
-    { id: '1', institution: 'UCLA', course: 'Design', degree: "Bachelor's", gradYear: '2021' },
-  ]);
+  const [entries, setEntries] = useState<EduEntry[]>(() => {
+    const ed = profile?.education;
+    if (ed?.length) {
+      return ed.map((e, i) => ({
+        id: String(i + 1),
+        institution: e.institution ?? '',
+        course: e.course ?? '',
+        degree: e.degree ?? '',
+        gradYear: e.grad_year ?? '',
+      }));
+    }
+    return [{ id: '1', institution: '', course: '', degree: '', gradYear: '' }];
+  });
 
   const addEntry = () => {
     if (entries.length >= MAX_ENTRIES) return;
@@ -189,9 +203,35 @@ export default function EducationPage() {
   const removeEntry = (id: string) =>
     setEntries(prev => prev.filter(e => e.id !== id));
 
-  const handleSave = () => {
-    Alert.alert('Saved', 'Education updated.');
-    router.back();
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const payload = entries.map(e => ({
+        institution: e.institution.trim(),
+        course: e.course.trim(),
+        degree: e.degree.trim(),
+        grad_year: e.gradYear.trim(),
+      }));
+      const res = await apiFetch(`${API_BASE}/api/v1/profile/me`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ education: payload }),
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        updateProfile(updated);
+        router.back();
+      } else {
+        Alert.alert('Error', 'Failed to save. Please try again.');
+      }
+    } catch {
+      Alert.alert('Error', 'Network error. Please try again.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -200,8 +240,8 @@ export default function EducationPage() {
         <ScreenHeader
           title="Education"
           onClose={() => router.back()}
-          rightLabel="Save"
-          onRightPress={handleSave}
+          rightLabel={saving ? '…' : 'Save'}
+          onRightPress={saving ? undefined : handleSave}
           colors={colors}
         />
 

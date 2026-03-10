@@ -22,6 +22,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Defs, LinearGradient as SvgGrad, Path, Rect, Stop, Svg } from 'react-native-svg';
 import Squircle from '@/components/ui/Squircle';
+import MatchScreen, { type MatchedProfile } from '@/components/MatchScreen';
 import MyProfilePage from '@/components/MyProfilePage';
 import { useAppTheme } from '@/context/ThemeContext';
 
@@ -864,19 +865,19 @@ const FREE_VISIBLE = 2; // first 2 profiles are clear, rest blurred (free tier)
 
 function LikedYouPage({ colors, insets }: { colors: any; insets: any }) {
   const router = useRouter();
-  const [passed,   setPassed]   = useState<string[]>([]);
-  const [matched,  setMatched]  = useState<string[]>([]);
-  const [isPro,    setIsPro]    = useState(false);   // toggle to see both states
+  const [passed,        setPassed]        = useState<string[]>([]);
+  const [matched,       setMatched]       = useState<string[]>([]);
+  const [matchedProfile, setMatchedProfile] = useState<MatchedProfile | null>(null);
+  const [isPro,         setIsPro]         = useState(false);   // toggle to see both states
 
   const visible = LIKED_PROFILES.filter(p => !passed.includes(p.id));
   const count   = visible.length;
 
-  const handleLike = (id: string, name: string, image: string) => {
+  const handleLike = (id: string, p: { name: string; age: number; image: string }) => {
     setMatched(prev => [...prev, id]);
     setTimeout(() => {
-      setPassed(prev => [...prev, id]);
-      router.push({ pathname: '/chat', params: { name, image, online: 'true' } });
-    }, 600);
+      setMatchedProfile({ id, name: p.name, age: p.age, image: p.image });
+    }, 350);
   };
 
   const handlePass = (id: string) => {
@@ -884,6 +885,7 @@ function LikedYouPage({ colors, insets }: { colors: any; insets: any }) {
   };
 
   return (
+    <View style={{ flex: 1 }}>
     <ScrollView
       style={{ flex: 1 }}
       contentContainerStyle={{ paddingBottom: insets.bottom + 90 }}
@@ -970,13 +972,6 @@ function LikedYouPage({ colors, insets }: { colors: any; insets: any }) {
                     </LinearGradient>
                   )}
 
-                  {/* Matched pulse */}
-                  {isMatching && (
-                    <View style={[StyleSheet.absoluteFill, styles.likedMatchOverlay]}>
-                      <Ionicons name="heart" size={40} color="#fff" />
-                      <Text style={styles.likedMatchText}>Matched!</Text>
-                    </View>
-                  )}
 
                   {/* Lock overlay */}
                   {isBlurred && (
@@ -1022,7 +1017,7 @@ function LikedYouPage({ colors, insets }: { colors: any; insets: any }) {
                         </Squircle>
                       </Pressable>
                       <Pressable
-                        onPress={() => handleLike(p.id, p.name, p.images[0])}
+                        onPress={() => handleLike(p.id, { name: p.name, age: p.age, image: p.images[0] })}
                         style={({ pressed }) => [pressed && { opacity: 0.65 }, { flex: 1 }]}
                         hitSlop={6}
                       >
@@ -1051,6 +1046,24 @@ function LikedYouPage({ colors, insets }: { colors: any; insets: any }) {
         </View>
       )}
     </ScrollView>
+
+    {/* ── Match celebration overlay ── */}
+    {matchedProfile && (
+      <MatchScreen
+        profile={matchedProfile}
+        onChat={() => {
+          const p = matchedProfile;
+          setPassed(prev => [...prev, p.id]);
+          setMatchedProfile(null);
+          router.push({ pathname: '/chat', params: { name: p.name, image: p.image, online: 'true' } });
+        }}
+        onDismiss={() => {
+          setPassed(prev => [...prev, matchedProfile.id]);
+          setMatchedProfile(null);
+        }}
+      />
+    )}
+    </View>
   );
 }
 
@@ -1507,7 +1520,7 @@ const styles = StyleSheet.create({
   likedUpgradeSub:      { fontSize: 12, fontFamily: 'ProductSans-Regular' },
   likedGrid:            { flexDirection: 'row', flexWrap: 'wrap', gap: 10, paddingHorizontal: 16 },
   likedCardWrap:        { },
-  likedCard:            { width: '100%', overflow: 'hidden' },
+  likedCard:            { width: '100%', overflow: 'hidden', borderRadius: 24 },
   likedPhotoWrap:       { width: LIKED_CARD_W, height: LIKED_PHOTO_H, position: 'relative' },
   likedPhoto:           { width: LIKED_CARD_W, height: LIKED_PHOTO_H },
   likedPhotoBlurred:    { opacity: 0.6 },

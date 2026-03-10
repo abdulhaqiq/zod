@@ -3,27 +3,57 @@ import { Animated, StyleSheet, View } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 
 interface Props {
+  /** Called after the full animation (fade-in → hold → fade-out) completes */
   onFinish: () => void;
+  /**
+   * When true the splash may begin its fade-out.
+   * While false the logo stays fully visible — no matter how long auth takes.
+   */
+  ready?: boolean;
 }
 
-export default function AppSplashScreen({ onFinish }: Props) {
-  const opacity = useRef(new Animated.Value(0)).current;
+const FADE_IN_MS  = 800;
+const MIN_HOLD_MS = 1000; // minimum time the logo stays visible
+const FADE_OUT_MS = 500;
 
+export default function AppSplashScreen({ onFinish, ready = false }: Props) {
+  const opacity       = useRef(new Animated.Value(0)).current;
+  const canFadeOut    = useRef(false); // true once min hold time has elapsed
+  const authReady     = useRef(false); // true once parent signals ready
+  const fadingOut     = useRef(false);
+
+  function startFadeOut() {
+    if (fadingOut.current) return;
+    fadingOut.current = true;
+    Animated.timing(opacity, {
+      toValue: 0,
+      duration: FADE_OUT_MS,
+      useNativeDriver: true,
+    }).start(() => onFinish());
+  }
+
+  // Fade in, then start min-hold timer
   useEffect(() => {
-    Animated.sequence([
-      Animated.timing(opacity, {
-        toValue: 1,
-        duration: 800,
-        useNativeDriver: true,
-      }),
-      Animated.delay(1200),
-      Animated.timing(opacity, {
-        toValue: 0,
-        duration: 600,
-        useNativeDriver: true,
-      }),
-    ]).start(() => onFinish());
+    Animated.timing(opacity, {
+      toValue: 1,
+      duration: FADE_IN_MS,
+      useNativeDriver: true,
+    }).start(() => {
+      setTimeout(() => {
+        canFadeOut.current = true;
+        // If auth was already ready before the hold ended, fade out now
+        if (authReady.current) startFadeOut();
+      }, MIN_HOLD_MS);
+    });
   }, []);
+
+  // Watch the ready prop — when it flips to true, fade out if hold is done
+  useEffect(() => {
+    if (!ready) return;
+    authReady.current = true;
+    if (canFadeOut.current) startFadeOut();
+    // If hold isn't done yet, the setTimeout above will trigger fade-out
+  }, [ready]);
 
   return (
     <View style={styles.container}>

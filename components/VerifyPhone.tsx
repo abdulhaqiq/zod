@@ -1,8 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
-import * as Notifications from 'expo-notifications';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
+  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -14,31 +14,34 @@ import {
 } from 'react-native';
 import Button from '@/components/ui/Button';
 import Squircle from '@/components/ui/Squircle';
+import { authedFetch, apiFetch } from '@/constants/api';
+import { useAuth } from '@/context/AuthContext';
 import { useAppTheme } from '@/context/ThemeContext';
-
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
-});
+import { getDeviceInfo } from '@/utils/deviceInfo';
 
 const OTP_LENGTH = 5;
 const RESEND_COUNTDOWN = 30;
 
+interface TokenResponse {
+  access_token: string;
+  refresh_token: string;
+  token_type: string;
+  expires_in: number;
+}
+
 export default function VerifyPhone() {
   const router = useRouter();
   const { colors } = useAppTheme();
+  const { signIn } = useAuth();
   const { phone, countryCode } = useLocalSearchParams<{ phone: string; countryCode: string }>();
 
   const inputRef = useRef<TextInput>(null);
   const [code, setCode] = useState('');
   const [focused, setFocused] = useState(true);
   const [countdown, setCountdown] = useState(RESEND_COUNTDOWN);
-  const [error, setError] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [verifying, setVerifying] = useState(false);
+  const [resending, setResending] = useState(false);
 
   useEffect(() => {
     if (countdown <= 0) return;
@@ -49,31 +52,71 @@ export default function VerifyPhone() {
   const handleChange = (text: string) => {
     const digits = text.replace(/\D/g, '').slice(0, OTP_LENGTH);
     setCode(digits);
-    setError(false);
-    if (digits.length === OTP_LENGTH) inputRef.current?.blur();
-  };
-
-  const handleVerify = async () => {
-    if (code.length < OTP_LENGTH) return;
-    inputRef.current?.blur();
-    const { status } = await Notifications.requestPermissionsAsync();
-    if (status === 'granted') {
-      await Notifications.scheduleNotificationAsync({
-        content: { title: 'Verified successfully ✓', body: 'Your phone number has been verified.' },
-        trigger: null,
-      });
+    setError(null);
+    if (digits.length === OTP_LENGTH) {
+      inputRef.current?.blur();
+      // Auto-submit as soon as the last digit is typed
+      setTimeout(() => handleVerifyWithCode(digits), 100);
     }
-    router.push('/passkey');
   };
 
-  const handleResend = (_method: 'whatsapp' | 'sms' | 'otp') => {
+  const handleVerifyWithCode = async (digits: string) => {
+    if (digits.length < OTP_LENGTH) return;
+    inputRef.current?.blur();
+    setVerifying(true);
+    setError(null);
+
+    try {
+      const device = await getDeviceInfo();
+      const data = await apiFetch<TokenResponse>('/auth/phone/verify-otp', {
+        method: 'POST',
+        body: JSON.stringify({ phone, code: digits, device }),
+      });
+
+      // Fetch onboarding status before saving to context so the auth guard
+      // has the correct value the moment the token state updates
+      const me = await authedFetch<{ is_onboarded: boolean }>(
+        '/profile/me',
+        data.access_token,
+      );
+
+      // signIn triggers the auth guard; isOnboarded tells it where to route
+      await signIn(data.access_token, data.refresh_token, me.is_onboarded);
+    } catch (err: any) {
+      setError(err.message ?? 'Invalid code. Please try again.');
+      setCode('');
+      setTimeout(() => inputRef.current?.focus(), 100);
+    } finally {
+      setVerifying(false);
+    }
+  };
+
+  const handleVerify = () => handleVerifyWithCode(code);
+
+  const handleResend = async (channel: 'whatsapp' | 'sms') => {
+    if (!phone) return;
+    setResending(true);
     setCode('');
-    setError(false);
-    setCountdown(RESEND_COUNTDOWN);
-    setTimeout(() => inputRef.current?.focus(), 100);
+    setError(null);
+
+    try {
+      const device = await getDeviceInfo();
+      await apiFetch('/auth/phone/resend-otp', {
+        method: 'POST',
+        body: JSON.stringify({ phone, channel, device }),
+      });
+      setCountdown(RESEND_COUNTDOWN);
+      setTimeout(() => inputRef.current?.focus(), 100);
+    } catch (err: any) {
+      Alert.alert('Could not resend', err.message ?? 'Please try again.');
+    } finally {
+      setResending(false);
+    }
   };
 
-  const displayPhone = phone ? `${countryCode ?? ''} ${phone}`.trim() : 'your number';
+  // The phone number passed from PhoneSignIn is already E.164 (e.g. +966583817592)
+  // Show it nicely: countryCode + local part
+  const displayPhone = phone ?? 'your number';
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.bg }]}>
@@ -93,7 +136,7 @@ export default function VerifyPhone() {
             <Text style={[styles.phoneHighlight, { color: colors.text }]}>{displayPhone}</Text>
           </Text>
           <Text style={[styles.subheading, { color: colors.textTertiary }]}>
-            Enter the code below to verify your number and continue setting up your account.
+            Enter the code below to verify your number and continue.
           </Text>
 
           {/* OTP Boxes */}
@@ -102,17 +145,26 @@ export default function VerifyPhone() {
               const char = code[i] ?? '';
               const isActive = focused && i === Math.min(code.length, OTP_LENGTH - 1);
               const isFilled = !!char;
+              const hasError = !!error;
               return (
                 <Squircle
                   key={i}
                   style={styles.otpBox}
                   cornerRadius={16}
                   cornerSmoothing={1}
-                  fillColor={error ? colors.errorBg : isFilled ? colors.surface2 : colors.surface}
-                  strokeColor={error ? colors.errorBorder : isActive ? colors.borderActive : isFilled ? colors.border : colors.borderFaint}
+                  fillColor={hasError ? colors.errorBg : isFilled ? colors.surface2 : colors.surface}
+                  strokeColor={
+                    hasError
+                      ? colors.errorBorder
+                      : isActive
+                      ? colors.borderActive
+                      : isFilled
+                      ? colors.border
+                      : colors.borderFaint
+                  }
                   strokeWidth={isActive ? 2 : 1.5}
                 >
-                  <Text style={[styles.otpDigit, { color: error ? colors.error : colors.text }]}>
+                  <Text style={[styles.otpDigit, { color: hasError ? colors.error : colors.text }]}>
                     {char}
                   </Text>
                 </Squircle>
@@ -136,7 +188,7 @@ export default function VerifyPhone() {
           {error && (
             <View style={styles.errorRow}>
               <Ionicons name="warning" size={14} color={colors.error} />
-              <Text style={[styles.errorText, { color: colors.error }]}>Incorrect code. Please try again.</Text>
+              <Text style={[styles.errorText, { color: colors.error }]}>{error}</Text>
             </View>
           )}
 
@@ -152,7 +204,11 @@ export default function VerifyPhone() {
               <View>
                 <Text style={[styles.resendLabel, { color: colors.textSecondary }]}>Didn't receive it?</Text>
 
-                <Pressable style={({ pressed }) => [styles.resendRow, pressed && { opacity: 0.6 }]} onPress={() => handleResend('whatsapp')}>
+                <Pressable
+                  style={({ pressed }) => [styles.resendRow, (pressed || resending) && { opacity: 0.6 }]}
+                  onPress={() => handleResend('whatsapp')}
+                  disabled={resending}
+                >
                   <Squircle style={styles.resendIcon} cornerRadius={10} cornerSmoothing={1} fillColor="#25D366">
                     <Ionicons name="logo-whatsapp" size={16} color="#fff" />
                   </Squircle>
@@ -162,21 +218,29 @@ export default function VerifyPhone() {
 
                 <View style={[styles.separator, { backgroundColor: colors.borderFaint }]} />
 
-                <Pressable style={({ pressed }) => [styles.resendRow, pressed && { opacity: 0.6 }]} onPress={() => handleResend('otp')}>
+                <Pressable
+                  style={({ pressed }) => [styles.resendRow, (pressed || resending) && { opacity: 0.6 }]}
+                  onPress={() => handleResend('sms')}
+                  disabled={resending}
+                >
                   <Squircle style={styles.resendIcon} cornerRadius={10} cornerSmoothing={1} fillColor={colors.resendIconBg}>
                     <Ionicons name="refresh" size={16} color={colors.text} />
                   </Squircle>
-                  <Text style={[styles.resendText, { color: colors.text }]}>Resend OTP</Text>
+                  <Text style={[styles.resendText, { color: colors.text }]}>Resend OTP via SMS</Text>
                   <Ionicons name="chevron-forward" size={16} color={colors.textTertiary} />
                 </Pressable>
 
                 <View style={[styles.separator, { backgroundColor: colors.borderFaint }]} />
 
-                <Pressable style={({ pressed }) => [styles.resendRow, pressed && { opacity: 0.6 }]} onPress={() => handleResend('sms')}>
+                <Pressable
+                  style={({ pressed }) => [styles.resendRow, (pressed || resending) && { opacity: 0.6 }]}
+                  onPress={() => handleResend('sms')}
+                  disabled={resending}
+                >
                   <Squircle style={styles.resendIcon} cornerRadius={10} cornerSmoothing={1} fillColor={colors.resendIconBg}>
                     <Ionicons name="chatbubble-ellipses" size={16} color={colors.text} />
                   </Squircle>
-                  <Text style={[styles.resendText, { color: colors.text }]}>Send SMS</Text>
+                  <Text style={[styles.resendText, { color: colors.text }]}>Send new SMS</Text>
                   <Ionicons name="chevron-forward" size={16} color={colors.textTertiary} />
                 </Pressable>
               </View>
@@ -185,7 +249,12 @@ export default function VerifyPhone() {
         </View>
 
         <View style={styles.footer}>
-          <Button title="Verify" onPress={handleVerify} disabled={code.length < OTP_LENGTH} style={styles.btn} />
+          <Button
+            title={verifying ? 'Verifying…' : 'Verify'}
+            onPress={handleVerify}
+            disabled={code.length < OTP_LENGTH || verifying}
+            style={styles.btn}
+          />
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -202,12 +271,12 @@ const styles = StyleSheet.create({
   subtitle: { fontSize: 14, fontFamily: 'ProductSans-Regular', lineHeight: 22, marginBottom: 10 },
   phoneHighlight: { fontFamily: 'ProductSans-Medium' },
   subheading: { fontSize: 13, fontFamily: 'ProductSans-Regular', lineHeight: 20, marginBottom: 36 },
-  otpRow: { flexDirection: 'row', gap: 10, marginBottom: 12 },
+  otpRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
   otpBox: { flex: 1, height: 64, alignItems: 'center', justifyContent: 'center' },
   otpDigit: { fontSize: 24, fontFamily: 'ProductSans-Bold' },
   hiddenInput: { position: 'absolute', opacity: 0, width: 0, height: 0 },
   errorRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8, marginBottom: 4 },
-  errorText: { fontSize: 13, fontFamily: 'ProductSans-Regular' },
+  errorText: { fontSize: 13, fontFamily: 'ProductSans-Regular', flex: 1 },
   resendSection: { marginTop: 32 },
   countdownText: { fontSize: 14, fontFamily: 'ProductSans-Regular', textAlign: 'center' },
   countdownNum: { fontFamily: 'ProductSans-Bold' },

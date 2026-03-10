@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
+  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -15,9 +16,33 @@ import Button from '@/components/ui/Button';
 import Squircle from '@/components/ui/Squircle';
 import CountryPicker from '@/components/CountryPicker';
 import { COUNTRIES, type Country } from '@/constants/countries';
+import { apiFetch } from '@/constants/api';
 import { useAppTheme } from '@/context/ThemeContext';
+import { getDeviceInfo } from '@/utils/deviceInfo';
 
 const US = COUNTRIES[0];
+
+/**
+ * Detect the user's country via IP geolocation — the same approach used by
+ * WhatsApp, Telegram and every major app. Returns the matching Country or US.
+ */
+async function detectCountryByIP(): Promise<Country> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 4000); // 4 s timeout
+  try {
+    // api.country.is is purpose-built, tiny, and returns only { ip, country }
+    const res = await fetch('https://api.country.is/', { signal: controller.signal });
+    if (!res.ok) throw new Error('non-200');
+    const data: { country: string } = await res.json();
+    const iso = data.country?.toUpperCase();
+    const match = COUNTRIES.find((c) => c.iso === iso);
+    return match ?? US;
+  } catch {
+    return US;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 function formatPhone(raw: string, country: Country): string {
   const digits = raw.replace(/\D/g, '');
@@ -46,9 +71,20 @@ export default function PhoneSignIn() {
   const inputRef = useRef<TextInput>(null);
 
   const [country, setCountry] = useState<Country>(US);
-  const [phone, setPhone] = useState('');
+
+  // Detect country from IP in the background — fast (< 1 s on good network),
+  // accurate, and requires no permissions. Falls back to US on timeout/error.
+  useEffect(() => {
+    let cancelled = false;
+    detectCountryByIP().then((c) => {
+      if (!cancelled) setCountry(c);
+    });
+    return () => { cancelled = true; };
+  }, []);
+  const [phone, setPhone] = useState('(914) 888-0196');
   const [touched, setTouched] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   const digits = getDigits(phone);
   const error = touched ? validate(digits, country) : null;
@@ -67,10 +103,26 @@ export default function PhoneSignIn() {
     setTimeout(() => inputRef.current?.focus(), 300);
   };
 
-  const handleContinue = () => {
+  const handleContinue = async () => {
     setTouched(true);
     if (!isValid) return;
-    router.push({ pathname: '/otp', params: { phone, countryCode: country.code } });
+
+    // Build E.164 phone number: country code + digits only
+    const e164 = `${country.code}${digits}`;
+
+    setLoading(true);
+    try {
+      const device = await getDeviceInfo();
+      await apiFetch('/auth/phone/send-otp', {
+        method: 'POST',
+        body: JSON.stringify({ phone: e164, channel: 'sms', device }),
+      });
+      router.push({ pathname: '/otp', params: { phone: e164, countryCode: country.code } });
+    } catch (err: any) {
+      Alert.alert('Could not send OTP', err.message ?? 'Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -155,9 +207,9 @@ export default function PhoneSignIn() {
 
         <View style={styles.footer}>
           <Button
-            title="Continue"
+            title={loading ? 'Sending code…' : 'Continue'}
             onPress={handleContinue}
-            disabled={touched && !isValid}
+            disabled={(touched && !isValid) || loading}
             style={styles.btn}
           />
         </View>

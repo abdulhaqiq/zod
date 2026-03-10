@@ -10,6 +10,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import {
+  Alert,
   Keyboard,
   KeyboardAvoidingView,
   Platform,
@@ -22,6 +23,8 @@ import {
 } from 'react-native';
 import ScreenHeader from '@/components/ui/ScreenHeader';
 import Squircle from '@/components/ui/Squircle';
+import { API_BASE, apiFetch } from '@/constants/api';
+import { useAuth } from '@/context/AuthContext';
 import { useAppTheme } from '@/context/ThemeContext';
 
 // ─── Mock city data ───────────────────────────────────────────────────────────
@@ -62,6 +65,8 @@ export default function LocationSearchPage() {
   const router = useRouter();
   const { type } = useLocalSearchParams<{ type?: string }>();
   const { colors } = useAppTheme();
+  const { token, updateProfile } = useAuth();
+  const [saving, setSaving] = useState(false);
 
   const title = type === 'hometown' ? 'Hometown'
     : type === 'city'     ? 'Change Location'
@@ -82,10 +87,31 @@ export default function LocationSearchPage() {
     );
   }, [query]);
 
-  const select = (city: string, country: string) => {
+  const select = async (city: string, _country: string) => {
     Keyboard.dismiss();
-    // In production: persist via context/store
-    router.back();
+    setSaving(true);
+    try {
+      const field = type === 'hometown' ? 'hometown' : 'city';
+      const res = await apiFetch(`${API_BASE}/api/v1/profile/me`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ [field]: city }),
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        updateProfile(updated);
+        router.back();
+      } else {
+        Alert.alert('Error', 'Failed to save location. Please try again.');
+      }
+    } catch {
+      Alert.alert('Error', 'Network error.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (

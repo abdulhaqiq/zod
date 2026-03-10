@@ -1,1 +1,2 @@
-export { default } from '@/components/HeightPicker';
+import HeightScreen from '@/components/onboarding/HeightScreen';
+export default HeightScreen;

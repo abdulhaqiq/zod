@@ -1,5 +1,2 @@
-import Purpose from '@/components/Purpose';
-
-export default function PurposeRoute() {
-  return <Purpose />;
-}
+import PurposeScreen from '@/components/onboarding/PurposeScreen';
+export default PurposeScreen;
