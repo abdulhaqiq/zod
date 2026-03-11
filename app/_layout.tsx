@@ -11,6 +11,7 @@ import ThemeToggle from '@/components/ThemeToggle';
 import { AuthProvider, useAuth, UserProfile } from '@/context/AuthContext';
 import { AppThemeProvider, useAppTheme } from '@/context/ThemeContext';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useAutoLocation } from '@/hooks/useAutoLocation';
 
 export const unstable_settings = {
   initialRouteName: 'welcome',
@@ -59,6 +60,9 @@ function RootLayoutInner() {
   // auth redirects (e.g. logout while on the feed screen).
   const [covering, setCovering] = useState(false);
   const coverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Auto-update location on every app open (non-blocking, best-effort)
+  useAutoLocation();
 
   const isLoggedIn = !!token;
   const authReady  = !isLoading;
@@ -139,6 +143,11 @@ function RootLayoutInner() {
           <Stack.Screen name="location-search" options={{ headerShown: false }} />
           <Stack.Screen name="subscription"    options={{ headerShown: false, presentation: 'fullScreenModal' }} />
           <Stack.Screen name="chat"            options={{ headerShown: false }} />
+          <Stack.Screen name="notifications"   options={{ headerShown: false }} />
+          <Stack.Screen name="security"        options={{ headerShown: false }} />
+          <Stack.Screen name="legal"           options={{ headerShown: false }} />
+          <Stack.Screen name="get-help"        options={{ headerShown: false }} />
+          <Stack.Screen name="purchases"       options={{ headerShown: false }} />
           <Stack.Screen name="modal"           options={{ presentation: 'modal', title: 'Modal' }} />
         </Stack>
 

@@ -1,8 +1,9 @@
 // Step 10 — Photos (final step, sets is_onboarded=true)
 import * as ImagePicker from 'expo-image-picker';
+import { Image as ExpoImage } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/context/AuthContext';
 import { useAppTheme } from '@/context/ThemeContext';
@@ -34,6 +35,7 @@ export default function PhotosScreen() {
     if (d.includes('watermark') || d.includes('text overlay')) return 'Watermark Detected';
     if (d.includes('explicit') || d.includes('nsfw')) return 'Explicit Content';
     if (d.includes('under 18') || d.includes('age')) return 'Age Restriction';
+    if (d.includes('similar') || d.includes('duplicate')) return 'Duplicate Photo';
     if (d.includes('analysed') || d.includes('analyzed')) return 'Photo Could Not Be Checked';
     return 'Photo Not Accepted';
   };
@@ -127,7 +129,7 @@ export default function PhotosScreen() {
           if (url) {
             return (
               <View key={i} style={styles.slot}>
-                <Image source={{ uri: url }} style={styles.img} />
+                <ExpoImage source={{ uri: url }} style={styles.img} contentFit="cover" cachePolicy="memory-disk" />
                 <Pressable
                   style={[styles.remove, { backgroundColor: colors.text }]}
                   onPress={() => removePhoto(url)}

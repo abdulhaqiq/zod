@@ -21,9 +21,12 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Defs, LinearGradient as SvgGrad, Path, Rect, Stop, Svg } from 'react-native-svg';
+import { Image as ExpoImage } from 'expo-image';
 import Squircle from '@/components/ui/Squircle';
 import MatchScreen, { type MatchedProfile } from '@/components/MatchScreen';
 import MyProfilePage from '@/components/MyProfilePage';
+import ExplorePage from '@/components/ExplorePage';
+import { useAuth } from '@/context/AuthContext';
 import { useAppTheme } from '@/context/ThemeContext';
 
 const { width: W, height: H } = Dimensions.get('window');
@@ -52,7 +55,6 @@ const NAV_TABS = [
   { id: 'profile', icon: 'person-outline'      as const, iconActive: 'person'      as const },
 ];
 
-const MY_AVATAR = 'https://randomuser.me/api/portraits/men/32.jpg';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1296,11 +1298,14 @@ function ChatsPage({ colors, insets }: { colors: any; insets: any }) {
 
 export default function FeedScreen() {
   const { colors, isDark } = useAppTheme();
+  const { profile } = useAuth();
   const insets = useSafeAreaInsets();
+  const myAvatar = profile?.photos?.[0] ?? null;
 
-  const [profiles,    setProfiles]    = useState<Profile[]>(PROFILES);
-  const [activeTab,   setActiveTab]   = useState('people');
-  const [filterOpen,  setFilterOpen]  = useState(false);
+  const [profiles,     setProfiles]    = useState<Profile[]>(PROFILES);
+  const [activeTab,    setActiveTab]   = useState('people');
+  const [filterOpen,   setFilterOpen]  = useState(false);
+  const [exploreOpen,  setExploreOpen] = useState(false);
 
   const removeTop = () => setProfiles(p => p.slice(1));
   const reset     = () => setProfiles(PROFILES);
@@ -1312,17 +1317,19 @@ export default function FeedScreen() {
 
       {/* Top bar — only on People tab */}
       {showTopBar && (
-      <View style={styles.topBar}>
-          <Squircle style={styles.iconBtn} cornerRadius={14} cornerSmoothing={1} fillColor={colors.surface2}>
-          <Ionicons name="menu" size={20} color={colors.text} />
-        </Squircle>
-          <AppLogo color={colors.text} />
-          <Pressable onPress={() => setFilterOpen(true)}>
+        <View style={styles.topBar}>
+          <Pressable onPress={() => setExploreOpen(true)} hitSlop={8}>
             <Squircle style={styles.iconBtn} cornerRadius={14} cornerSmoothing={1} fillColor={colors.surface2}>
-          <Ionicons name="options-outline" size={20} color={colors.text} />
-        </Squircle>
+              <Ionicons name="compass-outline" size={20} color={colors.text} />
+            </Squircle>
           </Pressable>
-      </View>
+          <AppLogo color={colors.text} />
+          <Pressable onPress={() => setFilterOpen(true)} hitSlop={8}>
+            <Squircle style={styles.iconBtn} cornerRadius={14} cornerSmoothing={1} fillColor={colors.surface2}>
+              <Ionicons name="options-outline" size={20} color={colors.text} />
+            </Squircle>
+          </Pressable>
+        </View>
       )}
 
       {/* Tab content */}
@@ -1357,8 +1364,18 @@ export default function FeedScreen() {
               <View style={styles.navIconWrap}>
                 {isProfile ? (
                   <View style={[styles.avatarWrap, active && { borderWidth: 2, borderColor: colors.text }]}>
-                    <Image source={{ uri: MY_AVATAR }} style={styles.avatarImg} />
-        </View>
+                    {myAvatar ? (
+                      <ExpoImage
+                        source={{ uri: myAvatar }}
+                        style={styles.avatarImg}
+                        contentFit="cover"
+                        cachePolicy="memory-disk"
+                        transition={150}
+                      />
+                    ) : (
+                      <Ionicons name={active ? 'person' : 'person-outline'} size={20} color={active ? colors.text : colors.textSecondary} />
+                    )}
+                  </View>
                 ) : (
                   <Ionicons name={active ? item.iconActive : item.icon} size={22} color={active ? colors.text : colors.textSecondary} />
                 )}
@@ -1375,6 +1392,23 @@ export default function FeedScreen() {
 
       {/* Filter sheet */}
       <FilterSheet visible={filterOpen} onClose={() => setFilterOpen(false)} colors={colors} insets={insets} />
+
+      {/* Explore overlay */}
+      {exploreOpen && (
+        <View style={[StyleSheet.absoluteFillObject, { backgroundColor: colors.bg, zIndex: 100 }]}>
+          {/* Explore header */}
+          <View style={[styles.exploreHeader, { paddingTop: insets.top, backgroundColor: colors.bg, borderBottomColor: colors.border }]}>
+            <Pressable onPress={() => setExploreOpen(false)} hitSlop={10}>
+              <Squircle style={styles.iconBtn} cornerRadius={14} cornerSmoothing={1} fillColor={colors.surface2}>
+                <Ionicons name="arrow-back" size={20} color={colors.text} />
+              </Squircle>
+            </Pressable>
+            <AppLogo color={colors.text} />
+            <View style={styles.iconBtn} />
+          </View>
+          <ExplorePage colors={colors} insets={insets} />
+        </View>
+      )}
     </View>
   );
 }
@@ -1385,8 +1419,9 @@ const styles = StyleSheet.create({
   container: { flex: 1, flexDirection: 'column' },
 
   // Top bar
-  topBar:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 10 },
-  iconBtn: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center' },
+  topBar:        { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 10 },
+  iconBtn:       { width: 42, height: 42, alignItems: 'center', justifyContent: 'center' },
+  exploreHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingBottom: 10, borderBottomWidth: StyleSheet.hairlineWidth },
 
   // Card stack
   cardStack: { flex: 1, width: '100%', alignItems: 'center', justifyContent: 'center' },

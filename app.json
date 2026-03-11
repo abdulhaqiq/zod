@@ -1,17 +1,19 @@
 {
   "expo": {
-    "name": "frontend",
-    "slug": "frontend",
+    "name": "Zod",
+    "slug": "zod",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "frontend",
+    "scheme": "zod",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": false,
+      "bundleIdentifier": "com.zod.ai"
     },
     "android": {
+      "package": "com.zod.ai",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -41,7 +43,18 @@
       ],
       "@react-native-community/datetimepicker",
       "expo-secure-store",
-      "expo-localization"
+      "expo-localization",
+      [
+        "expo-av",
+        { "microphonePermission": "Allow Zod to record your voice prompts." }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow Zod to show you relevant matches nearby.",
+          "locationWhenInUsePermission": "Allow Zod to show you relevant matches nearby."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

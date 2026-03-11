@@ -27,11 +27,17 @@ export interface UserProfile {
   star_sign: string | null;
   religion: string | null;
   languages: string[] | null;
+  voice_prompts: Array<{ topic: string; url: string; duration_sec: number }> | null;
   causes: string[] | null;
   work_experience: Array<{ job_title: string; company: string; start_year: string; end_year: string; current: boolean }> | null;
   education: Array<{ institution: string; course: string; degree: string; grad_year: string }> | null;
   city: string | null;
   hometown: string | null;
+  address: string | null;
+  country: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  subscription_tier: string;        // "free" | "pro"
   is_onboarded: boolean;
   is_active: boolean;
   created_at: string;

@@ -3,7 +3,6 @@ import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
-  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -11,9 +10,10 @@ import {
   Text,
   View,
 } from 'react-native';
+import { Image as ExpoImage } from 'expo-image';
 import ChipSelectorSheet, { type ChipOption } from '@/components/ui/ChipSelectorSheet';
-import PremiumFeatureSheet from '@/components/ui/PremiumFeatureSheet';
 import WheelPickerSheet from '@/components/ui/WheelPickerSheet';
+import VoiceSection from '@/components/ui/VoiceSection';
 import Squircle from '@/components/ui/Squircle';
 import { API_BASE, apiFetch } from '@/constants/api';
 import { useAuth } from '@/context/AuthContext';
@@ -124,37 +124,37 @@ function EditRow({
 }
 
 function SettingRow({
-  icon, label, value, onPress, colors, danger = false,
+  icon, label, subtitle, value, onPress, colors, danger = false,
   toggle, toggleVal, onToggle, locked = false,
 }: {
-  icon: any; label: string; value?: string; onPress?: () => void;
+  icon: any; label: string; subtitle?: string; value?: string; onPress?: () => void;
   colors: AppColors; danger?: boolean; locked?: boolean;
   toggle?: boolean; toggleVal?: boolean; onToggle?: (v: boolean) => void;
 }) {
   return (
     <Pressable
-      onPress={onPress}
+      onPress={locked ? () => onPress?.() : onPress}
       style={({ pressed }) => [
         styles.settingRow,
         { borderBottomColor: colors.border },
-        locked && { opacity: 0.5 },
+        locked && { opacity: 0.55 },
         pressed && !toggle && !locked && { opacity: 0.6 },
       ]}
     >
       <Squircle style={styles.settingIconWrap} cornerRadius={10} cornerSmoothing={1} fillColor={colors.surface2}>
         <Ionicons name={icon} size={17} color={danger ? colors.error : colors.text} />
       </Squircle>
-      <Text style={[styles.settingLabel, { color: danger ? colors.error : colors.text }]}>{label}</Text>
-      {locked && value ? (
-        <View style={[styles.proTag, { backgroundColor: '#1a0a2e' }]}>
-          <Ionicons name="star" size={10} color="#FFD60A" />
-          <Text style={styles.proTagText}>{value}</Text>
-        </View>
-      ) : !locked && value ? (
-        <Text style={[styles.settingValue, { color: colors.textSecondary }]}>{value}</Text>
-      ) : null}
+      <View style={{ flex: 1, gap: 2 }}>
+        <Text style={[styles.settingLabel, { color: danger ? colors.error : colors.text }]}>{label}</Text>
+        {subtitle ? (
+          <Text style={[styles.settingSubtitle, { color: colors.textSecondary }]} numberOfLines={1}>
+            {subtitle}
+          </Text>
+        ) : null}
+      </View>
+      {value ? <Text style={[styles.settingValue, { color: colors.textSecondary }]}>{value}</Text> : null}
       {locked ? (
-        <Ionicons name="lock-closed" size={14} color={colors.textTertiary} />
+        <Ionicons name="lock-closed" size={15} color={colors.textSecondary} />
       ) : toggle ? (
         <Switch
           value={toggleVal}
@@ -209,8 +209,7 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
   const [religion,       setReligion]       = useState(profile?.religion      ?? '');
   const [languages,      setLanguages]      = useState<string[]>(profile?.languages ?? []);
 
-  const [snooze,       setSnooze]       = useState(false);
-  const [premiumSheet, setPremiumSheet] = useState<string | null>(null);
+  const [snooze, setSnooze] = useState(false);
 
   // Sync if profile loads after mount
   useEffect(() => {
@@ -283,7 +282,7 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
       <View style={[styles.igHeaderWrap, { borderBottomColor: colors.border }]}>
         <View style={styles.igHeader}>
           {avatarUrl ? (
-            <Image source={{ uri: avatarUrl }} style={styles.avatarImage} resizeMode="cover" />
+            <ExpoImage source={{ uri: avatarUrl }} style={styles.avatarImage} contentFit="cover" cachePolicy="memory-disk" transition={200} />
           ) : (
             <View style={[styles.avatarImage, styles.avatarPlaceholder, { backgroundColor: colors.surface2 }]}>
               <Ionicons name="person" size={28} color={colors.textSecondary} />
@@ -407,33 +406,43 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
         </Group>
       </View>
 
+      {/* ── VOICE PROMPTS ───────────────────────────────────────────────── */}
+      <View style={styles.section}>
+        <SectionLabel title="VOICE PROMPTS" colors={colors} />
+        <Text style={[styles.voiceSubtitle, { color: colors.textSecondary }]}>
+          Record up to 2 clips · 30 seconds each
+        </Text>
+        <VoiceSection colors={colors} />
+      </View>
+
       {/* ── APP SETTINGS ────────────────────────────────────────────────── */}
       <View style={styles.section}>
         <SectionLabel title="APP SETTINGS" colors={colors} />
         <Group colors={colors}>
           <SettingRow
-            icon="moon-outline" label="Snooze Mode" colors={colors}
-            toggle toggleVal={snooze} onToggle={setSnooze}
+            icon="moon-outline" label="Snooze Mode"
+            subtitle="Pause your profile visibility"
+            colors={colors} toggle toggleVal={snooze} onToggle={setSnooze}
           />
           <SettingRow
-            icon="eye-off-outline" label="Incognito Mode" colors={colors}
-            locked onPress={() => setPremiumSheet('incognito')}
-            value="Pro"
+            icon="eye-off-outline" label="Incognito Mode"
+            subtitle="Browse profiles without being seen"
+            colors={colors} locked onPress={() => router.push('/subscription')}
           />
           <SettingRow
-            icon="sparkles-outline" label="Auto Zod (AI)" colors={colors}
-            locked onPress={() => setPremiumSheet('autoZod')}
-            value="Pro"
+            icon="sparkles-outline" label="Auto Zod (AI)"
+            subtitle="Let AI find your best matches daily"
+            colors={colors} locked onPress={() => router.push('/subscription')}
           />
           <SettingRow
-            icon="airplane-outline" label="Travel Mode" colors={colors}
-            locked onPress={() => setPremiumSheet('travel')}
-            value="Pro"
+            icon="airplane-outline" label="Travel Mode"
+            subtitle="Match with people in any city worldwide"
+            colors={colors} locked onPress={() => router.push('/subscription')}
           />
           <SettingRow
-            icon="location-outline" label="Change Location" colors={colors}
-            locked onPress={() => setPremiumSheet('changeLocation')}
-            value="Pro"
+            icon="location-outline" label="Change Location"
+            subtitle="Update your current city"
+            colors={colors} locked onPress={() => router.push('/subscription')}
           />
         </Group>
       </View>
@@ -442,11 +451,11 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
       <View style={styles.section}>
         <SectionLabel title="ACCOUNT" colors={colors} />
         <Group colors={colors}>
-          <SettingRow icon="notifications-outline" label="Notifications"     colors={colors} />
-          <SettingRow icon="shield-outline"        label="Security"          colors={colors} />
-          <SettingRow icon="document-text-outline" label="Legal Information" colors={colors} />
-          <SettingRow icon="help-circle-outline"   label="Get Help"          colors={colors} />
-          <SettingRow icon="card-outline"          label="Purchases"         colors={colors} />
+          <SettingRow icon="notifications-outline" label="Notifications"     colors={colors} onPress={() => router.push('/notifications')} />
+          <SettingRow icon="shield-outline"        label="Security"          colors={colors} onPress={() => router.push('/security')} />
+          <SettingRow icon="document-text-outline" label="Legal Information" colors={colors} onPress={() => router.push('/legal')} />
+          <SettingRow icon="help-circle-outline"   label="Get Help"          colors={colors} onPress={() => router.push('/get-help')} />
+          <SettingRow icon="card-outline"          label="Purchases"         colors={colors} onPress={() => router.push('/purchases')} />
         </Group>
       </View>
 
@@ -473,13 +482,6 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
           colors={colors}
         />
       )}
-
-      {/* ── Premium feature upsell sheet ────────────────────────────────── */}
-      <PremiumFeatureSheet
-        featureKey={premiumSheet}
-        onClose={() => setPremiumSheet(null)}
-        colors={colors}
-      />
 
       {/* ── Chip picker (single-select fields + multi-select Languages) ──── */}
       {chipPicker && (
@@ -527,6 +529,7 @@ const styles = StyleSheet.create({
 
   section:           { paddingHorizontal: 16, marginTop: 22, gap: 6 },
   sectionLabel:      { fontSize: 12, fontFamily: 'ProductSans-Bold', letterSpacing: 1.5, marginLeft: 2, marginBottom: 2 },
+  voiceSubtitle:     { fontSize: 12, fontFamily: 'ProductSans-Regular', marginBottom: 4, marginLeft: 2 },
 
   group:             { overflow: 'hidden' },
 
@@ -538,10 +541,9 @@ const styles = StyleSheet.create({
 
   settingRow:        { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14 },
   settingIconWrap:   { width: 32, height: 32, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
-  settingLabel:      { flex: 1, fontSize: 15, fontFamily: 'ProductSans-Regular' },
+  settingLabel:      { fontSize: 15, fontFamily: 'ProductSans-Regular' },
+  settingSubtitle:   { fontSize: 11, fontFamily: 'ProductSans-Regular' },
   settingValue:      { fontSize: 13, fontFamily: 'ProductSans-Regular', maxWidth: 120, textAlign: 'right' },
-  proTag:            { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20 },
-  proTagText:        { fontSize: 11, fontFamily: 'ProductSans-Bold', color: '#c084fc' },
 
   avatarImage:       { width: 64, height: 64, borderRadius: 32 },
   avatarPlaceholder: { alignItems: 'center', justifyContent: 'center' },
