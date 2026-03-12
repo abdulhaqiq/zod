@@ -17,7 +17,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import { API_BASE, apiFetch } from '@/constants/api';
+import { API_V1, apiFetch } from '@/constants/api';
 import { useAuth } from '@/context/AuthContext';
 import { useProfileSave } from '@/hooks/useProfileSave';
 import type { AppColors } from '@/constants/appColors';
@@ -316,7 +316,7 @@ export default function VoiceSection({ colors }: Props) {
       form.append('file', { uri, name: 'voice.m4a', type: 'audio/m4a' } as any);
       form.append('duration_sec', String(Math.round(duration)));
 
-      const res = await apiFetch(`${API_BASE}/api/v1/upload/audio`, {
+      const res = await fetch(`${API_V1}/upload/audio`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
         body: form,

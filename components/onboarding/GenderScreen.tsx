@@ -4,13 +4,11 @@ import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '@/context/AuthContext';
 import { useAppTheme } from '@/context/ThemeContext';
+import { LOOKUP } from '@/constants/lookupData';
 import { useProfileSave } from '@/hooks/useProfileSave';
 import OnboardingShell from './OnboardingShell';
 
-const GENDERS = [
-  { label: 'Man',    value: 'man',    icon: '♂' },
-  { label: 'Woman',  value: 'woman',  icon: '♀' },
-];
+const GENDERS = LOOKUP.gender;
 
 export default function GenderScreen() {
   const router = useRouter();
@@ -18,11 +16,11 @@ export default function GenderScreen() {
   const { save, saving } = useProfileSave();
   const { profile } = useAuth();
 
-  const [selected, setSelected] = useState<string | null>(profile?.gender ?? null);
+  const [selectedId, setSelectedId] = useState<number | null>(profile?.gender_id ?? null);
 
   const handleContinue = async () => {
-    if (!selected) return;
-    const ok = await save({ gender: selected });
+    if (!selectedId) return;
+    const ok = await save({ gender_id: selectedId });
     if (ok) router.push('/purpose');
   };
 
@@ -32,16 +30,16 @@ export default function GenderScreen() {
       title="I identify as"
       subtitle="This helps us personalise your experience."
       onContinue={handleContinue}
-      continueDisabled={!selected}
+      continueDisabled={!selectedId}
       loading={saving}
     >
       <View style={styles.row}>
-        {GENDERS.map(({ label, value, icon }) => {
-          const active = selected === value;
+        {GENDERS.map(({ id, emoji, label }) => {
+          const active = selectedId === id;
           return (
             <Pressable
-              key={value}
-              onPress={() => setSelected(value)}
+              key={id}
+              onPress={() => setSelectedId(id)}
               style={[
                 styles.pill,
                 {
@@ -51,7 +49,7 @@ export default function GenderScreen() {
               ]}
             >
               <Text style={[styles.icon, { color: active ? colors.bg : colors.textSecondary }]}>
-                {icon}
+                {emoji}
               </Text>
               <Text style={[styles.label, { color: active ? colors.bg : colors.text }]}>
                 {label}

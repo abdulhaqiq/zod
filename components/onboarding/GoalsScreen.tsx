@@ -1,29 +1,28 @@
-// Step 4 — Goals (multi-select, up to 5)
+// Step 4 — Life Goals (multi-select, up to 5)
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '@/context/AuthContext';
 import { useAppTheme } from '@/context/ThemeContext';
+import { LOOKUP } from '@/constants/lookupData';
 import { useProfileSave } from '@/hooks/useProfileSave';
 import OnboardingShell from './OnboardingShell';
 
-const GOALS = [
-  'Travel the world', 'Build a family', 'Grow my career',
-  'Personal growth', 'Creative pursuits', 'Financial stability',
-  'Community & giving', 'Adventure & thrills', 'Mindfulness & health',
-];
+// Life goals are items 16-24 in values_list (indices 16+)
+const GOALS = LOOKUP.values_list.slice(16);
 
 export default function GoalsScreen() {
   const router = useRouter();
   const { colors } = useAppTheme();
   const { save, saving } = useProfileSave();
   const { profile } = useAuth();
-  const existingGoals = (profile?.values_list ?? []).filter((v) => GOALS.includes(v));
-  const [selected, setSelected] = useState<string[]>(existingGoals);
+  const goalIds = GOALS.map(g => g.id);
+  const existingGoals = (profile?.values_list ?? []).filter(id => goalIds.includes(id));
+  const [selected, setSelected] = useState<number[]>(existingGoals);
 
-  const toggle = (g: string) =>
+  const toggle = (id: number) =>
     setSelected((prev) =>
-      prev.includes(g) ? prev.filter((x) => x !== g) : prev.length < 5 ? [...prev, g] : prev,
+      prev.includes(id) ? prev.filter((x) => x !== id) : prev.length < 5 ? [...prev, id] : prev,
     );
 
   const handleContinue = async () => {
@@ -43,11 +42,11 @@ export default function GoalsScreen() {
     >
       <View style={styles.grid}>
         {GOALS.map((g) => {
-          const active = selected.includes(g);
+          const active = selected.includes(g.id);
           return (
             <Pressable
-              key={g}
-              onPress={() => toggle(g)}
+              key={g.id}
+              onPress={() => toggle(g.id)}
               style={[
                 styles.chip,
                 {
@@ -56,7 +55,9 @@ export default function GoalsScreen() {
                 },
               ]}
             >
-              <Text style={[styles.chipText, { color: active ? colors.bg : colors.text }]}>{g}</Text>
+              <Text style={[styles.chipText, { color: active ? colors.bg : colors.text }]}>
+                {g.emoji ? `${g.emoji} ` : ''}{g.label}
+              </Text>
             </Pressable>
           );
         })}

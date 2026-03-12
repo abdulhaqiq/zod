@@ -24,6 +24,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { AppColors } from '@/constants/appColors';
 
 export interface ChipOption {
+  /** Stable key stored in the DB (e.g. the lookup row ID as a string). Falls back to label. */
+  value?: string;
   emoji?: string;
   label: string;
 }
@@ -67,14 +69,14 @@ export default function ChipSelectorSheet({
     }).start();
   }, [visible]);
 
-  const toggle = (label: string) => {
+  const toggle = (key: string) => {
     if (singleSelect) {
-      setLocalSelected([label]);
+      setLocalSelected([key]);
       return;
     }
     setLocalSelected(prev => {
-      if (prev.includes(label)) return prev.filter(s => s !== label);
-      if (prev.length < maxSelect) return [...prev, label];
+      if (prev.includes(key)) return prev.filter(s => s !== key);
+      if (prev.length < maxSelect) return [...prev, key];
       return prev;
     });
   };
@@ -136,12 +138,13 @@ export default function ChipSelectorSheet({
           showsVerticalScrollIndicator={false}
         >
           {options.map(opt => {
-            const isSelected = localSelected.includes(opt.label);
+            const key = opt.value ?? opt.label;
+            const isSelected = localSelected.includes(key);
             const disabled = !isSelected && atMax;
             return (
               <Pressable
-                key={opt.label}
-                onPress={() => toggle(opt.label)}
+                key={key}
+                onPress={() => toggle(key)}
                 style={({ pressed }) => [
                   styles.chip,
                   {

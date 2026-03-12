@@ -1,8 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
 import { Alert, Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ScreenHeader from '@/components/ui/ScreenHeader';
+import Squircle from '@/components/ui/Squircle';
 import { useAppTheme } from '@/context/ThemeContext';
 
 // ─── FAQ data ─────────────────────────────────────────────────────────────────
@@ -71,9 +71,9 @@ function ContactRow({ icon, label, sub, onPress, last, colors }: {
         pressed && { opacity: 0.6 },
       ]}
     >
-      <View style={[styles.iconWrap, { backgroundColor: colors.bg }]}>
+      <Squircle style={styles.iconWrap} cornerRadius={10} cornerSmoothing={1} fillColor={colors.bg}>
         <Ionicons name={icon} size={18} color={colors.text} />
-      </View>
+      </Squircle>
       <View style={styles.rowText}>
         <Text style={[styles.rowLabel, { color: colors.text }]}>{label}</Text>
         <Text style={[styles.rowSub, { color: colors.textSecondary }]}>{sub}</Text>
@@ -87,7 +87,6 @@ function ContactRow({ icon, label, sub, onPress, last, colors }: {
 
 export default function GetHelpPage() {
   const { colors } = useAppTheme();
-  const insets = useSafeAreaInsets();
   const [search, setSearch] = useState('');
 
   const filtered = FAQ.filter(f =>
@@ -97,12 +96,13 @@ export default function GetHelpPage() {
   );
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.bg, paddingTop: insets.top }]}>
+    <View style={[styles.container, { backgroundColor: colors.bg }]}>
       <ScreenHeader title="Get Help" />
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
 
         {/* ── Search ──────────────────────────────────────────────────────── */}
-        <View style={[styles.searchBar, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        <Squircle style={styles.searchBar} cornerRadius={16} cornerSmoothing={1}
+          fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
           <Ionicons name="search-outline" size={16} color={colors.textSecondary} />
           <TextInput
             style={[styles.searchInput, { color: colors.text }]}
@@ -116,25 +116,27 @@ export default function GetHelpPage() {
               <Ionicons name="close-circle" size={16} color={colors.textSecondary} />
             </Pressable>
           )}
-        </View>
+        </Squircle>
 
         {/* ── FAQ ─────────────────────────────────────────────────────────── */}
         <View style={styles.section}>
           <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>FREQUENTLY ASKED</Text>
-          <View style={[styles.group, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <Squircle style={styles.group} cornerRadius={22} cornerSmoothing={1}
+            fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
             {filtered.length > 0
               ? filtered.map((item, idx) => (
                   <AccordionItem key={idx} q={item.q} a={item.a} colors={colors} />
                 ))
               : <Text style={[styles.emptyText, { color: colors.textSecondary }]}>No results for "{search}"</Text>
             }
-          </View>
+          </Squircle>
         </View>
 
         {/* ── Contact ─────────────────────────────────────────────────────── */}
         <View style={styles.section}>
           <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>CONTACT US</Text>
-          <View style={[styles.group, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <Squircle style={styles.group} cornerRadius={22} cornerSmoothing={1}
+            fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
             <ContactRow
               icon="chatbubbles-outline" label="Live Chat"
               sub="Chat with our support team"
@@ -153,7 +155,7 @@ export default function GetHelpPage() {
               onPress={() => Linking.openURL('mailto:bugs@zod.ai?subject=Bug Report')}
               colors={colors} last
             />
-          </View>
+          </Squircle>
         </View>
 
         <Text style={[styles.footer, { color: colors.textSecondary }]}>
@@ -165,21 +167,21 @@ export default function GetHelpPage() {
 }
 
 const styles = StyleSheet.create({
-  container:      { flex: 1 },
-  scroll:         { paddingHorizontal: 16, paddingBottom: 40 },
-  searchBar:      { flexDirection: 'row', alignItems: 'center', borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 12, paddingVertical: 10, gap: 8, marginTop: 12 },
-  searchInput:    { flex: 1, fontSize: 14, fontFamily: 'ProductSans-Regular' },
-  section:        { marginTop: 24 },
-  sectionTitle:   { fontSize: 11, fontFamily: 'ProductSans-Bold', letterSpacing: 1.4, marginBottom: 8, marginLeft: 2 },
-  group:          { borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, overflow: 'hidden' },
-  row:            { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 14, gap: 12 },
-  iconWrap:       { width: 34, height: 34, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-  rowText:        { flex: 1 },
-  rowLabel:       { fontSize: 15, fontFamily: 'ProductSans-Medium' },
-  rowSub:         { fontSize: 12, fontFamily: 'ProductSans-Regular', marginTop: 2 },
-  accordionHeader:{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 14, paddingVertical: 14 },
-  accordionQ:     { fontSize: 14, fontFamily: 'ProductSans-Medium', flex: 1, marginRight: 8 },
-  accordionA:     { fontSize: 13, fontFamily: 'ProductSans-Regular', lineHeight: 20, paddingHorizontal: 14, paddingBottom: 14 },
-  emptyText:      { fontSize: 14, fontFamily: 'ProductSans-Regular', padding: 20, textAlign: 'center' },
-  footer:         { fontSize: 12, fontFamily: 'ProductSans-Regular', textAlign: 'center', marginTop: 28 },
+  container:       { flex: 1 },
+  scroll:          { paddingHorizontal: 16, paddingBottom: 40 },
+  searchBar:       { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 10, gap: 8, marginTop: 12 },
+  searchInput:     { flex: 1, fontSize: 14, fontFamily: 'ProductSans-Regular' },
+  section:         { marginTop: 24 },
+  sectionTitle:    { fontSize: 11, fontFamily: 'ProductSans-Bold', letterSpacing: 1.4, marginBottom: 8, marginLeft: 2 },
+  group:           { overflow: 'hidden' },
+  row:             { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 14, gap: 12 },
+  iconWrap:        { width: 34, height: 34, alignItems: 'center', justifyContent: 'center' },
+  rowText:         { flex: 1 },
+  rowLabel:        { fontSize: 15, fontFamily: 'ProductSans-Medium' },
+  rowSub:          { fontSize: 12, fontFamily: 'ProductSans-Regular', marginTop: 2 },
+  accordionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 14, paddingVertical: 14 },
+  accordionQ:      { fontSize: 14, fontFamily: 'ProductSans-Medium', flex: 1, marginRight: 8 },
+  accordionA:      { fontSize: 13, fontFamily: 'ProductSans-Regular', lineHeight: 20, paddingHorizontal: 14, paddingBottom: 14 },
+  emptyText:       { fontSize: 14, fontFamily: 'ProductSans-Regular', padding: 20, textAlign: 'center' },
+  footer:          { fontSize: 12, fontFamily: 'ProductSans-Regular', textAlign: 'center', marginTop: 28 },
 });

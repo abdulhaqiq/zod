@@ -31,9 +31,55 @@ interface Msg {
   from: 'me' | 'them';
   time: string;
   isCard?: boolean;
+  isAnswer?: boolean;
+  answerTo?: string;
 }
 
-// ─── Mock match profile (replace with real API data) ─────────────────────────
+// ─── Question card data ───────────────────────────────────────────────────────
+
+type CardCategory = 'All' | 'Deep' | 'Fun' | 'Would You Rather';
+
+interface StarterCard {
+  emoji: string;
+  question: string;
+  tag: string;
+  category: CardCategory;
+  color: string;    // gradient start
+  colorEnd: string; // gradient end (used as solid tint for bg)
+}
+
+const ALL_CARDS: StarterCard[] = [
+  // Deep
+  { emoji: '🌊', question: "What's something you changed your mind about recently?", tag: 'Deep', category: 'Deep', color: '#1e3a5f', colorEnd: '#0f2d4a' },
+  { emoji: '🔮', question: "What's a dream you haven't told many people about?", tag: 'Deep', category: 'Deep', color: '#2d1b4e', colorEnd: '#1e0f3a' },
+  { emoji: '🌙', question: "What does your perfect Sunday look like?", tag: 'Lifestyle', category: 'Deep', color: '#1a2a3a', colorEnd: '#0d1a27' },
+  { emoji: '💫', question: "What's one thing you wish you knew earlier in life?", tag: 'Deep', category: 'Deep', color: '#1f2d1f', colorEnd: '#122012' },
+
+  // Fun
+  { emoji: '✈️', question: "Best country you've ever visited?", tag: 'Travel', category: 'Fun', color: '#1a3a2a', colorEnd: '#0d2a1a' },
+  { emoji: '📚', question: "Last book you couldn't put down?", tag: 'Books', category: 'Fun', color: '#3a2a1a', colorEnd: '#2a1a0d' },
+  { emoji: '📸', question: "What's your favourite thing to photograph?", tag: 'Photography', category: 'Fun', color: '#3a1a1a', colorEnd: '#2a0d0d' },
+  { emoji: '🍕', question: "Pizza or tacos — which one wins?", tag: 'Food', category: 'Fun', color: '#3a1a2a', colorEnd: '#2a0d1a' },
+  { emoji: '🎵', question: "What's the last song you had on repeat?", tag: 'Music', category: 'Fun', color: '#1a1a3a', colorEnd: '#0d0d2a' },
+  { emoji: '🌅', question: "Morning person or night owl?", tag: 'Lifestyle', category: 'Fun', color: '#3a2a10', colorEnd: '#2a1a08' },
+
+  // Would You Rather
+  { emoji: '🤔', question: "Live in the mountains or by the ocean?", tag: 'Would You Rather', category: 'Would You Rather', color: '#1a2a3a', colorEnd: '#0f1e2d' },
+  { emoji: '⚡', question: "Be able to fly or be invisible?", tag: 'Would You Rather', category: 'Would You Rather', color: '#2a1a3a', colorEnd: '#1e0f2d' },
+  { emoji: '🌍', question: "Travel everywhere or know every language?", tag: 'Would You Rather', category: 'Would You Rather', color: '#1a3a1a', colorEnd: '#0f2d0f' },
+  { emoji: '⏰', question: "Go back in time or skip 10 years into the future?", tag: 'Would You Rather', category: 'Would You Rather', color: '#3a1a10', colorEnd: '#2d0f08' },
+];
+
+const CATEGORIES: CardCategory[] = ['All', 'Deep', 'Fun', 'Would You Rather'];
+
+const CATEGORY_ACCENT: Record<CardCategory, string> = {
+  All: '#7c3aed',
+  Deep: '#3b82f6',
+  Fun: '#f59e0b',
+  'Would You Rather': '#ec4899',
+};
+
+// ─── Mock match profile ───────────────────────────────────────────────────────
 
 const MATCH_PROFILE = {
   name: 'Sophia',
@@ -53,8 +99,6 @@ const SHARED_EMOJIS: Record<string, string> = {
   Hiking: '🥾', Movies: '🎬', Nature: '🌿', Cycling: '🚴',
 };
 
-// ─── AI content tailored to shared interests ──────────────────────────────────
-
 const AI_LINES = [
   `If travel were a language, we'd be fluent ✈️`,
   `I've been to 14 countries and none of them were as interesting as this conversation`,
@@ -66,133 +110,169 @@ const AI_LINES = [
   `They say the best adventures are unplanned — like meeting you 🛫`,
 ];
 
-const STARTER_CARDS = [
-  { emoji: '✈️', question: "Best country you've ever visited?", tag: 'Travel' },
-  { emoji: '📚', question: "Last book you couldn't put down?", tag: 'Books' },
-  { emoji: '📸', question: "What's your favourite thing to photograph?", tag: 'Photography' },
-  { emoji: '🔮', question: "What's top of your bucket list?", tag: 'Bucket list' },
-  { emoji: '🌅', question: 'Morning person or night owl?', tag: 'Lifestyle' },
-  { emoji: '🍕', question: 'Pizza or tacos — which one wins?', tag: 'Food' },
-];
-
 const INITIAL_MESSAGES: Msg[] = [
   { id: '1', text: "Hey! I saw we both love traveling ✈️", from: 'them', time: '2:10 PM' },
   { id: '2', text: "Yes! I've been to 14 countries so far 🌍", from: 'me',   time: '2:11 PM' },
   { id: '3', text: "That's amazing! Which was your favourite?", from: 'them', time: '2:12 PM' },
 ];
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
 const nowTime = () => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-// ─── AI Profile Insight Card (top of chat) ────────────────────────────────────
+// ─── AI Profile Insight Card — bottom-sheet modal ─────────────────────────────
 
-function AiInsightCard({ colors, onDismiss }: { colors: any; onDismiss: () => void }) {
-  const [expanded, setExpanded] = useState(true);
-  const anim = useRef(new Animated.Value(1)).current;
+function AiInsightPanel({ colors, name, onClose }: { colors: any; name: string; onClose: () => void }) {
+  const slideY = useRef(new Animated.Value(500)).current;
 
-  const toggle = () => {
-    Animated.timing(anim, { toValue: expanded ? 0 : 1, duration: 220, useNativeDriver: false }).start();
-    setExpanded(v => !v);
-  };
+  useEffect(() => {
+    Animated.spring(slideY, { toValue: 0, useNativeDriver: true, damping: 22, stiffness: 260 }).start();
+  }, []);
 
-  const maxH = anim.interpolate({ inputRange: [0, 1], outputRange: [52, 320] });
+  const dismiss = (cb?: () => void) =>
+    Animated.timing(slideY, { toValue: 500, duration: 220, useNativeDriver: true }).start(cb);
 
   return (
-    <Animated.View style={[styles.insightCard, { backgroundColor: colors.surface, borderColor: colors.border, maxHeight: maxH }]}>
-      {/* Header row */}
-      <Pressable onPress={toggle} style={styles.insightHeader}>
-        <View style={styles.insightHeaderLeft}>
-          <Squircle style={styles.insightIcon} cornerRadius={10} cornerSmoothing={1} fillColor="#7c3aed">
-            <Ionicons name="sparkles" size={13} color="#fff" />
-          </Squircle>
-          <Text style={[styles.insightTitle, { color: colors.text }]}>Zod AI · Profile Insights</Text>
-        </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          <Pressable onPress={onDismiss} hitSlop={10}>
-            <Ionicons name="close" size={16} color={colors.textTertiary} />
-          </Pressable>
-          <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={15} color={colors.textSecondary} />
-        </View>
-      </Pressable>
+    <Pressable style={StyleSheet.absoluteFill} onPress={() => dismiss(onClose)}>
+      <Animated.View
+        style={[styles.panel, {
+          backgroundColor: colors.surface,
+          borderTopColor: colors.border,
+          transform: [{ translateY: slideY }],
+        }]}
+      >
+        <Pressable>
+          <View style={[styles.panelHandle, { backgroundColor: colors.border }]} />
 
-      {/* Body */}
-      <View style={styles.insightBody}>
-        {/* AI summary */}
-        <Squircle style={styles.insightSummaryBox} cornerRadius={14} cornerSmoothing={1} fillColor={colors.surface2}>
-          <Text style={[styles.insightSummary, { color: colors.text }]}>
-            {MATCH_PROFILE.aiSummary}
-          </Text>
-        </Squircle>
-
-        {/* Shared interests */}
-        <View style={styles.insightSection}>
-          <Text style={[styles.insightSectionLabel, { color: colors.textSecondary }]}>You both love</Text>
-          <View style={styles.insightChips}>
-            {MATCH_PROFILE.sharedInterests.map(interest => (
-              <View key={interest} style={[styles.insightChip, { backgroundColor: colors.surface2, borderColor: colors.border }]}>
-                <Text style={styles.insightChipEmoji}>{SHARED_EMOJIS[interest] ?? '⭐'}</Text>
-                <Text style={[styles.insightChipText, { color: colors.text }]}>{interest}</Text>
-              </View>
-            ))}
+          {/* Header */}
+          <View style={styles.panelHeader}>
+            <Squircle style={styles.panelIcon} cornerRadius={12} cornerSmoothing={1} fillColor="#7c3aed">
+              <Ionicons name="sparkles" size={15} color="#fff" />
+            </Squircle>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.panelTitle, { color: colors.text }]}>Profile Insights</Text>
+              <Text style={[styles.panelSub, { color: colors.textSecondary }]}>Powered by Zod AI</Text>
+            </View>
+            <Pressable onPress={() => dismiss(onClose)} hitSlop={12}>
+              <Squircle style={styles.panelCloseBtn} cornerRadius={10} cornerSmoothing={1} fillColor={colors.surface2}>
+                <Ionicons name="close" size={16} color={colors.text} />
+              </Squircle>
+            </Pressable>
           </View>
-        </View>
 
-        {/* Profile highlights */}
-        <View style={styles.insightSection}>
-          <Text style={[styles.insightSectionLabel, { color: colors.textSecondary }]}>
-            {MATCH_PROFILE.name}'s highlights
-          </Text>
-          <View style={styles.insightHighlights}>
-            {[
-              { icon: 'resize-outline',  val: MATCH_PROFILE.height },
-              { icon: 'heart-outline',   val: MATCH_PROFILE.lookingFor },
-              { icon: 'star-outline',    val: MATCH_PROFILE.starSign },
-              { icon: 'book-outline',    val: MATCH_PROFILE.religion },
-            ].map(h => (
-              <View key={h.val} style={[styles.insightHighlight, { backgroundColor: colors.surface2, borderColor: colors.border }]}>
-                <Ionicons name={h.icon as any} size={12} color={colors.textSecondary} />
-                <Text style={[styles.insightHighlightText, { color: colors.text }]}>{h.val}</Text>
+          <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 420 }}>
+            {/* AI summary */}
+            <View style={{ paddingHorizontal: 16, gap: 16, paddingBottom: 28 }}>
+              <Squircle style={styles.insightSummaryBox} cornerRadius={16} cornerSmoothing={1} fillColor={colors.surface2}>
+                <Text style={[styles.insightSummary, { color: colors.text }]}>{MATCH_PROFILE.aiSummary}</Text>
+              </Squircle>
+
+              {/* Shared interests */}
+              <View style={styles.insightSection}>
+                <Text style={[styles.insightSectionLabel, { color: colors.textSecondary }]}>YOU BOTH LOVE</Text>
+                <View style={styles.insightChips}>
+                  {MATCH_PROFILE.sharedInterests.map(interest => (
+                    <View key={interest} style={[styles.insightChip, { backgroundColor: colors.surface2, borderColor: colors.border }]}>
+                      <Text style={styles.insightChipEmoji}>{SHARED_EMOJIS[interest] ?? '⭐'}</Text>
+                      <Text style={[styles.insightChipText, { color: colors.text }]}>{interest}</Text>
+                    </View>
+                  ))}
+                </View>
               </View>
-            ))}
-          </View>
-        </View>
 
-        {/* Footer tip */}
-        <Text style={[styles.insightTip, { color: colors.textTertiary }]}>
-          💡 Tap ❓ for question cards or ✨ for AI pickup lines
-        </Text>
-      </View>
-    </Animated.View>
+              {/* Profile highlights */}
+              <View style={styles.insightSection}>
+                <Text style={[styles.insightSectionLabel, { color: colors.textSecondary }]}>{name.toUpperCase()}'S HIGHLIGHTS</Text>
+                <View style={styles.insightHighlights}>
+                  {[
+                    { icon: 'resize-outline',  val: MATCH_PROFILE.height },
+                    { icon: 'heart-outline',   val: MATCH_PROFILE.lookingFor },
+                    { icon: 'star-outline',    val: MATCH_PROFILE.starSign },
+                    { icon: 'book-outline',    val: MATCH_PROFILE.religion },
+                  ].map(h => (
+                    <View key={h.val} style={[styles.insightHighlight, { backgroundColor: colors.surface2, borderColor: colors.border }]}>
+                      <Ionicons name={h.icon as any} size={12} color={colors.textSecondary} />
+                      <Text style={[styles.insightHighlightText, { color: colors.text }]}>{h.val}</Text>
+                    </View>
+                  ))}
+                </View>
+              </View>
+
+              {/* Conversation tip */}
+              <View style={[styles.insightTipBox, { backgroundColor: 'rgba(124,58,237,0.12)', borderColor: 'rgba(124,58,237,0.25)' }]}>
+                <Ionicons name="bulb-outline" size={14} color="#a78bfa" />
+                <Text style={[styles.insightTipText, { color: '#a78bfa' }]}>
+                  Tap ❓ to send a question card and ✨ for AI-crafted openers
+                </Text>
+              </View>
+            </View>
+          </ScrollView>
+        </Pressable>
+      </Animated.View>
+    </Pressable>
   );
 }
 
 // ─── Message bubble ───────────────────────────────────────────────────────────
 
-function Bubble({ msg, colors }: { msg: Msg; colors: any }) {
+function Bubble({ msg, colors, onAnswer }: { msg: Msg; colors: any; onAnswer?: (q: string) => void }) {
   const isMe = msg.from === 'me';
 
-  if (msg.isCard) {
-    const card = STARTER_CARDS.find(c => c.question === msg.text);
-    const emoji = card?.emoji ?? '❓';
-    const tag   = card?.tag   ?? 'Question';
+  if (msg.isAnswer && msg.answerTo) {
     return (
       <View style={[styles.bubbleRow, isMe ? styles.bubbleRowMe : styles.bubbleRowThem]}>
         <View style={[
-          styles.cardBubble,
-          { backgroundColor: isMe ? colors.text : colors.surface, borderColor: colors.border },
+          styles.answerBubble,
+          isMe
+            ? { backgroundColor: colors.text, borderColor: 'transparent' }
+            : { backgroundColor: colors.surface, borderColor: colors.border },
         ]}>
-          <View style={[styles.cardTag, { backgroundColor: isMe ? 'rgba(255,255,255,0.12)' : colors.surface2 }]}>
-            <Ionicons name="help-circle" size={10} color={isMe ? 'rgba(255,255,255,0.5)' : colors.textSecondary} />
-            <Text style={[styles.cardTagText, { color: isMe ? 'rgba(255,255,255,0.5)' : colors.textSecondary }]}>
-              {tag}
+          <View style={[styles.answerContext, {
+            backgroundColor: isMe ? 'rgba(255,255,255,0.12)' : colors.surface2,
+            borderLeftColor: isMe ? 'rgba(255,255,255,0.4)' : '#7c3aed',
+          }]}>
+            <Ionicons name="return-down-forward" size={10} color={isMe ? 'rgba(255,255,255,0.5)' : '#7c3aed'} />
+            <Text style={[styles.answerContextText, { color: isMe ? 'rgba(255,255,255,0.55)' : colors.textSecondary }]} numberOfLines={1}>
+              {msg.answerTo}
             </Text>
           </View>
+          <Text style={[styles.bubbleText, { color: isMe ? colors.bg : colors.text }]}>{msg.text}</Text>
+          <Text style={[styles.bubbleTime, { color: isMe ? 'rgba(255,255,255,0.38)' : colors.textTertiary }]}>{msg.time}</Text>
+        </View>
+      </View>
+    );
+  }
+
+  if (msg.isCard) {
+    const card = ALL_CARDS.find(c => c.question === msg.text);
+    const emoji = card?.emoji ?? '❓';
+    const tag   = card?.tag   ?? 'Question';
+    const accent = card ? CATEGORY_ACCENT[card.category] : '#7c3aed';
+    const cardBg = card?.color ?? (isMe ? '#1a1a1a' : colors.surface);
+
+    return (
+      <View style={[styles.bubbleRow, isMe ? styles.bubbleRowMe : styles.bubbleRowThem]}>
+        <View style={[styles.cardBubble, { backgroundColor: cardBg, borderColor: 'transparent' }]}>
+          {/* Tag */}
+          <View style={[styles.cardTag, { backgroundColor: `${accent}30` }]}>
+            <View style={[styles.cardTagDot, { backgroundColor: accent }]} />
+            <Text style={[styles.cardTagText, { color: accent }]}>{tag}</Text>
+          </View>
+
           <Text style={styles.cardBubbleEmoji}>{emoji}</Text>
-          <Text style={[styles.cardBubbleQuestion, { color: isMe ? colors.bg : colors.text }]}>{msg.text}</Text>
-          <Text style={[styles.bubbleTime, { color: isMe ? 'rgba(255,255,255,0.35)' : colors.textTertiary, alignSelf: 'flex-end' }]}>
-            {msg.time}
-          </Text>
+          <Text style={[styles.cardBubbleQuestion, { color: '#fff' }]}>{msg.text}</Text>
+
+          <View style={[styles.cardBubbleFooter, { borderTopColor: 'rgba(255,255,255,0.12)' }]}>
+            <Text style={[styles.bubbleTime, { color: 'rgba(255,255,255,0.4)' }]}>{msg.time}</Text>
+            {/* Answer button only for received cards */}
+            {!isMe && onAnswer && (
+              <Pressable
+                onPress={() => onAnswer(msg.text)}
+                style={({ pressed }) => [styles.answerBtn, { backgroundColor: `${accent}25`, opacity: pressed ? 0.7 : 1 }]}
+              >
+                <Ionicons name="pencil" size={11} color={accent} />
+                <Text style={[styles.answerBtnText, { color: accent }]}>Answer</Text>
+              </Pressable>
+            )}
+          </View>
         </View>
       </View>
     );
@@ -239,7 +319,6 @@ function AiPanel({ colors, matchName, onSelect, onClose }: {
       ]}>
         <Pressable>
           <View style={[styles.panelHandle, { backgroundColor: colors.border }]} />
-
           <View style={styles.panelHeader}>
             <Squircle style={styles.panelIcon} cornerRadius={12} cornerSmoothing={1} fillColor="#7c3aed">
               <Ionicons name="sparkles" size={15} color="#fff" />
@@ -281,30 +360,44 @@ function AiPanel({ colors, matchName, onSelect, onClose }: {
   );
 }
 
-// ─── Question Cards Panel ─────────────────────────────────────────────────────
+// ─── Gamified Question Cards Panel ───────────────────────────────────────────
 
 function StarterCardsPanel({ colors, onSend, onClose }: {
   colors: any;
   onSend: (q: string) => void;
   onClose: () => void;
 }) {
-  const slideY    = useRef(new Animated.Value(480)).current;
+  const slideY    = useRef(new Animated.Value(500)).current;
   const scrollRef = useRef<ScrollView>(null);
-  const [activeIdx, setActiveIdx] = useState(0);
+  const [activeIdx,   setActiveIdx]   = useState(0);
+  const [activeCategory, setActiveCategory] = useState<CardCategory>('All');
+  const [streak, setStreak] = useState(0);
+
+  const filtered = activeCategory === 'All' ? ALL_CARDS : ALL_CARDS.filter(c => c.category === activeCategory);
+
+  useEffect(() => {
+    setActiveIdx(0);
+    scrollRef.current?.scrollTo({ x: 0, animated: false });
+  }, [activeCategory]);
 
   useEffect(() => {
     Animated.spring(slideY, { toValue: 0, useNativeDriver: true, damping: 22, stiffness: 260 }).start();
   }, []);
 
   const dismiss = (cb?: () => void) =>
-    Animated.timing(slideY, { toValue: 480, duration: 220, useNativeDriver: true }).start(cb);
+    Animated.timing(slideY, { toValue: 500, duration: 220, useNativeDriver: true }).start(cb);
 
   const handleScroll = (e: any) => {
     const x = e.nativeEvent.contentOffset.x;
-    setActiveIdx(Math.max(0, Math.min(Math.round(x / (CARD_W + CARD_GAP)), STARTER_CARDS.length - 1)));
+    setActiveIdx(Math.max(0, Math.min(Math.round(x / (CARD_W + CARD_GAP)), filtered.length - 1)));
   };
 
-  const handleSend = () => dismiss(() => onSend(STARTER_CARDS[activeIdx].question));
+  const handleSend = () => {
+    setStreak(s => s + 1);
+    dismiss(() => onSend(filtered[activeIdx].question));
+  };
+
+  const accentColor = CATEGORY_ACCENT[activeCategory];
 
   return (
     <Pressable style={StyleSheet.absoluteFill} onPress={() => dismiss(onClose)}>
@@ -318,14 +411,19 @@ function StarterCardsPanel({ colors, onSend, onClose }: {
 
           {/* Header */}
           <View style={styles.panelHeader}>
-            <Squircle style={styles.panelIcon} cornerRadius={12} cornerSmoothing={1} fillColor={colors.surface2}>
-              <Ionicons name="help-circle" size={16} color={colors.text} />
+            <Squircle style={styles.panelIcon} cornerRadius={12} cornerSmoothing={1} fillColor={accentColor}>
+              <Ionicons name="layers" size={16} color="#fff" />
             </Squircle>
             <View style={{ flex: 1 }}>
-              <Text style={[styles.panelTitle, { color: colors.text }]}>Question Cards</Text>
-              <Text style={[styles.panelSub, { color: colors.textSecondary }]}>
-                Swipe to explore · tap active card to send
-              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Text style={[styles.panelTitle, { color: colors.text }]}>Question Cards</Text>
+                {streak > 0 && (
+                  <View style={[styles.streakBadge, { backgroundColor: '#f59e0b22' }]}>
+                    <Text style={styles.streakText}>🔥 {streak}</Text>
+                  </View>
+                )}
+              </View>
+              <Text style={[styles.panelSub, { color: colors.textSecondary }]}>Swipe · tap active card to send</Text>
             </View>
             <Pressable onPress={() => dismiss(onClose)} hitSlop={12}>
               <Squircle style={styles.panelCloseBtn} cornerRadius={10} cornerSmoothing={1} fillColor={colors.surface2}>
@@ -333,6 +431,34 @@ function StarterCardsPanel({ colors, onSend, onClose }: {
               </Squircle>
             </Pressable>
           </View>
+
+          {/* Category tabs */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.categoryTabs}
+          >
+            {CATEGORIES.map(cat => {
+              const isActive = cat === activeCategory;
+              const accent = CATEGORY_ACCENT[cat];
+              return (
+                <Pressable
+                  key={cat}
+                  onPress={() => setActiveCategory(cat)}
+                  style={[
+                    styles.categoryTab,
+                    isActive
+                      ? { backgroundColor: accent }
+                      : { backgroundColor: colors.surface2 },
+                  ]}
+                >
+                  <Text style={[styles.categoryTabText, { color: isActive ? '#fff' : colors.textSecondary }]}>
+                    {cat}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
 
           {/* Card carousel */}
           <ScrollView
@@ -345,11 +471,11 @@ function StarterCardsPanel({ colors, onSend, onClose }: {
             onScroll={handleScroll}
             scrollEventThrottle={16}
           >
-            {STARTER_CARDS.map((card, i) => {
+            {filtered.map((card, i) => {
               const isActive = i === activeIdx;
               return (
                 <Pressable
-                  key={i}
+                  key={`${card.question}-${i}`}
                   onPress={() => {
                     if (!isActive) {
                       scrollRef.current?.scrollTo({ x: i * (CARD_W + CARD_GAP), animated: true });
@@ -361,23 +487,28 @@ function StarterCardsPanel({ colors, onSend, onClose }: {
                   style={({ pressed }) => [{ opacity: pressed ? 0.88 : 1 }]}
                 >
                   <Squircle
-                    style={[styles.deckCard, { width: CARD_W }]}
+                    style={[styles.deckCard, { width: CARD_W, opacity: isActive ? 1 : 0.6 }]}
                     cornerRadius={28} cornerSmoothing={1}
-                    fillColor={isActive ? colors.text : colors.surface}
+                    fillColor={isActive ? card.color : colors.surface}
                     strokeColor={isActive ? 'transparent' : colors.border}
                     strokeWidth={StyleSheet.hairlineWidth}
                   >
-                    {/* Tag pill */}
+                    {/* Category pill */}
                     <View style={[styles.deckCardTag, {
-                      backgroundColor: isActive ? 'rgba(255,255,255,0.12)' : colors.surface2,
+                      backgroundColor: isActive
+                        ? `${CATEGORY_ACCENT[card.category]}35`
+                        : colors.surface2,
                     }]}>
+                      <View style={[styles.cardTagDot, {
+                        backgroundColor: isActive ? CATEGORY_ACCENT[card.category] : colors.textSecondary,
+                      }]} />
                       <Text style={[styles.deckCardTagText, {
-                        color: isActive ? 'rgba(255,255,255,0.55)' : colors.textSecondary,
+                        color: isActive ? CATEGORY_ACCENT[card.category] : colors.textSecondary,
                       }]}>{card.tag}</Text>
                     </View>
 
                     <Text style={styles.deckCardEmoji}>{card.emoji}</Text>
-                    <Text style={[styles.deckCardQuestion, { color: isActive ? colors.bg : colors.text }]}>
+                    <Text style={[styles.deckCardQuestion, { color: isActive ? '#fff' : colors.text }]}>
                       {card.question}
                     </Text>
 
@@ -395,25 +526,31 @@ function StarterCardsPanel({ colors, onSend, onClose }: {
 
           {/* Dots */}
           <View style={styles.deckDots}>
-            {STARTER_CARDS.map((_, i) => (
+            {filtered.map((_, i) => (
               <Pressable
                 key={i}
-                onPress={() => { scrollRef.current?.scrollTo({ x: i * (CARD_W + CARD_GAP), animated: true }); setActiveIdx(i); }}
+                onPress={() => {
+                  scrollRef.current?.scrollTo({ x: i * (CARD_W + CARD_GAP), animated: true });
+                  setActiveIdx(i);
+                }}
               >
                 <View style={[styles.deckDot, {
-                  backgroundColor: i === activeIdx ? colors.text : colors.surface2,
+                  backgroundColor: i === activeIdx ? accentColor : colors.surface2,
                   width: i === activeIdx ? 20 : 6,
                 }]} />
               </Pressable>
             ))}
           </View>
 
-          {/* CTA */}
+          {/* Send CTA */}
           <View style={styles.deckCta}>
             <Pressable onPress={handleSend} style={({ pressed }) => [{ opacity: pressed ? 0.8 : 1, flex: 1 }]}>
-              <Squircle style={styles.deckSendBtn} cornerRadius={50} cornerSmoothing={1} fillColor={colors.text}>
-                <Ionicons name="send" size={15} color={colors.bg} />
-                <Text style={[styles.deckSendBtnText, { color: colors.bg }]}>Send this card</Text>
+              <Squircle
+                style={styles.deckSendBtn} cornerRadius={50} cornerSmoothing={1}
+                fillColor={accentColor}
+              >
+                <Ionicons name="send" size={15} color="#fff" />
+                <Text style={[styles.deckSendBtnText, { color: '#fff' }]}>Send this card</Text>
               </Squircle>
             </Pressable>
           </View>
@@ -439,17 +576,27 @@ export default function ChatConversationPage() {
   const [text,        setText]        = useState('');
   const [showAi,      setShowAi]      = useState(false);
   const [showCards,   setShowCards]   = useState(false);
-  const [showInsight, setShowInsight] = useState(true);
+  const [showInsight, setShowInsight] = useState(false);
+  const [answeringCard, setAnsweringCard] = useState<string | null>(null);
   const scrollRef = useRef<ScrollView>(null);
 
-  const sendMessage = (txt: string, isCard = false) => {
+  const sendMessage = (txt: string, opts?: { isCard?: boolean; isAnswer?: boolean; answerTo?: string }) => {
     if (!txt.trim()) return;
-    const msg: Msg = { id: Date.now().toString(), text: txt.trim(), from: 'me', time: nowTime(), isCard };
+    const msg: Msg = {
+      id: Date.now().toString(),
+      text: txt.trim(),
+      from: 'me',
+      time: nowTime(),
+      isCard: opts?.isCard,
+      isAnswer: opts?.isAnswer,
+      answerTo: opts?.answerTo,
+    };
     setMessages(prev => [...prev, msg]);
     setText('');
+    setAnsweringCard(null);
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
 
-    if (isCard) {
+    if (opts?.isCard) {
       setTimeout(() => {
         const replies = [
           "Oh great question! 🤔", "Hmm let me think about that...",
@@ -463,6 +610,14 @@ export default function ChatConversationPage() {
         setMessages(prev => [...prev, reply]);
         setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
       }, 1500);
+    }
+  };
+
+  const handleSend = () => {
+    if (answeringCard) {
+      sendMessage(text, { isAnswer: true, answerTo: answeringCard });
+    } else {
+      sendMessage(text);
     }
   };
 
@@ -497,6 +652,16 @@ export default function ChatConversationPage() {
         </Pressable>
 
         <View style={styles.headerActions}>
+          {/* Profile Insights button */}
+          <Pressable hitSlop={8} onPress={() => { setShowInsight(true); setShowAi(false); setShowCards(false); }}
+            style={({ pressed }) => [pressed && { opacity: 0.6 }]}>
+            <Squircle
+              style={styles.headerBtn} cornerRadius={14} cornerSmoothing={1}
+              fillColor={showInsight ? '#7c3aed' : colors.surface2}
+            >
+              <Ionicons name="sparkles" size={16} color={showInsight ? '#fff' : colors.text} />
+            </Squircle>
+          </Pressable>
           <Pressable hitSlop={8} onPress={() => Alert.alert('Voice Call', `Calling ${name}…`)}
             style={({ pressed }) => [pressed && { opacity: 0.6 }]}>
             <Squircle style={styles.headerBtn} cornerRadius={14} cornerSmoothing={1} fillColor={colors.surface2}>
@@ -521,11 +686,6 @@ export default function ChatConversationPage() {
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          {/* AI Insight card */}
-          {showInsight && (
-            <AiInsightCard colors={colors} onDismiss={() => setShowInsight(false)} />
-          )}
-
           {/* Date separator */}
           <View style={styles.dateSep}>
             <View style={[styles.dateLine, { backgroundColor: colors.border }]} />
@@ -533,7 +693,18 @@ export default function ChatConversationPage() {
             <View style={[styles.dateLine, { backgroundColor: colors.border }]} />
           </View>
 
-          {messages.map(msg => <Bubble key={msg.id} msg={msg} colors={colors} />)}
+          {messages.map(msg => (
+            <Bubble
+              key={msg.id}
+              msg={msg}
+              colors={colors}
+              onAnswer={(q) => {
+                setAnsweringCard(q);
+                setShowCards(false);
+                setShowAi(false);
+              }}
+            />
+          ))}
         </ScrollView>
 
         {/* ── Input bar ── */}
@@ -541,68 +712,83 @@ export default function ChatConversationPage() {
           styles.inputBar,
           { borderTopColor: colors.border, backgroundColor: colors.bg, paddingBottom: insets.bottom + 8 },
         ]}>
-          {/* Question cards button */}
-          <Pressable
-            onPress={() => { setShowCards(true); setShowAi(false); }}
-            hitSlop={8}
-            style={({ pressed }) => [pressed && { opacity: 0.6 }]}
-          >
-            <Squircle
-              style={styles.inputSideBtn} cornerRadius={14} cornerSmoothing={1}
-              fillColor={showCards ? colors.text : colors.surface2}
-            >
-              <Ionicons name="help-circle" size={20} color={showCards ? colors.bg : colors.text} />
-            </Squircle>
-          </Pressable>
+          {/* Answering context strip */}
+          {answeringCard && (
+            <View style={[styles.answerStrip, { backgroundColor: colors.surface2, borderColor: 'rgba(124,58,237,0.3)' }]}>
+              <Ionicons name="return-down-forward" size={13} color="#a78bfa" />
+              <Text style={[styles.answerStripText, { color: colors.textSecondary }]} numberOfLines={1}>
+                {answeringCard}
+              </Text>
+              <Pressable onPress={() => setAnsweringCard(null)} hitSlop={8}>
+                <Ionicons name="close-circle" size={16} color={colors.textSecondary} />
+              </Pressable>
+            </View>
+          )}
 
-          {/* Text input */}
-          <Squircle
-            style={styles.inputWrap} cornerRadius={22} cornerSmoothing={1}
-            fillColor={colors.surface} strokeColor={colors.border} strokeWidth={StyleSheet.hairlineWidth}
-          >
-            <TextInput
-              style={[styles.inputField, { color: colors.text }]}
-              placeholder="Message…"
-              placeholderTextColor={colors.placeholder}
-              value={text}
-              onChangeText={setText}
-              multiline
-              maxLength={500}
-              selectionColor={colors.text}
-            />
-            {/* AI sparkles */}
+          <View style={styles.inputRow}>
+            {/* Question cards button */}
             <Pressable
-              onPress={() => { setShowAi(true); setShowCards(false); }}
+              onPress={() => { setShowCards(true); setShowAi(false); setAnsweringCard(null); }}
               hitSlop={8}
               style={({ pressed }) => [pressed && { opacity: 0.6 }]}
             >
               <Squircle
-                style={styles.aiInlineBtn} cornerRadius={12} cornerSmoothing={1}
-                fillColor={showAi ? '#7c3aed' : colors.surface2}
+                style={styles.inputSideBtn} cornerRadius={14} cornerSmoothing={1}
+                fillColor={showCards ? colors.text : colors.surface2}
               >
-                <Ionicons name="sparkles" size={13} color={showAi ? '#fff' : colors.text} />
+                <Ionicons name="layers" size={20} color={showCards ? colors.bg : colors.text} />
               </Squircle>
             </Pressable>
-          </Squircle>
 
-          {/* Send / mic */}
-          <Pressable
-            onPress={() => sendMessage(text)}
-            hitSlop={8}
-            disabled={!text.trim()}
-            style={({ pressed }) => [pressed && { opacity: 0.7 }]}
-          >
+            {/* Text input */}
             <Squircle
-              style={styles.inputSideBtn} cornerRadius={14} cornerSmoothing={1}
-              fillColor={text.trim() ? colors.text : colors.surface2}
+              style={styles.inputWrap} cornerRadius={22} cornerSmoothing={1}
+              fillColor={colors.surface} strokeColor={colors.border} strokeWidth={StyleSheet.hairlineWidth}
             >
-              <Ionicons
-                name={text.trim() ? 'send' : 'mic'}
-                size={18}
-                color={text.trim() ? colors.bg : colors.text}
+              <TextInput
+                style={[styles.inputField, { color: colors.text }]}
+                placeholder={answeringCard ? 'Your answer…' : 'Message…'}
+                placeholderTextColor={colors.placeholder}
+                value={text}
+                onChangeText={setText}
+                multiline
+                maxLength={500}
+                selectionColor={colors.text}
               />
+              {/* AI sparkles */}
+              <Pressable
+                onPress={() => { setShowAi(true); setShowCards(false); }}
+                hitSlop={8}
+                style={({ pressed }) => [pressed && { opacity: 0.6 }]}
+              >
+                <Squircle
+                  style={styles.aiInlineBtn} cornerRadius={12} cornerSmoothing={1}
+                  fillColor={showAi ? '#7c3aed' : colors.surface2}
+                >
+                  <Ionicons name="sparkles" size={13} color={showAi ? '#fff' : colors.text} />
+                </Squircle>
+              </Pressable>
             </Squircle>
-          </Pressable>
+
+            {/* Send / mic */}
+            <Pressable
+              onPress={handleSend}
+              hitSlop={8}
+              disabled={!text.trim()}
+              style={({ pressed }) => [pressed && { opacity: 0.7 }]}
+            >
+              <Squircle
+                style={styles.inputSideBtn} cornerRadius={14} cornerSmoothing={1}
+                fillColor={text.trim() ? (answeringCard ? '#7c3aed' : colors.text) : colors.surface2}
+              >
+                <Ionicons
+                  name={text.trim() ? 'send' : 'mic'}
+                  size={18}
+                  color={text.trim() ? (answeringCard ? '#fff' : colors.bg) : colors.text}
+                />
+              </Squircle>
+            </Pressable>
+          </View>
         </View>
       </KeyboardAvoidingView>
 
@@ -620,8 +806,17 @@ export default function ChatConversationPage() {
       {showCards && (
         <StarterCardsPanel
           colors={colors}
-          onSend={q => { sendMessage(q, true); setShowCards(false); }}
+          onSend={q => { sendMessage(q, { isCard: true }); setShowCards(false); }}
           onClose={() => setShowCards(false)}
+        />
+      )}
+
+      {/* ── Profile Insights panel ── */}
+      {showInsight && (
+        <AiInsightPanel
+          colors={colors}
+          name={name}
+          onClose={() => setShowInsight(false)}
         />
       )}
     </View>
@@ -634,15 +829,15 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
 
   // Header
-  header:           { paddingHorizontal: 12, paddingBottom: 12, flexDirection: 'row', alignItems: 'center', gap: 10, borderBottomWidth: StyleSheet.hairlineWidth },
-  headerCenter:     { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
-  headerAvatarWrap: { position: 'relative' },
-  headerAvatar:     { width: 42, height: 42, borderRadius: 21 },
-  onlineDot:        { position: 'absolute', bottom: 0, right: 0, width: 12, height: 12, borderRadius: 6, backgroundColor: '#22c55e', borderWidth: 2 },
-  headerName:       { fontSize: 16, fontFamily: 'ProductSans-Black' },
-  headerStatus:     { fontSize: 12, fontFamily: 'ProductSans-Regular', marginTop: 1 },
-  headerActions:    { flexDirection: 'row', gap: 8 },
-  headerBtn:        { width: 38, height: 38, alignItems: 'center', justifyContent: 'center' },
+  header:            { paddingHorizontal: 12, paddingBottom: 12, flexDirection: 'row', alignItems: 'center', gap: 10, borderBottomWidth: StyleSheet.hairlineWidth },
+  headerCenter:      { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  headerAvatarWrap:  { position: 'relative' },
+  headerAvatar:      { width: 42, height: 42, borderRadius: 21 },
+  onlineDot:         { position: 'absolute', bottom: 0, right: 0, width: 12, height: 12, borderRadius: 6, backgroundColor: '#22c55e', borderWidth: 2 },
+  headerName:        { fontSize: 16, fontFamily: 'ProductSans-Black' },
+  headerStatus:      { fontSize: 12, fontFamily: 'ProductSans-Regular', marginTop: 1 },
+  headerActions:     { flexDirection: 'row', gap: 8 },
+  headerBtn:         { width: 38, height: 38, alignItems: 'center', justifyContent: 'center' },
 
   // Messages
   messageList:  { paddingHorizontal: 14, paddingTop: 14, gap: 5 },
@@ -650,51 +845,44 @@ const styles = StyleSheet.create({
   dateLine:     { flex: 1, height: StyleSheet.hairlineWidth },
   dateText:     { fontSize: 11, fontFamily: 'ProductSans-Regular' },
 
-  // AI Insight card
-  insightCard:      { borderRadius: 20, borderWidth: StyleSheet.hairlineWidth, overflow: 'hidden', marginBottom: 12 },
-  insightHeader:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 14 },
-  insightHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  insightIcon:      { width: 30, height: 30, alignItems: 'center', justifyContent: 'center' },
-  insightTitle:     { fontSize: 13, fontFamily: 'ProductSans-Bold' },
-  insightBody:      { paddingHorizontal: 14, paddingBottom: 16, gap: 14 },
-  insightSummaryBox: { padding: 12 },
-  insightSummary:   { fontSize: 13, fontFamily: 'ProductSans-Regular', lineHeight: 20 },
-  insightSection:   { gap: 8 },
-  insightSectionLabel: { fontSize: 11, fontFamily: 'ProductSans-Bold', letterSpacing: 0.5, textTransform: 'uppercase' },
-  insightChips:     { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  insightChip:      { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 50, borderWidth: StyleSheet.hairlineWidth },
-  insightChipEmoji: { fontSize: 14 },
-  insightChipText:  { fontSize: 12, fontFamily: 'ProductSans-Medium' },
-  insightHighlights: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  insightHighlight:  { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 50, borderWidth: StyleSheet.hairlineWidth },
-  insightHighlightText: { fontSize: 12, fontFamily: 'ProductSans-Regular' },
-  insightTip:       { fontSize: 11, fontFamily: 'ProductSans-Regular', textAlign: 'center' },
-
   // Bubbles
-  bubbleRow:            { flexDirection: 'row', marginVertical: 1 },
-  bubbleRowMe:          { justifyContent: 'flex-end' },
-  bubbleRowThem:        { justifyContent: 'flex-start' },
-  bubble:               { maxWidth: W * 0.72, paddingHorizontal: 14, paddingVertical: 10, gap: 4 },
-  bubbleMe:             { borderRadius: 20, borderBottomRightRadius: 4 },
-  bubbleThem:           { borderRadius: 20, borderBottomLeftRadius: 4 },
-  bubbleText:           { fontSize: 15, fontFamily: 'ProductSans-Regular', lineHeight: 22 },
-  bubbleTime:           { fontSize: 10, fontFamily: 'ProductSans-Regular' },
+  bubbleRow:     { flexDirection: 'row', marginVertical: 1 },
+  bubbleRowMe:   { justifyContent: 'flex-end' },
+  bubbleRowThem: { justifyContent: 'flex-start' },
+  bubble:        { maxWidth: W * 0.72, paddingHorizontal: 14, paddingVertical: 10, gap: 4 },
+  bubbleMe:      { borderRadius: 20, borderBottomRightRadius: 4 },
+  bubbleThem:    { borderRadius: 20, borderBottomLeftRadius: 4 },
+  bubbleText:    { fontSize: 15, fontFamily: 'ProductSans-Regular', lineHeight: 22 },
+  bubbleTime:    { fontSize: 10, fontFamily: 'ProductSans-Regular' },
+
   // Card bubble
-  cardBubble:           { width: W * 0.64, borderRadius: 22, borderBottomRightRadius: 4, borderWidth: StyleSheet.hairlineWidth, padding: 14, gap: 8 },
-  cardTag:              { flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 20 },
-  cardTagText:          { fontSize: 10, fontFamily: 'ProductSans-Bold' },
-  cardBubbleEmoji:      { fontSize: 28, textAlign: 'center' },
-  cardBubbleQuestion:   { fontSize: 14, fontFamily: 'ProductSans-Bold', lineHeight: 20 },
+  cardBubble:         { width: W * 0.68, borderRadius: 22, padding: 14, gap: 8 },
+  cardTag:            { flexDirection: 'row', alignItems: 'center', gap: 5, alignSelf: 'flex-start', paddingHorizontal: 9, paddingVertical: 4, borderRadius: 20 },
+  cardTagDot:         { width: 5, height: 5, borderRadius: 2.5 },
+  cardTagText:        { fontSize: 10, fontFamily: 'ProductSans-Bold', letterSpacing: 0.2 },
+  cardBubbleEmoji:    { fontSize: 32, textAlign: 'center' },
+  cardBubbleQuestion: { fontSize: 14, fontFamily: 'ProductSans-Black', lineHeight: 20 },
+  cardBubbleFooter:   { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 10, marginTop: 2 },
+  answerBtn:          { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20 },
+  answerBtnText:      { fontSize: 11, fontFamily: 'ProductSans-Bold' },
+
+  // Answer bubble
+  answerBubble:      { maxWidth: W * 0.72, borderRadius: 20, borderWidth: StyleSheet.hairlineWidth, padding: 12, gap: 6 },
+  answerContext:     { flexDirection: 'row', alignItems: 'center', gap: 6, borderLeftWidth: 2, paddingLeft: 8, paddingVertical: 2 },
+  answerContextText: { flex: 1, fontSize: 11, fontFamily: 'ProductSans-Regular' },
 
   // Input bar
-  inputBar:     { flexDirection: 'row', alignItems: 'flex-end', gap: 8, paddingHorizontal: 12, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth },
+  inputBar:     { borderTopWidth: StyleSheet.hairlineWidth },
+  answerStrip:  { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderLeftWidth: 3 },
+  answerStripText: { flex: 1, fontSize: 12, fontFamily: 'ProductSans-Regular' },
+  inputRow:     { flexDirection: 'row', alignItems: 'flex-end', gap: 8, paddingHorizontal: 12, paddingTop: 10 },
   inputSideBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   inputWrap:    { flex: 1, flexDirection: 'row', alignItems: 'flex-end', paddingHorizontal: 14, paddingVertical: 10, gap: 8, minHeight: 44, maxHeight: 120 },
   inputField:   { flex: 1, fontSize: 15, fontFamily: 'ProductSans-Regular', maxHeight: 100 },
   aiInlineBtn:  { width: 28, height: 28, alignItems: 'center', justifyContent: 'center', alignSelf: 'flex-end' },
 
   // Panels (shared)
-  panel:        { position: 'absolute', bottom: 0, left: 0, right: 0, borderTopWidth: StyleSheet.hairlineWidth, borderTopLeftRadius: 28, borderTopRightRadius: 28, overflow: 'hidden', shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 24, shadowOffset: { width: 0, height: -4 }, elevation: 22 },
+  panel:        { position: 'absolute', bottom: 0, left: 0, right: 0, borderTopWidth: StyleSheet.hairlineWidth, borderTopLeftRadius: 28, borderTopRightRadius: 28, overflow: 'hidden', shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 28, shadowOffset: { width: 0, height: -4 }, elevation: 22 },
   panelHandle:  { width: 36, height: 4, borderRadius: 2, alignSelf: 'center', marginTop: 12, marginBottom: 4 },
   panelHeader:  { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingBottom: 14, paddingTop: 6 },
   panelIcon:    { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
@@ -703,23 +891,47 @@ const styles = StyleSheet.create({
   panelCloseBtn: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
 
   // AI lines
-  aiLinesList:  { paddingHorizontal: 14, paddingBottom: 28, gap: 7 },
-  aiLineItem:   { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 13 },
-  aiLineText:   { flex: 1, fontSize: 14, fontFamily: 'ProductSans-Regular', lineHeight: 20 },
-  aiLineUse:    { width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
+  aiLinesList: { paddingHorizontal: 14, paddingBottom: 28, gap: 7 },
+  aiLineItem:  { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 13 },
+  aiLineText:  { flex: 1, fontSize: 14, fontFamily: 'ProductSans-Regular', lineHeight: 20 },
+  aiLineUse:   { width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
+
+  // Insight panel
+  insightSummaryBox:    { padding: 14 },
+  insightSummary:       { fontSize: 14, fontFamily: 'ProductSans-Regular', lineHeight: 22 },
+  insightSection:       { gap: 10 },
+  insightSectionLabel:  { fontSize: 11, fontFamily: 'ProductSans-Bold', letterSpacing: 1 },
+  insightChips:         { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  insightChip:          { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 50, borderWidth: StyleSheet.hairlineWidth },
+  insightChipEmoji:     { fontSize: 14 },
+  insightChipText:      { fontSize: 12, fontFamily: 'ProductSans-Medium' },
+  insightHighlights:    { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  insightHighlight:     { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 50, borderWidth: StyleSheet.hairlineWidth },
+  insightHighlightText: { fontSize: 12, fontFamily: 'ProductSans-Regular' },
+  insightTipBox:        { flexDirection: 'row', alignItems: 'flex-start', gap: 8, padding: 12, borderRadius: 14, borderWidth: StyleSheet.hairlineWidth },
+  insightTipText:       { flex: 1, fontSize: 12, fontFamily: 'ProductSans-Regular', lineHeight: 18 },
+
+  // Category tabs
+  categoryTabs:    { paddingHorizontal: 16, paddingBottom: 12, gap: 8 },
+  categoryTab:     { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20 },
+  categoryTabText: { fontSize: 12, fontFamily: 'ProductSans-Bold' },
+
+  // Streak badge
+  streakBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20 },
+  streakText:  { fontSize: 12, fontFamily: 'ProductSans-Bold', color: '#f59e0b' },
 
   // Card deck
-  deckScroll:        { paddingLeft: 20, paddingRight: 20, gap: CARD_GAP, alignItems: 'flex-start' },
-  deckCard:          { height: 220, padding: 20, justifyContent: 'space-between', overflow: 'hidden' },
-  deckCardTag:       { alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
-  deckCardTagText:   { fontSize: 10, fontFamily: 'ProductSans-Bold', letterSpacing: 0.3 },
-  deckCardEmoji:     { fontSize: 48, textAlign: 'center', marginVertical: 4 },
-  deckCardQuestion:  { fontSize: 17, fontFamily: 'ProductSans-Black', lineHeight: 24, textAlign: 'center' },
-  deckCardHint:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 10, marginTop: 2 },
-  deckCardHintText:  { fontSize: 11, fontFamily: 'ProductSans-Medium', color: 'rgba(255,255,255,0.55)' },
-  deckDots:          { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 6, paddingVertical: 14 },
-  deckDot:           { height: 6, borderRadius: 3 },
-  deckCta:           { flexDirection: 'row', paddingHorizontal: 20, paddingBottom: 28 },
-  deckSendBtn:       { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 16 },
-  deckSendBtnText:   { fontSize: 15, fontFamily: 'ProductSans-Black' },
+  deckScroll:       { paddingLeft: 20, paddingRight: 20, gap: CARD_GAP, alignItems: 'flex-start' },
+  deckCard:         { height: 220, padding: 20, justifyContent: 'space-between', overflow: 'hidden' },
+  deckCardTag:      { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
+  deckCardTagText:  { fontSize: 10, fontFamily: 'ProductSans-Bold', letterSpacing: 0.3 },
+  deckCardEmoji:    { fontSize: 48, textAlign: 'center', marginVertical: 4 },
+  deckCardQuestion: { fontSize: 17, fontFamily: 'ProductSans-Black', lineHeight: 24, textAlign: 'center' },
+  deckCardHint:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 10, marginTop: 2 },
+  deckCardHintText: { fontSize: 11, fontFamily: 'ProductSans-Medium', color: 'rgba(255,255,255,0.55)' },
+  deckDots:         { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 6, paddingVertical: 12 },
+  deckDot:          { height: 6, borderRadius: 3 },
+  deckCta:          { flexDirection: 'row', paddingHorizontal: 20, paddingBottom: 28 },
+  deckSendBtn:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 16 },
+  deckSendBtnText:  { fontSize: 15, fontFamily: 'ProductSans-Black' },
 });

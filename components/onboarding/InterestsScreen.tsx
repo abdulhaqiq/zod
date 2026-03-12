@@ -4,34 +4,20 @@ import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '@/context/AuthContext';
 import { useAppTheme } from '@/context/ThemeContext';
+import { LOOKUP } from '@/constants/lookupData';
 import { useProfileSave } from '@/hooks/useProfileSave';
 import OnboardingShell from './OnboardingShell';
-
-const ALL_INTERESTS: { emoji: string; label: string }[] = [
-  { emoji: '🥾', label: 'Hiking' },      { emoji: '✈️', label: 'Travel' },
-  { emoji: '🍳', label: 'Cooking' },     { emoji: '💪', label: 'Fitness' },
-  { emoji: '🎵', label: 'Music' },       { emoji: '🎨', label: 'Art' },
-  { emoji: '🎮', label: 'Gaming' },      { emoji: '📚', label: 'Reading' },
-  { emoji: '📸', label: 'Photography' }, { emoji: '💃', label: 'Dancing' },
-  { emoji: '🧘', label: 'Yoga' },        { emoji: '🎬', label: 'Movies' },
-  { emoji: '☕', label: 'Coffee' },       { emoji: '🍷', label: 'Wine' },
-  { emoji: '🏄', label: 'Surfing' },     { emoji: '🚴', label: 'Cycling' },
-  { emoji: '🧠', label: 'Meditation' },  { emoji: '🍽️', label: 'Foodie' },
-  { emoji: '🐶', label: 'Dogs' },        { emoji: '🐱', label: 'Cats' },
-  { emoji: '❤️', label: 'Volunteering' },{ emoji: '👗', label: 'Fashion' },
-  { emoji: '🎤', label: 'Concerts' },    { emoji: '⛺', label: 'Camping' },
-];
 
 export default function InterestsScreen() {
   const router = useRouter();
   const { colors } = useAppTheme();
   const { save, saving } = useProfileSave();
   const { profile } = useAuth();
-  const [selected, setSelected] = useState<string[]>(profile?.interests ?? []);
+  const [selected, setSelected] = useState<number[]>(profile?.interests ?? []);
 
-  const toggle = (label: string) =>
+  const toggle = (id: number) =>
     setSelected((prev) =>
-      prev.includes(label) ? prev.filter((x) => x !== label) : prev.length < 5 ? [...prev, label] : prev,
+      prev.includes(id) ? prev.filter((x) => x !== id) : prev.length < 5 ? [...prev, id] : prev,
     );
 
   const handleContinue = async () => {
@@ -51,12 +37,12 @@ export default function InterestsScreen() {
     >
       <ScrollView showsVerticalScrollIndicator={false}>
         <View style={styles.grid}>
-          {ALL_INTERESTS.map((item) => {
-            const active = selected.includes(item.label);
+          {LOOKUP.interests.map((item) => {
+            const active = selected.includes(item.id);
             return (
               <Pressable
-                key={item.label}
-                onPress={() => toggle(item.label)}
+                key={item.id}
+                onPress={() => toggle(item.id)}
                 style={[
                   styles.chip,
                   {

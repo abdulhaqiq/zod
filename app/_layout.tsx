@@ -7,10 +7,10 @@ import { StyleSheet, Text, View } from 'react-native';
 import 'react-native-reanimated';
 
 import AppSplashScreen from '@/components/AppSplashScreen';
-import ThemeToggle from '@/components/ThemeToggle';
 import { AuthProvider, useAuth, UserProfile } from '@/context/AuthContext';
 import { AppThemeProvider, useAppTheme } from '@/context/ThemeContext';
-import { useColorScheme } from '@/hooks/use-color-scheme';
+import { API_V1 } from '@/constants/api';
+import { darkColors, lightColors } from '@/constants/appColors';
 import { useAutoLocation } from '@/hooks/useAutoLocation';
 
 export const unstable_settings = {
@@ -28,7 +28,7 @@ const MIN_PHOTOS = 3;
 
 function firstIncompleteStep(p: UserProfile): string {
   if (!p.full_name || !p.date_of_birth)      return '/profile';
-  if (!p.gender)                              return '/gender';
+  if (!p.gender_id)                           return '/gender';
   if (!p.purpose?.length)                     return '/purpose';
   if (!p.height_cm)                          return '/height';
   if (!p.interests?.length)                  return '/interests';
@@ -44,8 +44,7 @@ function firstIncompleteStep(p: UserProfile): string {
 (Text as any).defaultProps.style = { fontFamily: 'ProductSans-Regular' };
 
 function RootLayoutInner() {
-  const colorScheme = useColorScheme();
-  const { isDark } = useAppTheme();
+  const { isDark, syncFromBackend, setApiFetch } = useAppTheme();
   const { token, isLoading, isOnboarded, profile } = useAuth();
   const router = useRouter();
   const segments = useSegments();
@@ -63,6 +62,25 @@ function RootLayoutInner() {
 
   // Auto-update location on every app open (non-blocking, best-effort)
   useAutoLocation();
+
+  // Sync theme from backend profile whenever profile changes
+  useEffect(() => {
+    if (profile?.dark_mode !== undefined && profile.dark_mode !== null) {
+      syncFromBackend(profile.dark_mode);
+    }
+  }, [profile?.dark_mode]);
+
+  // Inject the API save function into ThemeContext so toggle() can PATCH backend
+  useEffect(() => {
+    if (!token) return;
+    setApiFetch(async (fields: Record<string, unknown>) => {
+      await fetch(`${API_V1}/profile/me`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(fields),
+      });
+    });
+  }, [token]);
 
   const isLoggedIn = !!token;
   const authReady  = !isLoading;
@@ -115,9 +133,11 @@ function RootLayoutInner() {
 
   }, [authReady, isLoggedIn, isOnboarded, segments]);
 
+  const bgColor = isDark ? darkColors.bg : lightColors.bg;
+
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <View style={{ flex: 1 }}>
+    <ThemeProvider value={isDark ? DarkTheme : DefaultTheme}>
+      <View style={{ flex: 1, backgroundColor: bgColor }}>
         <Stack>
           <Stack.Screen name="welcome"         options={{ headerShown: false }} />
           <Stack.Screen name="(tabs)"          options={{ headerShown: false }} />
@@ -147,8 +167,11 @@ function RootLayoutInner() {
           <Stack.Screen name="security"        options={{ headerShown: false }} />
           <Stack.Screen name="legal"           options={{ headerShown: false }} />
           <Stack.Screen name="get-help"        options={{ headerShown: false }} />
-          <Stack.Screen name="purchases"       options={{ headerShown: false }} />
-          <Stack.Screen name="modal"           options={{ presentation: 'modal', title: 'Modal' }} />
+          <Stack.Screen name="purchases"              options={{ headerShown: false }} />
+          <Stack.Screen name="admin-verifications"  options={{ headerShown: false }} />
+          <Stack.Screen name="zod-work"             options={{ headerShown: false }} />
+          <Stack.Screen name="work-edit-profile"    options={{ headerShown: false }} />
+          <Stack.Screen name="modal"                options={{ presentation: 'modal', title: 'Modal' }} />
         </Stack>
 
         <StatusBar style={isDark ? 'light' : 'dark'} />
@@ -163,7 +186,6 @@ function RootLayoutInner() {
             Prevents the feed from flashing while router.replace fires. */}
         {covering && <View style={styles.cover} />}
 
-        {splashDone && isLoggedIn && <ThemeToggle />}
       </View>
     </ThemeProvider>
   );
@@ -184,6 +206,7 @@ export default function RootLayout() {
     'ProductSans-Bold':    require('@/assets/product sans full/ProductSans-Bold.ttf'),
     'ProductSans-Black':   require('@/assets/product sans full/ProductSans-Black.ttf'),
     'ProductSans-Light':   require('@/assets/product sans full/ProductSans-Light.ttf'),
+    'PageSerif':           require('../PAGE SERIF (Demo_Font).otf'),
   });
 
   if (!fontsLoaded) return null;

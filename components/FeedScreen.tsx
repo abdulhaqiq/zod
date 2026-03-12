@@ -26,6 +26,9 @@ import Squircle from '@/components/ui/Squircle';
 import MatchScreen, { type MatchedProfile } from '@/components/MatchScreen';
 import MyProfilePage from '@/components/MyProfilePage';
 import ExplorePage from '@/components/ExplorePage';
+import WorkFeedScreen from '@/components/WorkFeedScreen';
+import DateFilterSheet from '@/components/filters/DateFilterSheet';
+import WorkFilterSheet from '@/components/filters/WorkFilterSheet';
 import { useAuth } from '@/context/AuthContext';
 import { useAppTheme } from '@/context/ThemeContext';
 
@@ -39,20 +42,92 @@ const SWIPE_THRESHOLD = W * 0.27;
 
 // ─── Logo ─────────────────────────────────────────────────────────────────────
 
-const AppLogo = ({ color }: { color: string }) => (
-  <Svg width={52} height={24} viewBox="0 0 741 347" fill="none">
-    <Path d="M168.701 346.924H0L128.174 116.699C84.9609 127.441 35.6445 169.922 21.4844 201.416C6.34766 186.768 0 170.898 0 156.494C0 130.615 20.9961 109.619 49.5605 109.619H218.262L91.0645 339.6C134.033 328.613 182.617 286.377 196.777 255.127C211.914 269.775 218.262 285.4 218.262 299.805C218.262 325.928 197.266 346.924 168.701 346.924ZM347.9 346.924C282.471 346.924 229.492 293.701 229.492 228.027C229.492 162.354 282.471 109.131 347.9 109.131C413.33 109.131 466.309 162.354 466.309 228.027C466.309 293.701 413.33 346.924 347.9 346.924ZM393.799 320.068C402.344 320.068 407.471 312.988 407.471 301.025C407.471 253.662 336.182 136.23 302.002 135.986C293.945 135.986 288.33 142.578 288.33 155.029C288.33 202.393 359.619 320.068 393.799 320.068ZM707.275 346.924C675.781 346.924 644.775 335.693 644.775 300.781C631.592 330.566 602.539 346.924 573.73 346.924C545.166 346.924 516.846 331.055 503.662 297.119C497.314 280.518 494.141 259.521 494.141 237.793C494.141 209.229 499.512 179.932 509.521 158.936C525.635 124.756 556.396 108.887 584.473 108.887C612.061 108.887 637.207 124.023 644.775 151.855V80.8105C644.775 58.1055 640.869 51.5137 623.535 41.2598L724.854 0V312.012C724.854 324.951 729.248 339.355 740.723 342.773C730.957 345.459 718.994 346.924 707.275 346.924ZM615.479 307.129C625.244 307.129 635.742 301.514 644.775 291.26V161.133C636.475 148.926 627.93 143.555 619.873 143.555C596.436 143.555 582.764 186.768 582.764 237.305C582.764 250.732 583.74 263.916 586.182 275.391C590.82 297.119 602.539 307.129 615.479 307.129Z" fill={color} />
-  </Svg>
-);
+type AppMode = 'date' | 'work';
+
+function AppLogo({ color, mode, onPress }: { color: string; mode: AppMode; onPress: () => void }) {
+  return (
+    <Pressable onPress={onPress} hitSlop={8} style={styles.logoBtn}>
+      <Text style={[styles.logoText, { color }]}>zod</Text>
+      <Text style={[styles.logoMode, { color }]}>{mode === 'date' ? ' date' : ' work'}</Text>
+      <Ionicons name="chevron-down" size={11} color={color} style={{ marginTop: 3 }} />
+    </Pressable>
+  );
+}
+
+// ─── Mode select modal ────────────────────────────────────────────────────────
+
+function ModeModal({ visible, mode, onSelect, onClose, colors }: {
+  visible: boolean; mode: AppMode;
+  onSelect: (m: AppMode) => void; onClose: () => void; colors: any;
+}) {
+  const options: { id: AppMode; label: string; sub: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+    { id: 'date', label: 'Zod Date',  sub: 'Find your perfect match',        icon: 'heart-outline'   },
+    { id: 'work', label: 'Zod Work',  sub: 'Connect with professionals',     icon: 'briefcase-outline' },
+  ];
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={mStyles.backdrop} onPress={onClose}>
+        <Pressable style={[mStyles.sheet, { backgroundColor: colors.surface }]}>
+          <View style={mStyles.handle} />
+          <Text style={[mStyles.heading, { color: colors.text }]}>Choose mode</Text>
+          <View style={{ gap: 10, marginTop: 16 }}>
+            {options.map(opt => {
+              const active = mode === opt.id;
+              return (
+                <Pressable
+                  key={opt.id}
+                  onPress={() => { onSelect(opt.id); onClose(); }}
+                  style={({ pressed }) => [
+                    mStyles.option,
+                    { borderColor: active ? colors.text : colors.border, backgroundColor: active ? colors.bg : 'transparent' },
+                    pressed && { opacity: 0.7 },
+                  ]}
+                >
+                  <View style={[mStyles.optIconWrap, { backgroundColor: colors.bg }]}>
+                    <Ionicons name={opt.icon} size={20} color={colors.text} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[mStyles.optLabel, { color: colors.text }]}>{opt.label}</Text>
+                    <Text style={[mStyles.optSub,   { color: colors.textSecondary }]}>{opt.sub}</Text>
+                  </View>
+                  {active && <Ionicons name="checkmark-circle" size={20} color={colors.text} />}
+                </Pressable>
+              );
+            })}
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+const mStyles = StyleSheet.create({
+  backdrop:     { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' },
+  sheet:        { borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 24, paddingBottom: 44 },
+  handle:       { width: 36, height: 4, borderRadius: 2, backgroundColor: 'rgba(128,128,128,0.4)', alignSelf: 'center', marginBottom: 20 },
+  heading:      { fontSize: 22, fontFamily: 'PageSerif', textAlign: 'center' },
+  option:       { flexDirection: 'row', alignItems: 'center', gap: 14, borderWidth: 1.5, borderRadius: 18, padding: 16 },
+  optIconWrap:  { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  optLabel:     { fontSize: 17, fontFamily: 'PageSerif' },
+  optSub:       { fontSize: 12, fontFamily: 'ProductSans-Regular', marginTop: 2 },
+});
 
 // ─── Nav tabs ─────────────────────────────────────────────────────────────────
 
-const NAV_TABS = [
+const DATE_NAV_TABS = [
   { id: 'people',  icon: 'people-outline'      as const, iconActive: 'people'      as const },
   { id: 'likeyou', icon: 'heart-outline'       as const, iconActive: 'heart'       as const, badge: '7' },
   { id: 'ai',      icon: 'sparkles-outline'    as const, iconActive: 'sparkles'    as const },
   { id: 'chats',   icon: 'chatbubbles-outline' as const, iconActive: 'chatbubbles' as const, badge: '4' },
   { id: 'profile', icon: 'person-outline'      as const, iconActive: 'person'      as const },
+];
+
+const WORK_NAV_TABS = [
+  { id: 'people',   icon: 'briefcase-outline'          as const, iconActive: 'briefcase'          as const },
+  { id: 'matched',  icon: 'people-circle-outline'      as const, iconActive: 'people-circle'      as const, badge: '5' },
+  { id: 'insights', icon: 'analytics-outline'          as const, iconActive: 'analytics'          as const },
+  { id: 'chats',    icon: 'chatbubbles-outline'        as const, iconActive: 'chatbubbles'        as const, badge: '3' },
+  { id: 'profile',  icon: 'person-outline'             as const, iconActive: 'person'             as const },
 ];
 
 
@@ -86,6 +161,78 @@ const LIKED_PROFILES: Profile[] = [
   { id:'l4', name:'River',  age:28, verified:true,  premium:false, location:'Portland, OR',       distance:'8.2 km', about:"Forest + films person 🌲🎬", images:['https://randomuser.me/api/portraits/women/77.jpg'], details:{height:"5'7\"",drinks:'Regularly',smokes:'Socially',gender:'Non-binary',wantsKids:'No',sign:'♍ Virgo',politics:'Liberal',religion:'Pagan',work:'Filmmaker',education:'Portland State'}, lookingFor:'Casual dating', interests:[{emoji:'🎬',label:'Film'},{emoji:'🌲',label:'Nature'}], prompts:[], languages:['English'] },
   { id:'l5', name:'Chloe',  age:25, verified:false, premium:false, location:'Denver, CO',         distance:'6.0 km', about:"Mountains are my therapy 🏔️", images:['https://randomuser.me/api/portraits/women/88.jpg'], details:{height:"5'5\"",drinks:'Socially',smokes:'Never',gender:'Woman',wantsKids:'Open to it',sign:'♑ Capricorn',politics:'Moderate',religion:'Christian',work:'Nurse',education:'University of Colorado'}, lookingFor:'Something serious', interests:[{emoji:'🏔️',label:'Mountains'},{emoji:'🩺',label:'Health'}], prompts:[], languages:['English'] },
   { id:'l6', name:'Nadia',  age:29, verified:true,  premium:true,  location:'Seattle, WA',        distance:'3.7 km', about:"Rain & ramen lover 🌧️🍜", images:['https://randomuser.me/api/portraits/women/35.jpg'], details:{height:"5'6\"",drinks:'Regularly',smokes:'Never',gender:'Woman',wantsKids:'No',sign:'♎ Libra',politics:'Progressive',religion:'Buddhist',work:'Data Scientist',education:'UW – Statistics'}, lookingFor:'Casual dating', interests:[{emoji:'🍜',label:'Ramen'},{emoji:'📊',label:'Data'}], prompts:[], languages:['English','Russian'] },
+];
+
+// ─── Work profile data ────────────────────────────────────────────────────────
+
+interface WorkProfile {
+  id: string; name: string; age: number; verified: boolean; premium: boolean;
+  location: string; distance: string; role: string; company: string;
+  linkedInUrl?: string; about: string; images: string[];
+  industries: string[]; skills: string[];
+  commitmentLevel: string; equitySplit: string;
+  matchingGoals: string[]; areYouHiring: boolean;
+  prompts: { question: string; answer: string }[];
+  experience: { title: string; company: string; years: string }[];
+}
+
+const WORK_PROFILES: WorkProfile[] = [
+  {
+    id: 'w1', name: 'Alex Chen', age: 31, verified: true, premium: true,
+    location: 'San Francisco, CA', distance: '2.1 km',
+    role: 'Co-founder & CTO', company: 'Stealth AI Startup',
+    linkedInUrl: 'https://linkedin.com', about: "Building the next-gen AI infra layer for SMBs. Ex-Google TechLead. Raised $1.2M pre-seed. Looking for a commercial co-founder who can sell.",
+    images: ['https://randomuser.me/api/portraits/men/32.jpg','https://randomuser.me/api/portraits/men/33.jpg'],
+    industries: ['AI', 'SaaS', 'Developer Tools'], skills: ['Engineering', 'AI / ML', 'Product'],
+    commitmentLevel: 'Already full-time on a startup', equitySplit: 'Equal split',
+    matchingGoals: ['Looking for co-founder'], areYouHiring: false,
+    prompts: [{ question: 'My idea in one line', answer: 'GPT-native ERP for small businesses — replace 5 SaaS tools with one.' }, { question: 'The co-founder I\'m looking for', answer: 'A sales-obsessed operator who can close enterprise deals and build a GTM engine from scratch.' }],
+    experience: [{ title: 'TechLead', company: 'Google', years: '4 yrs' }, { title: 'SWE', company: 'Meta', years: '2 yrs' }],
+  },
+  {
+    id: 'w2', name: 'Priya Sharma', age: 28, verified: true, premium: false,
+    location: 'London, UK', distance: '5.0 km',
+    role: 'Product Lead', company: 'Revolut',
+    linkedInUrl: 'https://linkedin.com', about: "5 years fintech product @ Revolut & Monzo. Obsessed with growth loops. Exploring founding my own thing — open to the right idea + founding team.",
+    images: ['https://randomuser.me/api/portraits/women/90.jpg','https://randomuser.me/api/portraits/women/91.jpg'],
+    industries: ['Fintech', 'Consumer', 'Growth'], skills: ['Product', 'Growth', 'Strategy'],
+    commitmentLevel: 'Ready to go full-time right now with right co-founder', equitySplit: 'Fully negotiable',
+    matchingGoals: ['Have an idea, open to explore', 'Looking for co-founder'], areYouHiring: false,
+    prompts: [{ question: 'What I bring to the table', answer: 'Deep fintech domain, strong product sense, and a network of 200+ angel investors in London.' }, { question: 'My biggest learning so far', answer: 'Distribution is harder than building. Founders who figure out growth early win.' }],
+    experience: [{ title: 'Product Lead', company: 'Revolut', years: '3 yrs' }, { title: 'PM', company: 'Monzo', years: '2 yrs' }],
+  },
+  {
+    id: 'w3', name: 'Jordan Lee', age: 34, verified: false, premium: false,
+    location: 'New York, NY', distance: '3.8 km',
+    role: 'Founder', company: 'Loop (prev. Funded)',
+    linkedInUrl: 'https://linkedin.com', about: "Sold my last startup to Shopify in 2022. Now exploring climate tech. Ideally find a deep-tech co-founder.",
+    images: ['https://randomuser.me/api/portraits/men/55.jpg'],
+    industries: ['Climate Tech', 'Deep Tech', 'B2B'], skills: ['Sales', 'Business Development', 'Fundraising'],
+    commitmentLevel: 'Already full-time on a startup', equitySplit: 'Equal split',
+    matchingGoals: ['Looking for co-founder', 'Exploring new ideas'], areYouHiring: true,
+    prompts: [{ question: 'Why now, why me', answer: 'Climate has a distribution problem — I know how to solve that.' }],
+    experience: [{ title: 'Founder → Acq.', company: 'Loop', years: '3 yrs' }, { title: 'Head of Sales', company: 'Shopify', years: '1 yr' }],
+  },
+  {
+    id: 'w4', name: 'Sarah Müller', age: 26, verified: true, premium: true,
+    location: 'Berlin, Germany', distance: '12 km',
+    role: 'Senior ML Engineer', company: 'Mistral AI',
+    linkedInUrl: 'https://linkedin.com', about: "Training large language models @ Mistral. Thesis on efficient transformers. Open to founding or joining an early-stage team as technical co-founder.",
+    images: ['https://randomuser.me/api/portraits/women/42.jpg','https://randomuser.me/api/portraits/women/43.jpg'],
+    industries: ['AI', 'Deep Tech'], skills: ['AI / ML', 'Engineering', 'Product'],
+    commitmentLevel: 'Ready to go full-time in the next year', equitySplit: 'Equity + salary compensation both',
+    matchingGoals: ['Open to chatting', 'Have an idea, open to explore'], areYouHiring: false,
+    prompts: [{ question: 'My superpower is', answer: 'Making large models small — I cut inference cost by 60% at my last gig.' }],
+    experience: [{ title: 'ML Engineer', company: 'Mistral AI', years: '1 yr' }, { title: 'Research Intern', company: 'DeepMind', years: '6 mo' }],
+  },
+];
+
+const WORK_MATCHED: WorkProfile[] = [
+  { ...WORK_PROFILES[1], id: 'wm1' },
+  { ...WORK_PROFILES[3], id: 'wm2' },
+  { ...WORK_PROFILES[0], id: 'wm3', name: 'Marcus Wong', role: 'Growth Lead', company: 'Stripe', images: ['https://randomuser.me/api/portraits/men/20.jpg'] },
+  { ...WORK_PROFILES[2], id: 'wm4', name: 'Fatima Al-Rashid', role: 'VC Partner', company: 'Index Ventures', images: ['https://randomuser.me/api/portraits/women/60.jpg'] },
+  { ...WORK_PROFILES[1], id: 'wm5', name: 'Tomas Novak', role: 'CTO', company: 'N26', images: ['https://randomuser.me/api/portraits/men/77.jpg'] },
 ];
 
 // ─── Profile Card (scrollable + swipeable) ────────────────────────────────────
@@ -370,6 +517,193 @@ function EmptyState({ onReset, colors }: { onReset: () => void; colors: any }) {
   );
 }
 
+// ─── Work Profile Card ────────────────────────────────────────────────────────
+
+function WorkProfileCard({ profile, onSwipedLeft, onSwipedRight, colors }: {
+  profile: WorkProfile;
+  onSwipedLeft: () => void;
+  onSwipedRight: () => void;
+  colors: any;
+}) {
+  const position = useRef(new Animated.ValueXY()).current;
+  const onSwipedLeftRef  = useRef(onSwipedLeft);
+  const onSwipedRightRef = useRef(onSwipedRight);
+  useEffect(() => { onSwipedLeftRef.current = onSwipedLeft; onSwipedRightRef.current = onSwipedRight; }, [onSwipedLeft, onSwipedRight]);
+
+  const resetCard = () => {
+    Animated.spring(position, { toValue: { x: 0, y: 0 }, useNativeDriver: true, friction: 6, tension: 40 }).start();
+  };
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onStartShouldSetPanResponderCapture: () => false,
+      onMoveShouldSetPanResponderCapture: (_, g) => { const ax = Math.abs(g.dx); const ay = Math.abs(g.dy); return ax > ay && ax > 6; },
+      onMoveShouldSetPanResponder: (_, g) => { const ax = Math.abs(g.dx); const ay = Math.abs(g.dy); return ax > ay && ax > 6; },
+      onPanResponderGrant: () => { position.setOffset({ x: (position.x as any)._value, y: 0 }); position.setValue({ x: 0, y: 0 }); },
+      onPanResponderMove: Animated.event([null, { dx: position.x }], { useNativeDriver: false }),
+      onPanResponderRelease: (_, g) => {
+        position.flattenOffset();
+        if (g.dx > SWIPE_THRESHOLD || g.vx > 0.8) {
+          Animated.timing(position, { toValue: { x: W + 200, y: g.dy }, duration: 220, useNativeDriver: true }).start(() => onSwipedRightRef.current());
+        } else if (g.dx < -SWIPE_THRESHOLD || g.vx < -0.8) {
+          Animated.timing(position, { toValue: { x: -(W + 200), y: g.dy }, duration: 220, useNativeDriver: true }).start(() => onSwipedLeftRef.current());
+        } else { resetCard(); }
+      },
+      onPanResponderTerminate: () => { position.flattenOffset(); resetCard(); },
+    })
+  ).current;
+
+  const rotate    = position.x.interpolate({ inputRange: [-W * 0.6, 0, W * 0.6], outputRange: ['-12deg', '0deg', '12deg'], extrapolate: 'clamp' });
+  const cardStyle = { transform: [{ translateX: position.x }, { translateY: position.y }, { rotate }] };
+  const connectOpacity = position.x.interpolate({ inputRange: [0, SWIPE_THRESHOLD], outputRange: [0, 1], extrapolate: 'clamp' });
+  const passOpacity    = position.x.interpolate({ inputRange: [-SWIPE_THRESHOLD, 0], outputRange: [1, 0], extrapolate: 'clamp' });
+
+  return (
+    <Animated.View style={[styles.card, cardStyle]} {...panResponder.panHandlers}>
+      <ScrollView showsVerticalScrollIndicator={false} bounces={false}>
+        {/* Cover photo */}
+        <View style={{ height: CARD_H * 0.42, position: 'relative' }}>
+          <Image source={{ uri: profile.images[0] }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+          {/* Gradient */}
+          <LinearGradient colors={['transparent', 'rgba(0,0,0,0.85)']} style={[StyleSheet.absoluteFill, { justifyContent: 'flex-end', padding: 16 }]}>
+            {/* CONNECT / PASS badges */}
+            <Animated.View style={[styles.likeStamp, { opacity: connectOpacity, borderColor: '#4ade80' }]}>
+              <Text style={[styles.likeStampText, { color: '#4ade80' }]}>CONNECT</Text>
+            </Animated.View>
+            <Animated.View style={[styles.nopeStamp, { opacity: passOpacity }]}>
+              <Text style={styles.nopeStampText}>PASS</Text>
+            </Animated.View>
+
+            {/* Name + role */}
+            <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8 }}>
+              <View style={{ flex: 1 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Text style={styles.photoName}>{profile.name}</Text>
+                  {profile.verified && <Ionicons name="checkmark-circle" size={16} color="#fff" />}
+                  {/* LinkedIn badge */}
+                  {profile.linkedInUrl && (
+                    <View style={wStyles.linkedInBadge}>
+                      <Text style={wStyles.linkedInText}>in</Text>
+                    </View>
+                  )}
+                </View>
+                <Text style={wStyles.cardRole}>{profile.role} · {profile.company}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 }}>
+                  <Ionicons name="location-outline" size={11} color="rgba(255,255,255,0.7)" />
+                  <Text style={styles.locationText}>{profile.distance} away</Text>
+                </View>
+              </View>
+              {profile.areYouHiring && (
+                <View style={wStyles.hiringBadge}>
+                  <Text style={wStyles.hiringText}>HIRING</Text>
+                </View>
+              )}
+            </View>
+          </LinearGradient>
+        </View>
+
+        {/* Card body */}
+        <View style={[styles.detailsSection, { backgroundColor: colors.surface }]}>
+
+          {/* About */}
+          <Text style={[styles.aboutText, { color: colors.text }]}>{profile.about}</Text>
+
+          <View style={[styles.divider, { backgroundColor: colors.border }]} />
+
+          {/* Work chips */}
+          <View style={{ gap: 10 }}>
+            <Text style={[styles.secLabel, { color: colors.textSecondary }]}>INDUSTRIES</Text>
+            <View style={styles.chipRow}>
+              {profile.industries.map(ind => (
+                <View key={ind} style={[styles.chip, { backgroundColor: colors.surface2 }]}>
+                  <Text style={[styles.chipLabel, { color: colors.text }]}>{ind}</Text>
+                </View>
+              ))}
+            </View>
+            <Text style={[styles.secLabel, { color: colors.textSecondary, marginTop: 4 }]}>SKILLS</Text>
+            <View style={styles.chipRow}>
+              {profile.skills.map(sk => (
+                <View key={sk} style={[styles.chip, { backgroundColor: colors.surface2 }]}>
+                  <Text style={[styles.chipLabel, { color: colors.text }]}>{sk}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+
+          <View style={[styles.divider, { backgroundColor: colors.border }]} />
+
+          {/* Key work details */}
+          <View style={{ gap: 10 }}>
+            {[
+              { icon: 'time-outline' as const,       label: 'Commitment',  value: profile.commitmentLevel },
+              { icon: 'pie-chart-outline' as const,  label: 'Equity',      value: profile.equitySplit },
+              { icon: 'flag-outline' as const,       label: 'Goals',       value: profile.matchingGoals.join(', ') },
+            ].map(d => (
+              <View key={d.label} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 6 }}>
+                <View style={[{ width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center' }, { backgroundColor: colors.surface2 }]}>
+                  <Ionicons name={d.icon} size={13} color={colors.textSecondary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.detailLabel, { color: colors.textSecondary }]}>{d.label}</Text>
+                  <Text style={[styles.detailValue, { color: colors.text }]} numberOfLines={2}>{d.value}</Text>
+                </View>
+              </View>
+            ))}
+          </View>
+
+          <View style={[styles.divider, { backgroundColor: colors.border }]} />
+
+          {/* Experience */}
+          <Text style={[styles.secLabel, { color: colors.textSecondary }]}>EXPERIENCE</Text>
+          <View style={{ gap: 8, marginTop: 8 }}>
+            {profile.experience.map((ex, i) => (
+              <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <View style={wStyles.expDot} />
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.detailValue, { color: colors.text }]}>{ex.title} · {ex.company}</Text>
+                  <Text style={[styles.detailLabel, { color: colors.textSecondary }]}>{ex.years}</Text>
+                </View>
+              </View>
+            ))}
+          </View>
+
+          <View style={[styles.divider, { backgroundColor: colors.border }]} />
+
+          {/* Prompts */}
+          {profile.prompts.map((p, i) => (
+            <View key={i} style={[styles.promptCard, { backgroundColor: colors.surface2, marginBottom: 8 }]}>
+              <Text style={[styles.promptQ, { color: colors.textSecondary }]}>{p.question}</Text>
+              <Text style={[styles.promptA, { color: colors.text }]}>{p.answer}</Text>
+            </View>
+          ))}
+
+          <View style={[styles.dangerRow, { marginTop: 8 }]}>
+            <Pressable style={({ pressed }) => [styles.dangerBtn, { borderColor: colors.border, backgroundColor: colors.surface2 }, pressed && { opacity: 0.65 }]}>
+              <Ionicons name="flag-outline" size={15} color={colors.error} />
+              <Text style={[styles.dangerBtnText, { color: colors.error }]}>Report</Text>
+            </Pressable>
+            <Pressable style={({ pressed }) => [styles.dangerBtn, { borderColor: colors.border, backgroundColor: colors.surface2 }, pressed && { opacity: 0.65 }]}>
+              <Ionicons name="ban-outline" size={15} color={colors.textSecondary} />
+              <Text style={[styles.dangerBtnText, { color: colors.textSecondary }]}>Block</Text>
+            </Pressable>
+          </View>
+        </View>
+      </ScrollView>
+    </Animated.View>
+  );
+}
+
+// Work card supplemental styles
+const wStyles = StyleSheet.create({
+  linkedInBadge: { width: 20, height: 20, borderRadius: 5, backgroundColor: '#0A66C2', alignItems: 'center', justifyContent: 'center' },
+  linkedInText:  { fontSize: 11, fontFamily: 'ProductSans-Black', color: '#fff' },
+  cardRole:      { color: 'rgba(255,255,255,0.9)', fontSize: 13, fontFamily: 'ProductSans-Medium', marginTop: 1 },
+  hiringBadge:   { backgroundColor: '#22c55e', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4 },
+  hiringText:    { fontSize: 10, fontFamily: 'ProductSans-Black', color: '#fff', letterSpacing: 0.5 },
+  expDot:        { width: 8, height: 8, borderRadius: 4, backgroundColor: '#0A66C2', marginTop: 2 },
+});
+
 // ─── Range Slider ─────────────────────────────────────────────────────────────
 
 function RangeSlider({
@@ -514,353 +848,6 @@ function RangeSlider({
   );
 }
 
-// ─── Filter Sheet ─────────────────────────────────────────────────────────────
-
-const LANGUAGES_LIST = ['English','Spanish','French','German','Italian','Portuguese','Japanese','Korean','Chinese','Arabic','Hindi','Russian','Swahili'];
-const SIGNS_LIST     = ['♈ Aries','♉ Taurus','♊ Gemini','♋ Cancer','♌ Leo','♍ Virgo','♎ Libra','♏ Scorpio','♐ Sagittarius','♑ Capricorn','♒ Aquarius','♓ Pisces'];
-const INTERESTS_LIST = [
-  {emoji:'☕',label:'Coffee'},{emoji:'✈️',label:'Travel'},{emoji:'📚',label:'Books'},{emoji:'🎨',label:'Art'},
-  {emoji:'🍕',label:'Food'},{emoji:'🎵',label:'Music'},{emoji:'🧘',label:'Yoga'},{emoji:'📸',label:'Photography'},
-  {emoji:'🥾',label:'Hiking'},{emoji:'🎮',label:'Gaming'},{emoji:'🍷',label:'Wine'},{emoji:'🏄',label:'Surfing'},
-  {emoji:'🏋️',label:'Gym'},{emoji:'💃',label:'Dancing'},{emoji:'🌿',label:'Nature'},{emoji:'🎬',label:'Film'},
-  {emoji:'🐶',label:'Dogs'},{emoji:'🐱',label:'Cats'},{emoji:'🍜',label:'Cooking'},{emoji:'✍️',label:'Writing'},
-];
-
-function FilterChip({ emoji, label, selected, onPress, colors }: { emoji?: string; label: string; selected: boolean; onPress: () => void; colors: any }) {
-  return (
-    <Pressable onPress={onPress}>
-        <Squircle
-        style={styles.filterChip}
-        cornerRadius={16}
-          cornerSmoothing={1}
-        fillColor={selected ? colors.text : colors.surface2}
-        strokeColor={selected ? colors.text : colors.border}
-        strokeWidth={1}
-        >
-        {emoji ? <Text style={{ fontSize: 13 }}>{emoji}</Text> : null}
-        <Text style={[styles.filterChipText, { color: selected ? colors.bg : colors.text }]}>{label}</Text>
-        </Squircle>
-    </Pressable>
-  );
-}
-
-function FilterSheet({ visible, onClose, colors, insets }: { visible: boolean; onClose: () => void; colors: any; insets: any }) {
-  const [activeTab,    setActiveTab]    = useState<'basic' | 'pro'>('basic');
-  const [verifiedOnly, setVerifiedOnly] = useState(false);
-  const [ageMin,       setAgeMin]       = useState(18);
-  const [ageMax,       setAgeMax]       = useState(45);
-  const [distance,     setDistance]     = useState(50);
-  const [langs,        setLangs]        = useState<string[]>([]);
-  const [signs,        setSigns]        = useState<string[]>([]);
-  const [interests,    setInterests]    = useState<string[]>([]);
-
-  const toggle = (arr: string[], setArr: (v: string[]) => void, val: string) =>
-    setArr(arr.includes(val) ? arr.filter(x => x !== val) : [...arr, val]);
-
-  const SecHead = ({ title }: { title: string }) => (
-    <Text style={[styles.filterSecHead, { color: colors.textSecondary }]}>{title}</Text>
-  );
-
-  const isDark = colors.bg === '#000000';
-
-  return (
-    <Modal visible={visible} animationType="slide" presentationStyle="fullScreen" onRequestClose={onClose}>
-      <View style={[styles.sheetContainer, { backgroundColor: colors.bg }]}>
-
-        {/* ── Gradient header ── */}
-        <LinearGradient
-          colors={isDark ? ['#1a1a1a','#111111','#000000'] : ['#e8e8ed','#f2f2f7','#ffffff']}
-          start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }}
-          style={[styles.sheetHeader, { paddingTop: insets.top + 10 }]}
-        >
-          <View style={styles.sheetHeaderRow}>
-            <Pressable onPress={onClose} style={({ pressed }) => [styles.sheetClose, pressed && { opacity: 0.6 }]}>
-              <Ionicons name="close" size={22} color={colors.text} />
-          </Pressable>
-            <Text style={[styles.sheetTitle, { color: colors.text }]}>Discover</Text>
-            <Pressable onPress={() => { setVerifiedOnly(false); setAgeMin(18); setAgeMax(45); setDistance(50); setLangs([]); setSigns([]); setInterests([]); }} hitSlop={8}>
-              <Text style={[styles.sheetResetText, { color: colors.textSecondary }]}>Reset</Text>
-          </Pressable>
-        </View>
-
-          {/* Basic / Pro tabs */}
-          <View style={styles.filterTabRow}>
-            <Pressable onPress={() => setActiveTab('basic')}>
-              <View style={[styles.filterTabPill, activeTab === 'basic' && { backgroundColor: colors.text }]}>
-                <Text style={[styles.filterTabText, { color: activeTab === 'basic' ? colors.bg : colors.textSecondary }]}>Basic</Text>
-              </View>
-            </Pressable>
-            <Pressable onPress={() => setActiveTab('pro')}>
-              <View style={[styles.filterTabPill, activeTab === 'pro' && { backgroundColor: colors.text }]}>
-                <Ionicons name="sparkles" size={11} color={activeTab === 'pro' ? colors.bg : colors.textSecondary} style={{ marginRight: 4 }} />
-                <Text style={[styles.filterTabText, { color: activeTab === 'pro' ? colors.bg : colors.textSecondary }]}>Pro</Text>
-              </View>
-            </Pressable>
-          </View>
-        </LinearGradient>
-
-        {activeTab === 'basic' ? (
-          <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: insets.bottom + 120, gap: 14 }} showsVerticalScrollIndicator={false}>
-
-            {/* Age range */}
-            <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
-              <View style={styles.sliderLabelRow}>
-                <SecHead title="AGE RANGE" />
-                <Text style={[styles.sliderValue, { color: colors.text }]}>{ageMin} – {ageMax}</Text>
-              </View>
-              <View style={[styles.sliderEdgeRow, { marginTop: 10 }]}>
-                <Text style={[styles.sliderEdge, { color: colors.textSecondary }]}>18</Text>
-                <View style={{ flex: 1 }}>
-                  <RangeSlider min={18} max={80} low={ageMin} high={ageMax} colors={colors} onLowChange={setAgeMin} onHighChange={setAgeMax} />
-                </View>
-                <Text style={[styles.sliderEdge, { color: colors.textSecondary }]}>80</Text>
-              </View>
-            </Squircle>
-
-            {/* Distance */}
-            <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
-              <View style={styles.sliderLabelRow}>
-                <SecHead title="MAX DISTANCE" />
-                <Text style={[styles.sliderValue, { color: colors.text }]}>{distance === 150 ? 'Any' : `${distance} km`}</Text>
-              </View>
-              <View style={[styles.sliderRow, { marginTop: 10 }]}>
-                <Text style={[styles.sliderSub, { color: colors.textSecondary }]}>1 km</Text>
-                <SliderRN style={{ flex: 1 }} minimumValue={1} maximumValue={150} step={1} value={distance} onValueChange={v => setDistance(Math.round(v))} minimumTrackTintColor={colors.text} maximumTrackTintColor={colors.surface2} thumbTintColor={colors.text} />
-                <Text style={[styles.sliderSub, { color: colors.textSecondary }]}>Any</Text>
-              </View>
-            </Squircle>
-
-            {/* Verified only */}
-            <Squircle style={[styles.filterCard, { flexDirection: 'row', alignItems: 'center', gap: 12 }]} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
-              <Squircle style={styles.filterRowIcon} cornerRadius={12} cornerSmoothing={1} fillColor={colors.surface2}>
-                <Ionicons name="checkmark-circle-outline" size={18} color={colors.text} />
-              </Squircle>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.filterRowTitle, { color: colors.text }]}>Verified only</Text>
-                <Text style={[styles.filterRowSub, { color: colors.textSecondary }]}>Show only verified profiles</Text>
-              </View>
-              <Switch value={verifiedOnly} onValueChange={setVerifiedOnly} thumbColor={colors.bg} trackColor={{ false: colors.surface2, true: colors.text }} />
-            </Squircle>
-
-            {/* Interests */}
-            <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
-              <SecHead title="INTERESTS" />
-              <View style={[styles.filterChipRow, { marginTop: 12 }]}>
-                {INTERESTS_LIST.map(v => (
-                  <FilterChip key={v.label} emoji={v.emoji} label={v.label} selected={interests.includes(v.label)} onPress={() => toggle(interests, setInterests, v.label)} colors={colors} />
-                ))}
-              </View>
-            </Squircle>
-
-            {/* Star sign */}
-            <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
-              <SecHead title="STAR SIGN" />
-              <View style={[styles.filterChipRow, { marginTop: 12 }]}>
-                {SIGNS_LIST.map(v => <FilterChip key={v} label={v} selected={signs.includes(v)} onPress={() => toggle(signs, setSigns, v)} colors={colors} />)}
-              </View>
-            </Squircle>
-
-            {/* Languages */}
-            <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
-              <SecHead title="LANGUAGE" />
-              <View style={[styles.filterChipRow, { marginTop: 12 }]}>
-                {LANGUAGES_LIST.map(v => <FilterChip key={v} label={v} selected={langs.includes(v)} onPress={() => toggle(langs, setLangs, v)} colors={colors} />)}
-              </View>
-            </Squircle>
-
-          </ScrollView>
-        ) : (
-          /* Pro tab — blurred feature list */
-          <ScrollView
-            contentContainerStyle={{ padding: 20, paddingBottom: insets.bottom + 120, gap: 14 }}
-            showsVerticalScrollIndicator={false}
-          >
-            {/* What you unlock — header */}
-            <Squircle style={styles.proHeaderCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
-              <View style={styles.proHeaderRow}>
-                <Squircle style={styles.proHeaderIcon} cornerRadius={14} cornerSmoothing={1} fillColor={colors.surface2}>
-                  <Ionicons name="sparkles" size={20} color={colors.text} />
-                </Squircle>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.proHeaderTitle, { color: colors.text }]}>Pro Filters</Text>
-                  <Text style={[styles.proHeaderSub, { color: colors.textSecondary }]}>10 advanced filters + AI features</Text>
-                </View>
-                <Squircle style={styles.proLockBadge} cornerRadius={10} cornerSmoothing={1} fillColor={colors.surface2}>
-                  <Ionicons name="lock-closed" size={13} color={colors.textSecondary} />
-                </Squircle>
-              </View>
-            </Squircle>
-
-            {/* ADVANCED FILTERS label */}
-            <Text style={[styles.filterSecHead, { color: colors.textSecondary, marginLeft: 2 }]}>ADVANCED FILTERS</Text>
-
-            {/* Looking for — dimmed */}
-            <View>
-              <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
-                <View style={styles.proFeatureRow}>
-                  <SecHead title="LOOKING FOR" />
-                  <Ionicons name="lock-closed" size={11} color={colors.textSecondary} />
-                </View>
-                <View style={[styles.filterChipRow, { marginTop: 12 }]}>
-                  {['Something serious','My forever person','Casual dating','Something physical','Marriage','Open to anything'].map(v => (
-                    <Squircle key={v} style={styles.filterChip} cornerRadius={16} cornerSmoothing={1} fillColor={colors.surface2} strokeColor={colors.border} strokeWidth={1}>
-                      <Text style={[styles.filterChipText, { color: colors.textSecondary }]}>{v}</Text>
-                    </Squircle>
-                  ))}
-                </View>
-              </Squircle>
-            </View>
-
-            {/* Height — dimmed */}
-            <View>
-              <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
-                <View style={styles.proFeatureRow}>
-                  <SecHead title="HEIGHT RANGE" />
-                  <Ionicons name="lock-closed" size={11} color={colors.textSecondary} />
-                </View>
-                <View style={[styles.sliderEdgeRow, { marginTop: 10 }]}>
-                  <Text style={[styles.sliderEdge, { color: colors.textSecondary }]}>4'8"</Text>
-                  <View style={[styles.proFakeFill, { flex: 1, marginHorizontal: 8 }]}>
-                    <View style={[styles.proFakeTrack, { backgroundColor: colors.surface2 }]} />
-                    <View style={[styles.proFakeActive, { backgroundColor: colors.textSecondary, left: '15%', right: '20%' }]} />
-                    <View style={[styles.proFakeThumb, { backgroundColor: colors.textSecondary, left: '13%' }]} />
-                    <View style={[styles.proFakeThumb, { backgroundColor: colors.textSecondary, right: '18%' }]} />
-                  </View>
-                  <Text style={[styles.sliderEdge, { color: colors.textSecondary }]}>6'6"</Text>
-                </View>
-              </Squircle>
-            </View>
-
-            {/* Education — dimmed */}
-            <View>
-              <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
-                <View style={styles.proFeatureRow}>
-                  <SecHead title="EDUCATION LEVEL" />
-                  <Ionicons name="lock-closed" size={11} color={colors.textSecondary} />
-                </View>
-                <View style={[styles.filterChipRow, { marginTop: 12 }]}>
-                  {["High school","Bachelor's","Master's","PhD","Trade school"].map(v => (
-                    <Squircle key={v} style={styles.filterChip} cornerRadius={16} cornerSmoothing={1} fillColor={colors.surface2} strokeColor={colors.border} strokeWidth={1}>
-                      <Text style={[styles.filterChipText, { color: colors.textSecondary }]}>{v}</Text>
-                    </Squircle>
-                  ))}
-                </View>
-              </Squircle>
-            </View>
-
-            {/* Kids & Drinks & Smokes row — dimmed */}
-            <View style={{ gap: 14 }}>
-              <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
-                <View style={styles.proFeatureRow}>
-                  <SecHead title="KIDS & FAMILY" />
-                  <Ionicons name="lock-closed" size={11} color={colors.textSecondary} />
-                </View>
-                <View style={[styles.filterChipRow, { marginTop: 12 }]}>
-                  {['Want kids','Open to it','No kids','Have kids'].map(v => (
-                    <Squircle key={v} style={styles.filterChip} cornerRadius={16} cornerSmoothing={1} fillColor={colors.surface2} strokeColor={colors.border} strokeWidth={1}>
-                      <Text style={[styles.filterChipText, { color: colors.textSecondary }]}>{v}</Text>
-                    </Squircle>
-                  ))}
-                </View>
-              </Squircle>
-              <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
-                <View style={styles.proFeatureRow}>
-                  <SecHead title="LIFESTYLE" />
-                  <Ionicons name="lock-closed" size={11} color={colors.textSecondary} />
-                </View>
-                <View style={[styles.filterChipRow, { marginTop: 12 }]}>
-                  {['Never drinks','Drinks socially','Drinks often','Never smokes','Smokes socially'].map(v => (
-                    <Squircle key={v} style={styles.filterChip} cornerRadius={16} cornerSmoothing={1} fillColor={colors.surface2} strokeColor={colors.border} strokeWidth={1}>
-                      <Text style={[styles.filterChipText, { color: colors.textSecondary }]}>{v}</Text>
-                    </Squircle>
-                  ))}
-                </View>
-              </Squircle>
-              <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
-                <View style={styles.proFeatureRow}>
-                  <SecHead title="ACTIVE RECENTLY" />
-                  <Ionicons name="lock-closed" size={11} color={colors.textSecondary} />
-                </View>
-                <View style={[styles.filterChipRow, { marginTop: 12 }]}>
-                  {['Online now','Last 24h','This week','This month'].map(v => (
-                    <Squircle key={v} style={styles.filterChip} cornerRadius={16} cornerSmoothing={1} fillColor={colors.surface2} strokeColor={colors.border} strokeWidth={1}>
-                      <Text style={[styles.filterChipText, { color: colors.textSecondary }]}>{v}</Text>
-                    </Squircle>
-                  ))}
-                </View>
-              </Squircle>
-            </View>
-
-            {/* AI FEATURES label */}
-            <Text style={[styles.filterSecHead, { color: colors.textSecondary, marginLeft: 2, marginTop: 6 }]}>AI FEATURES</Text>
-
-            {/* AI feature cards — dimmed */}
-            {[
-              { icon: 'analytics-outline',   title: 'Match Score',             sub: 'Every profile shows a % of how well you two match — before you swipe' },
-              { icon: 'shield-checkmark-outline', title: 'Must-Haves Filter',  sub: 'Set things you can\'t compromise on (kids, smoking, etc.) and we hide everyone who doesn\'t fit' },
-              { icon: 'pulse-outline',        title: 'Vibe Check',              sub: 'We look at how you both communicate and tell you if your energy naturally clicks' },
-              { icon: 'heart-circle-outline', title: 'Personality Match',       sub: 'Filter by love language, attachment style or personality type so you find someone who gets you' },
-              { icon: 'time-outline',         title: 'Best Time to Be Active',  sub: 'We show you the exact times to go online for the most views and likes on your profile' },
-            ].map(f => (
-              <View key={f.title}>
-                <Squircle style={[styles.filterCard, { flexDirection: 'row', alignItems: 'center', gap: 14 }]} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
-                  <Squircle style={styles.proAiIcon} cornerRadius={14} cornerSmoothing={1} fillColor={colors.surface2}>
-                    <Ionicons name={f.icon as any} size={20} color={colors.text} />
-                  </Squircle>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.proAiTitle, { color: colors.text }]}>{f.title}</Text>
-                    <Text style={[styles.proAiSub, { color: colors.textSecondary }]}>{f.sub}</Text>
-                  </View>
-                  <Ionicons name="lock-closed" size={13} color={colors.textSecondary} />
-                </Squircle>
-              </View>
-            ))}
-          </ScrollView>
-        )}
-
-        {/* Footer */}
-        <View style={[styles.sheetFooter, { borderTopColor: colors.border, paddingBottom: Math.max(insets.bottom, 20), backgroundColor: colors.bg, gap: 10 }]}>
-          {activeTab === 'basic' ? (
-            <>
-              {/* Upsell banner — grey only */}
-              <Pressable onPress={() => setActiveTab('pro')}>
-                <Squircle style={styles.upsellBanner} cornerRadius={18} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
-                  <View style={styles.upsellLeft}>
-                    <Squircle style={styles.upsellIconWrap} cornerRadius={12} cornerSmoothing={1} fillColor={colors.surface2}>
-                      <Ionicons name="sparkles" size={15} color={colors.text} />
-                    </Squircle>
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.upsellTitle, { color: colors.text }]}>Unlock Advanced Filters</Text>
-                      <Text style={[styles.upsellSub, { color: colors.textSecondary }]}>Education, lifestyle, looking for & more</Text>
-                    </View>
-                  </View>
-                  <Squircle style={styles.upsellBtn} cornerRadius={12} cornerSmoothing={1} fillColor={colors.surface2} strokeColor={colors.border} strokeWidth={1}>
-                    <Text style={[styles.upsellBtnText, { color: colors.text }]}>Pro</Text>
-                  </Squircle>
-                </Squircle>
-              </Pressable>
-              {/* Apply */}
-              <Squircle cornerRadius={18} cornerSmoothing={1} fillColor={colors.text} style={styles.applyBtn}>
-                <Pressable onPress={onClose} style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-                  <Text style={[styles.applyBtnText, { color: colors.bg }]}>Apply Filters</Text>
-                </Pressable>
-              </Squircle>
-            </>
-          ) : (
-            /* Unlock Pro button — disabled style */
-            <Squircle cornerRadius={18} cornerSmoothing={1} fillColor={colors.surface2} strokeColor={colors.border} strokeWidth={1} style={[styles.applyBtn, { opacity: 0.5 }]}>
-              <Pressable onPress={() => Alert.alert('Zod Pro', 'Subscribe to unlock all pro filters and AI features.')} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-                <Ionicons name="lock-closed" size={14} color={colors.textSecondary} />
-                <Text style={[styles.applyBtnText, { color: colors.textSecondary }]}>Unlock Pro</Text>
-              </Pressable>
-            </Squircle>
-          )}
-        </View>
-      </View>
-    </Modal>
-  );
-}
-
 // ─── Liked You Page ───────────────────────────────────────────────────────────
 
 const FREE_VISIBLE = 2; // first 2 profiles are clear, rest blurred (free tier)
@@ -952,7 +939,7 @@ function LikedYouPage({ colors, insets }: { colors: any; insets: any }) {
               >
                 {/* Photo */}
                 <View style={styles.likedPhotoWrap}>
-                  <Image
+                  <ExpoImage
                     source={{ uri: p.images[0] }}
                     style={[styles.likedPhoto, isBlurred && styles.likedPhotoBlurred]}
                     contentFit="cover"
@@ -1069,6 +1056,88 @@ function LikedYouPage({ colors, insets }: { colors: any; insets: any }) {
   );
 }
 
+// ─── Work Matched Page ────────────────────────────────────────────────────────
+
+function WorkMatchedPage({ colors, insets }: { colors: any; insets: any }) {
+  const router = useRouter();
+  const [dismissed, setDismissed] = useState<string[]>([]);
+  const visible = WORK_MATCHED.filter(p => !dismissed.includes(p.id));
+
+  return (
+    <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: insets.bottom + 90 }} showsVerticalScrollIndicator={false}>
+
+      {/* Header */}
+      <View style={styles.likedHeader}>
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.pageTitle, { color: colors.text }]}>Matched</Text>
+          <Text style={[styles.pageSub, { color: colors.textSecondary }]}>{visible.length} people matched with you</Text>
+        </View>
+      </View>
+
+      {/* Cards */}
+      <View style={[styles.likedGrid, { paddingHorizontal: 16 }]}>
+        {visible.map((p) => (
+          <View key={p.id} style={[styles.likedCardWrap, { width: (W - 44) / 2 }]}>
+            <Squircle style={styles.likedCard} cornerRadius={24} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={StyleSheet.hairlineWidth}>
+              {/* Photo */}
+              <View style={styles.likedPhotoWrap}>
+                <ExpoImage source={{ uri: p.images[0] }} style={styles.likedPhoto} contentFit="cover" />
+                <LinearGradient colors={['transparent', 'rgba(0,0,0,0.75)']} style={styles.likedPhotoGrad}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    <Text style={styles.likedPhotoName}>{p.name}</Text>
+                    {p.verified && <Ionicons name="checkmark-circle" size={11} color="#fff" />}
+                  </View>
+                  <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: 10, fontFamily: 'ProductSans-Regular' }} numberOfLines={1}>{p.role}</Text>
+                </LinearGradient>
+                {/* LinkedIn badge */}
+                {p.linkedInUrl && (
+                  <View style={[wStyles.linkedInBadge, { position: 'absolute', top: 8, right: 8 }]}>
+                    <Text style={wStyles.linkedInText}>in</Text>
+                  </View>
+                )}
+                {/* Handshake badge */}
+                <View style={[styles.likedHeartBadge, { backgroundColor: colors.text }]}>
+                  <Ionicons name="checkmark" size={11} color={colors.bg} />
+                </View>
+              </View>
+
+              {/* Info */}
+              <View style={styles.likedInfo}>
+                <Squircle style={styles.likedChip} cornerRadius={20} cornerSmoothing={1} fillColor={colors.surface2}>
+                  <Text style={[styles.likedChipLabel, { color: colors.text }]} numberOfLines={1}>{p.industries[0]}</Text>
+                </Squircle>
+                <View style={styles.likedActions}>
+                  <Pressable onPress={() => setDismissed(prev => [...prev, p.id])} style={({ pressed }) => [pressed && { opacity: 0.65 }]} hitSlop={6}>
+                    <Squircle style={styles.likedPassBtn} cornerRadius={50} cornerSmoothing={1} fillColor={colors.surface2} strokeColor={colors.border} strokeWidth={StyleSheet.hairlineWidth}>
+                      <Ionicons name="close" size={18} color={colors.text} />
+                    </Squircle>
+                  </Pressable>
+                  <Pressable onPress={() => router.push({ pathname: '/chat', params: { name: p.name, image: p.images[0], online: 'false' } })} style={({ pressed }) => [pressed && { opacity: 0.65 }, { flex: 1 }]} hitSlop={6}>
+                    <Squircle style={styles.likedLikeBtn} cornerRadius={50} cornerSmoothing={1} fillColor={colors.text}>
+                      <Ionicons name="chatbubble" size={14} color={colors.bg} />
+                      <Text style={[styles.likedLikeBtnText, { color: colors.bg }]}>Message</Text>
+                    </Squircle>
+                  </Pressable>
+                </View>
+              </View>
+            </Squircle>
+          </View>
+        ))}
+      </View>
+
+      {visible.length === 0 && (
+        <View style={styles.likedEmpty}>
+          <Squircle style={styles.likedEmptyIcon} cornerRadius={28} cornerSmoothing={1} fillColor={colors.surface}>
+            <Ionicons name="briefcase-outline" size={32} color={colors.textTertiary} />
+          </Squircle>
+          <Text style={[styles.likedEmptyTitle, { color: colors.text }]}>No matches yet</Text>
+          <Text style={[styles.likedEmptySub, { color: colors.textSecondary }]}>Keep connecting to find your co-founder</Text>
+        </View>
+      )}
+    </ScrollView>
+  );
+}
+
 // ─── AI Match Page ────────────────────────────────────────────────────────────
 
 const AI_PICKS = [
@@ -1139,6 +1208,127 @@ function AiMatchPage({ colors, insets }: { colors: any; insets: any }) {
                 </Squircle>
               ))}
             </View>
+          </View>
+
+          <View style={[styles.aiDivider, { backgroundColor: colors.border }]} />
+
+          {/* Why matched */}
+          <View style={{ gap: 6 }}>
+            <Text style={[styles.aiSecLabel, { color: colors.textSecondary }]}>WHY YOU MATCH</Text>
+            <Text style={[styles.aiReason, { color: colors.text }]}>{reason}</Text>
+          </View>
+
+          {/* Actions */}
+          <View style={styles.aiActions}>
+            <Squircle style={[styles.aiActionBtn, styles.aiActionBtnOutline]} cornerRadius={50} cornerSmoothing={1} fillColor="transparent" strokeColor={colors.border} strokeWidth={1.5}>
+              <Text style={[styles.aiActionBtnText, { color: colors.text }]}>View Profile</Text>
+            </Squircle>
+            <Squircle style={[styles.aiActionBtn, styles.aiActionBtnFill]} cornerRadius={50} cornerSmoothing={1} fillColor={colors.text}>
+              <Text style={[styles.aiActionBtnText, { color: colors.bg }]}>Connect</Text>
+            </Squircle>
+          </View>
+        </Squircle>
+      ))}
+    </ScrollView>
+  );
+}
+
+// ─── Work AI Insights Page ────────────────────────────────────────────────────
+
+const WORK_AI_PICKS = [
+  {
+    profile: WORK_PROFILES[1], score: 96,
+    sharedAreas: ['Fintech', 'Product', 'Growth'],
+    reason: "Priya's fintech product background perfectly complements your engineering skill set. She has the GTM experience you're missing and wants a technical co-founder immediately.",
+    insights: ['Both focused on B2C fintech', 'Complementary skills: Tech ↔ GTM', 'Same commitment level'],
+  },
+  {
+    profile: WORK_PROFILES[3], score: 91,
+    sharedAreas: ['AI', 'Deep Tech', 'Engineering'],
+    reason: "Sarah's LLM expertise at Mistral directly matches your AI infrastructure vision. Strong technical alignment and she's open to founding in the next 12 months.",
+    insights: ['Shared AI / ML focus', 'Both value equity + salary', 'Research-grade technical depth'],
+  },
+  {
+    profile: WORK_PROFILES[2], score: 83,
+    sharedAreas: ['B2B', 'Sales', 'Climate Tech'],
+    reason: "Jordan has a successful exit and now targets climate tech — the exact intersection of his sales pedigree and your market thesis. High-quality operator.",
+    insights: ['Prev. successful exit', 'Complementary: Tech ↔ Sales', 'Actively hiring'],
+  },
+];
+
+function WorkAiInsightsPage({ colors, insets }: { colors: any; insets: any }) {
+  return (
+    <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: insets.bottom + 90, gap: 12 }} showsVerticalScrollIndicator={false}>
+
+      {/* Header */}
+      <View style={{ marginBottom: 4 }}>
+        <View style={styles.aiHeaderRow}>
+          <Squircle style={styles.aiHeaderIcon} cornerRadius={14} cornerSmoothing={1} fillColor={colors.surface2}>
+            <Ionicons name="analytics" size={18} color={colors.text} />
+          </Squircle>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.pageTitle, { color: colors.text }]}>AI Insights</Text>
+            <Text style={[styles.pageSub, { color: colors.textSecondary }]}>Co-founder matches scored by compatibility</Text>
+          </View>
+        </View>
+      </View>
+
+      {WORK_AI_PICKS.map(({ profile, score, sharedAreas, reason, insights }) => (
+        <Squircle key={profile.id} style={styles.aiCard} cornerRadius={24} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={StyleSheet.hairlineWidth}>
+
+          {/* Top: photo + info */}
+          <View style={styles.aiCardTop}>
+            <Image source={{ uri: profile.images[0] }} style={styles.aiPhoto} resizeMode="cover" />
+            <View style={styles.aiInfo}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Text style={[styles.aiName, { color: colors.text }]}>{profile.name}</Text>
+                {profile.verified && <Ionicons name="checkmark-circle" size={14} color={colors.text} />}
+                {/* LinkedIn */}
+                <View style={wStyles.linkedInBadge}>
+                  <Text style={wStyles.linkedInText}>in</Text>
+                </View>
+              </View>
+              <Text style={[styles.aiLocation, { color: colors.textSecondary }]}>{profile.role} · {profile.company}</Text>
+              <Text style={[styles.aiLocation, { color: colors.textSecondary }]}>{profile.distance} away</Text>
+
+              {/* Score pill */}
+              <Squircle style={styles.aiScorePill} cornerRadius={20} cornerSmoothing={1} fillColor={colors.surface2}>
+                <Ionicons name="pulse" size={12} color={colors.text} />
+                <Text style={[styles.aiScoreNum, { color: colors.text }]}>{score}% match</Text>
+              </Squircle>
+
+              {/* Score bar */}
+              <View style={[styles.aiScoreTrack, { backgroundColor: colors.surface2, marginTop: 8 }]}>
+                <View style={[styles.aiScoreFill, { width: `${score}%` as any, backgroundColor: colors.text }]} />
+              </View>
+            </View>
+          </View>
+
+          <View style={[styles.aiDivider, { backgroundColor: colors.border }]} />
+
+          {/* Shared areas */}
+          <View style={{ gap: 8 }}>
+            <Text style={[styles.aiSecLabel, { color: colors.textSecondary }]}>SHARED FOCUS AREAS</Text>
+            <View style={styles.chipRow}>
+              {sharedAreas.map(area => (
+                <Squircle key={area} style={styles.aiChip} cornerRadius={20} cornerSmoothing={1} fillColor={colors.surface2}>
+                  <Text style={[styles.aiChipText, { color: colors.text }]}>{area}</Text>
+                </Squircle>
+              ))}
+            </View>
+          </View>
+
+          <View style={[styles.aiDivider, { backgroundColor: colors.border }]} />
+
+          {/* AI insight bullets */}
+          <View style={{ gap: 8 }}>
+            <Text style={[styles.aiSecLabel, { color: colors.textSecondary }]}>KEY SIGNALS</Text>
+            {insights.map((ins, i) => (
+              <View key={i} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
+                <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: colors.text, marginTop: 5 }} />
+                <Text style={[styles.aiReason, { color: colors.text, flex: 1 }]}>{ins}</Text>
+              </View>
+            ))}
           </View>
 
           <View style={[styles.aiDivider, { backgroundColor: colors.border }]} />
@@ -1302,13 +1492,22 @@ export default function FeedScreen() {
   const insets = useSafeAreaInsets();
   const myAvatar = profile?.photos?.[0] ?? null;
 
-  const [profiles,     setProfiles]    = useState<Profile[]>(PROFILES);
-  const [activeTab,    setActiveTab]   = useState('people');
-  const [filterOpen,   setFilterOpen]  = useState(false);
-  const [exploreOpen,  setExploreOpen] = useState(false);
+  const [profiles,       setProfiles]     = useState<Profile[]>(PROFILES);
+  const [workProfiles,   setWorkProfiles] = useState<WorkProfile[]>(WORK_PROFILES);
+  const [activeTab,      setActiveTab]    = useState('people');
+  const [filterOpen,     setFilterOpen]   = useState(false);
+  const [exploreOpen,    setExploreOpen]  = useState(false);
+  const [appMode,        setAppMode]      = useState<AppMode>('date');
+  const [modeOpen,       setModeOpen]     = useState(false);
 
-  const removeTop = () => setProfiles(p => p.slice(1));
-  const reset     = () => setProfiles(PROFILES);
+  const navTabs    = appMode === 'work' ? WORK_NAV_TABS : DATE_NAV_TABS;
+  const removeTop  = () => setProfiles(p => p.slice(1));
+  const reset      = () => setProfiles(PROFILES);
+  const removeWorkTop = () => setWorkProfiles(p => p.slice(1));
+  const resetWork     = () => setWorkProfiles(WORK_PROFILES);
+
+  // Reset activeTab to 'people' when mode changes to avoid stale tab
+  useEffect(() => { setActiveTab('people'); }, [appMode]);
 
   const showTopBar = activeTab === 'people';
 
@@ -1323,7 +1522,7 @@ export default function FeedScreen() {
               <Ionicons name="compass-outline" size={20} color={colors.text} />
             </Squircle>
           </Pressable>
-          <AppLogo color={colors.text} />
+          <AppLogo color={colors.text} mode={appMode} onPress={() => setModeOpen(true)} />
           <Pressable onPress={() => setFilterOpen(true)} hitSlop={8}>
             <Squircle style={styles.iconBtn} cornerRadius={14} cornerSmoothing={1} fillColor={colors.surface2}>
               <Ionicons name="options-outline" size={20} color={colors.text} />
@@ -1334,29 +1533,51 @@ export default function FeedScreen() {
 
       {/* Tab content */}
       {activeTab === 'people' && (
-      <View style={styles.cardStack}>
-        {profiles.length === 0 ? (
-          <EmptyState onReset={reset} colors={colors} />
-        ) : (
-            <ProfileCard
-              key={profiles[0].id}
-              profile={profiles[0]}
+        <View style={styles.cardStack}>
+          {appMode === 'work' ? (
+            workProfiles.length === 0 ? (
+              <EmptyState onReset={resetWork} colors={colors} />
+            ) : (
+              <WorkProfileCard
+                key={workProfiles[0].id}
+                profile={workProfiles[0]}
+                onSwipedLeft={removeWorkTop}
+                onSwipedRight={removeWorkTop}
+                colors={colors}
+              />
+            )
+          ) : (
+            profiles.length === 0 ? (
+              <EmptyState onReset={reset} colors={colors} />
+            ) : (
+              <ProfileCard
+                key={profiles[0].id}
+                profile={profiles[0]}
                 onSwipedLeft={removeTop}
                 onSwipedRight={removeTop}
-              colors={colors}
+                colors={colors}
               />
-        )}
-      </View>
+            )
+          )}
+        </View>
       )}
 
-      {activeTab === 'likeyou' && <View style={{ flex: 1 }}><LikedYouPage  colors={colors} insets={insets} /></View>}
-      {activeTab === 'ai'      && <View style={{ flex: 1 }}><AiMatchPage   colors={colors} insets={insets} /></View>}
+      {/* Date mode tabs */}
+      {appMode === 'date' && activeTab === 'likeyou'  && <View style={{ flex: 1 }}><LikedYouPage colors={colors} insets={insets} /></View>}
+      {appMode === 'date' && activeTab === 'ai'       && <View style={{ flex: 1 }}><AiMatchPage  colors={colors} insets={insets} /></View>}
+      {/* Work mode — dedicated WorkFeedScreen handles all work tabs */}
+      {appMode === 'work' && (activeTab === 'matched' || activeTab === 'insights') && (
+        <View style={{ flex: 1 }}>
+          <WorkFeedScreen colors={colors} insets={insets} activeTab={activeTab} />
+        </View>
+      )}
+      {/* Shared tabs */}
       {activeTab === 'chats'   && <View style={{ flex: 1 }}><ChatsPage     colors={colors} insets={insets} /></View>}
       {activeTab === 'profile' && <View style={{ flex: 1 }}><MyProfilePage colors={colors} insets={insets} /></View>}
 
       {/* Sticky bottom tab bar */}
       <View style={[styles.bottomNav, { backgroundColor: colors.surface, borderTopColor: colors.border, paddingBottom: Math.max(insets.bottom, 8) }]}>
-        {NAV_TABS.map(item => {
+        {navTabs.map(item => {
           const active    = activeTab === item.id;
           const isProfile = item.id === 'profile';
           return (
@@ -1390,8 +1611,22 @@ export default function FeedScreen() {
         })}
       </View>
 
-      {/* Filter sheet */}
-      <FilterSheet visible={filterOpen} onClose={() => setFilterOpen(false)} colors={colors} insets={insets} />
+      {/* Mode select modal */}
+      <ModeModal
+        visible={modeOpen}
+        mode={appMode}
+        onSelect={setAppMode}
+        onClose={() => setModeOpen(false)}
+        colors={colors}
+      />
+
+      {/* Filter sheets — separate components per mode */}
+      {appMode === 'date' && (
+        <DateFilterSheet visible={filterOpen} onClose={() => setFilterOpen(false)} colors={colors} insets={insets} />
+      )}
+      {appMode === 'work' && (
+        <WorkFilterSheet visible={filterOpen} onClose={() => setFilterOpen(false)} colors={colors} insets={insets} />
+      )}
 
       {/* Explore overlay */}
       {exploreOpen && (
@@ -1403,7 +1638,7 @@ export default function FeedScreen() {
                 <Ionicons name="arrow-back" size={20} color={colors.text} />
               </Squircle>
             </Pressable>
-            <AppLogo color={colors.text} />
+            <AppLogo color={colors.text} mode={appMode} onPress={() => setModeOpen(true)} />
             <View style={styles.iconBtn} />
           </View>
           <ExplorePage colors={colors} insets={insets} />
@@ -1422,6 +1657,11 @@ const styles = StyleSheet.create({
   topBar:        { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 10 },
   iconBtn:       { width: 42, height: 42, alignItems: 'center', justifyContent: 'center' },
   exploreHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingBottom: 10, borderBottomWidth: StyleSheet.hairlineWidth },
+
+  // Logo
+  logoBtn:       { flexDirection: 'row', alignItems: 'center', gap: 2 },
+  logoText:      { fontFamily: 'PageSerif', fontSize: 26, lineHeight: 30, letterSpacing: -0.5 },
+  logoMode:      { fontFamily: 'PageSerif', fontSize: 20, letterSpacing: -0.3 },
 
   // Card stack
   cardStack: { flex: 1, width: '100%', alignItems: 'center', justifyContent: 'center' },

@@ -20,8 +20,7 @@ import {
 import ChipSelectorSheet, { type ChipOption } from '@/components/ui/ChipSelectorSheet';
 import ScreenHeader from '@/components/ui/ScreenHeader';
 import Squircle from '@/components/ui/Squircle';
-import { API_BASE } from '@/constants/api';
-import { apiFetch } from '@/constants/api';
+import { apiFetch, API_V1 } from '@/constants/api';
 import { useAuth } from '@/context/AuthContext';
 import { useAppTheme } from '@/context/ThemeContext';
 import type { AppColors } from '@/constants/appColors';
@@ -50,13 +49,13 @@ const INTERESTS: ChipOption[] = [
 
 const CAUSES: ChipOption[] = [
   { emoji: '🌍', label: 'Environment' },     { emoji: '📖', label: 'Education' },
-  { emoji: '💚', label: 'Mental Health' },   { emoji: '🏳️‍🌈', label: 'LGBTQ+' },
-  { emoji: '🤝', label: 'Volunteering' },    { emoji: '🐾', label: 'Animal Rights' },
-  { emoji: '🌱', label: 'Sustainability' },  { emoji: '⚖️', label: 'Social Justice' },
-  { emoji: '🏥', label: 'Healthcare' },      { emoji: '🌊', label: 'Ocean Conservation' },
-  { emoji: '🍎', label: 'Food Security' },   { emoji: '👶', label: 'Child Welfare' },
-  { emoji: '🕊️', label: 'Peace' },          { emoji: '🏘️', label: 'Community' },
-  { emoji: '💡', label: 'Innovation' },      { emoji: '🎓', label: 'Scholarships' },
+  { emoji: '💚', label: 'Mental Health' },   { emoji: '🤝', label: 'Volunteering' },
+  { emoji: '🐾', label: 'Animal Rights' },   { emoji: '🌱', label: 'Sustainability' },
+  { emoji: '⚖️', label: 'Social Justice' },  { emoji: '🏥', label: 'Healthcare' },
+  { emoji: '🌊', label: 'Ocean Conservation' }, { emoji: '🍎', label: 'Food Security' },
+  { emoji: '👶', label: 'Child Welfare' },   { emoji: '🕊️', label: 'Peace' },
+  { emoji: '🏘️', label: 'Community' },      { emoji: '💡', label: 'Innovation' },
+  { emoji: '🎓', label: 'Scholarships' },
 ];
 
 const QUALITIES: ChipOption[] = [
@@ -88,18 +87,20 @@ function Group({ children, colors }: { children: React.ReactNode; colors: AppCol
 }
 
 function EditRow({
-  icon, label, value, preview, onPress, colors, accentIcon = false, last = false,
+  icon, label, value, preview, onPress, colors, accentIcon = false, last = false, locked = false,
 }: {
   icon: any; label: string; value?: string; preview?: string; onPress?: () => void;
-  colors: AppColors; accentIcon?: boolean; last?: boolean;
+  colors: AppColors; accentIcon?: boolean; last?: boolean; locked?: boolean;
 }) {
   return (
     <Pressable
       onPress={onPress}
+      disabled={locked}
       style={({ pressed }) => [
         styles.editRow,
         !last && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
-        pressed && { opacity: 0.65 },
+        pressed && !locked && { opacity: 0.65 },
+        locked && { opacity: 0.55 },
       ]}
     >
       <Squircle style={styles.editIconWrap} cornerRadius={10} cornerSmoothing={1}
@@ -115,7 +116,10 @@ function EditRow({
         ) : null}
       </View>
       {value ? <Text style={[styles.editValue, { color: colors.textSecondary }]}>{value}</Text> : null}
-      <Ionicons name="chevron-forward" size={15} color={colors.textSecondary} />
+      {locked
+        ? <Ionicons name="lock-closed" size={14} color={colors.textTertiary} />
+        : <Ionicons name="chevron-forward" size={15} color={colors.textSecondary} />
+      }
     </Pressable>
   );
 }
@@ -135,7 +139,7 @@ function PhotoGrid({
   const pickPhoto = async (index: number) => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('Permission needed', 'Please allow photo library access in Settings.');
+      Alert.alert('Permission Needed', 'Please allow photo library access in Settings.');
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -156,7 +160,7 @@ function PhotoGrid({
         type: asset.mimeType ?? 'image/jpeg',
       } as any);
 
-      const res = await apiFetch(`${API_BASE}/api/v1/upload/photo`, {
+      const res = await fetch(`${API_V1}/upload/photo`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
         body: form,
@@ -164,7 +168,7 @@ function PhotoGrid({
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        Alert.alert('Photo rejected', (err as any).detail ?? 'Upload failed');
+        Alert.alert('Photo Rejected', (err as any).detail ?? 'Upload failed. Please try again.');
         return;
       }
 
@@ -172,15 +176,15 @@ function PhotoGrid({
       const next = [...photos];
       next[index] = data.url;
       onPhotosChange(next);
-    } catch (e) {
-      Alert.alert('Upload failed', 'Please try again.');
+    } catch {
+      Alert.alert('Upload Failed', 'Please check your connection and try again.');
     } finally {
       setUploading(null);
     }
   };
 
   const removePhoto = (index: number) => {
-    Alert.alert('Remove Photo', 'Remove this photo?', [
+    Alert.alert('Remove Photo', 'Remove this photo from your profile?', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Remove', style: 'destructive',
@@ -227,25 +231,81 @@ function PhotoGrid({
 
 // ─── Best Photo Row (with Switch) ─────────────────────────────────────────────
 
-function BestPhotoRow({ colors }: { colors: AppColors }) {
-  const [enabled, setEnabled] = useState(false);
+function BestPhotoRow({
+  colors, token, photos, initialEnabled, onPhotosReordered,
+}: {
+  colors: AppColors;
+  token: string | null;
+  photos: (string | null)[];
+  initialEnabled: boolean;
+  onPhotosReordered: (urls: string[]) => void;
+}) {
+  const [enabled,  setEnabled]  = useState(initialEnabled);
+  const [loading,  setLoading]  = useState(false);
+  const [subtitle, setSubtitle] = useState(
+    initialEnabled ? 'AI-selected · best photo is first' : 'Highlight your favourite shot'
+  );
+
+  const handleToggle = async (val: boolean) => {
+    if (!val) {
+      // Turning OFF — just persist the flag
+      setEnabled(false);
+      setSubtitle('Highlight your favourite shot');
+      try {
+        await apiFetch<any>('/profile/me', {
+          method: 'PATCH',
+          token: token ?? undefined,
+          body: JSON.stringify({ best_photo_enabled: false }),
+        });
+      } catch { /* silently ignore */ }
+      return;
+    }
+
+    const filled = photos.filter((u): u is string => !!u);
+    if (filled.length < 2) {
+      setSubtitle('Upload more photos to use this feature');
+      return;
+    }
+
+    setEnabled(true);
+    setLoading(true);
+    setSubtitle('Analysing photos…');
+    try {
+      // POST reorders photos AND sets best_photo_enabled = true in DB
+      const updated = await apiFetch<any>('/profile/me/best-photo', {
+        method: 'POST',
+        token: token ?? undefined,
+      });
+      const reordered: string[] = updated.photos ?? filled;
+      onPhotosReordered(reordered);
+      setSubtitle('AI-selected · best photo is first');
+    } catch {
+      setSubtitle('Could not analyse photos — try again');
+      setEnabled(false);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <View style={[
       styles.editRow,
       { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
     ]}>
       <Squircle style={styles.editIconWrap} cornerRadius={10} cornerSmoothing={1} fillColor={colors.surface2}>
-        <Ionicons name="star-outline" size={16} color={colors.text} />
+        {loading
+          ? <ActivityIndicator size="small" color={colors.text} />
+          : <Ionicons name={enabled ? 'star' : 'star-outline'} size={16} color={enabled ? '#FFD60A' : colors.text} />
+        }
       </Squircle>
       <View style={{ flex: 1, gap: 1 }}>
         <Text style={[styles.editLabel, { color: colors.text }]}>Best Photo</Text>
-        <Text style={[styles.editPreview, { color: colors.textSecondary }]}>
-          {enabled ? 'Highlighted on your profile' : 'Highlight your favourite shot'}
-        </Text>
+        <Text style={[styles.editPreview, { color: colors.textSecondary }]}>{subtitle}</Text>
       </View>
       <Switch
         value={enabled}
-        onValueChange={setEnabled}
+        onValueChange={handleToggle}
+        disabled={loading}
         thumbColor={colors.bg}
         trackColor={{ false: colors.surface2, true: colors.text }}
       />
@@ -321,7 +381,10 @@ export default function EditProfilePage() {
   // ── Chip selections ───────────────────────────────────────────────────────
   const [interests, setInterests]   = useState<string[]>(profile?.interests ?? []);
   const [causes, setCauses]         = useState<string[]>(profile?.causes ?? []);
-  const [qualities, setQualities]   = useState<string[]>(profile?.values_list ?? []);
+  const QUALITY_LABELS = QUALITIES.map(q => q.label);
+  const [qualities, setQualities]   = useState<string[]>(
+    (profile?.values_list ?? []).filter(v => QUALITY_LABELS.includes(v))
+  );
 
   const [showInterests, setShowInterests]   = useState(false);
   const [showCauses, setShowCauses]         = useState(false);
@@ -332,18 +395,12 @@ export default function EditProfilePage() {
   // Patch helper
   const patch = useCallback(async (payload: Record<string, unknown>) => {
     try {
-      const res = await apiFetch(`${API_BASE}/api/v1/profile/me`, {
+      const updated = await apiFetch<any>('/profile/me', {
         method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+        token: token ?? undefined,
         body: JSON.stringify(payload),
       });
-      if (res.ok) {
-        const updated = await res.json();
-        updateProfile(updated);
-      }
+      updateProfile(updated);
     } catch {
       // silently fail — local state still updated
     }
@@ -406,8 +463,6 @@ export default function EditProfilePage() {
         <ScreenHeader
           title="Edit Profile"
           onClose={() => router.back()}
-          rightLabel={saving ? '…' : 'Save'}
-          onRightPress={saving ? undefined : handleSave}
           colors={colors}
         />
 
@@ -418,17 +473,12 @@ export default function EditProfilePage() {
           keyboardShouldPersistTaps="handled"
         >
 
-          {/* ── PHOTOS & VIDEOS ─────────────────────────────────────────── */}
+          {/* ── PHOTOS ──────────────────────────────────────────────────── */}
           <View style={styles.section}>
-            <SectionLabel title="PHOTOS & VIDEOS" colors={colors} />
+            <SectionLabel title="PHOTOS" colors={colors} />
             <Group colors={colors}>
               <View style={styles.photosInner}>
                 <PhotoGrid photos={photos} onPhotosChange={setPhotos} colors={colors} />
-                <Pressable style={[styles.videoBtn, { borderColor: colors.border, backgroundColor: colors.surface2 }]}>
-                  <Ionicons name="videocam-outline" size={18} color={colors.text} />
-                  <Text style={[styles.videoBtnText, { color: colors.text }]}>Add Video Loop</Text>
-                  <Ionicons name="chevron-forward" size={14} color={colors.textSecondary} style={{ marginLeft: 'auto' }} />
-                </Pressable>
               </View>
             </Group>
           </View>
@@ -437,7 +487,17 @@ export default function EditProfilePage() {
           <View style={styles.section}>
             <SectionLabel title="MEDIA" colors={colors} />
             <Group colors={colors}>
-              <BestPhotoRow colors={colors} />
+              <BestPhotoRow
+                colors={colors}
+                token={token}
+                photos={photos}
+                initialEnabled={profile?.best_photo_enabled ?? false}
+                onPhotosReordered={(urls) => {
+                  const slots: (string | null)[] = [...urls];
+                  while (slots.length < 6) slots.push(null);
+                  setPhotos(slots);
+                }}
+              />
               <EditRow
                 icon="checkmark-circle-outline"
                 label="Verification"
@@ -511,14 +571,8 @@ export default function EditProfilePage() {
                 icon="person-outline"
                 label="Gender"
                 value={profile?.gender ? profile.gender.charAt(0).toUpperCase() + profile.gender.slice(1) : undefined}
-                onPress={() =>
-                  Alert.alert(
-                    "Can't change gender",
-                    'Your gender cannot be changed once it has been set.',
-                    [{ text: 'OK' }]
-                  )
-                }
                 colors={colors}
+                locked
                 last
               />
             </Group>
@@ -638,7 +692,7 @@ const styles = StyleSheet.create({
   photoGrid:      { flexDirection: 'row', flexWrap: 'wrap', gap: GRID_GAP },
   photoSlot:      {
     width: SLOT_SIZE,
-    height: SLOT_SIZE / 2,
+    height: SLOT_SIZE * 1.2,
     borderRadius: 12,
     borderWidth: StyleSheet.hairlineWidth,
     alignItems: 'center',
@@ -648,9 +702,6 @@ const styles = StyleSheet.create({
   photoImg:       { width: '100%', height: '100%' },
   photoRemoveBtn: { position: 'absolute', top: 4, right: 4 },
   photoRemoveBg:  { width: 20, height: 20, borderRadius: 10, backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center' },
-
-  videoBtn:       { flexDirection: 'row', alignItems: 'center', gap: 10, borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 14, paddingVertical: 13 },
-  videoBtnText:   { fontSize: 14, fontFamily: 'ProductSans-Regular' },
 
   bioWrap:        { gap: 6 },
   bioBox:         { padding: 14, minHeight: 120 },

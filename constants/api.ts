@@ -16,6 +16,7 @@ function getApiBaseUrl(): string {
 
 export const API_BASE = getApiBaseUrl();
 export const API_V1 = `${API_BASE}/api/v1`;
+export const WS_V1 = `${API_BASE.replace('http', 'ws')}/api/v1`;
 
 // Injected by AuthContext so apiFetch can auto-refresh expired tokens
 let _tryRefresh: (() => Promise<string | null>) | null = null;

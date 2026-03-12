@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -15,14 +16,18 @@ import ChipSelectorSheet, { type ChipOption } from '@/components/ui/ChipSelector
 import WheelPickerSheet from '@/components/ui/WheelPickerSheet';
 import VoiceSection from '@/components/ui/VoiceSection';
 import Squircle from '@/components/ui/Squircle';
-import { API_BASE, apiFetch } from '@/constants/api';
+import { API_V1, apiFetch } from '@/constants/api';
 import { useAuth } from '@/context/AuthContext';
+import { useAppTheme } from '@/context/ThemeContext';
+import { getLookupLabel, getLookupLabels } from '@/constants/lookupData';
 import { useProfileSave } from '@/hooks/useProfileSave';
 import type { AppColors } from '@/constants/appColors';
 
 // ─── Height helpers ───────────────────────────────────────────────────────────
 
 const HEIGHT_LABELS: { cm: number; label: string }[] = [
+  { cm: 137, label: "4'6\" (137cm)" },  { cm: 140, label: "4'7\" (140cm)" },
+  { cm: 142, label: "4'8\" (142cm)" },  { cm: 145, label: "4'9\" (145cm)" },
   { cm: 147, label: "4'10\" (147cm)" }, { cm: 150, label: "4'11\" (150cm)" },
   { cm: 152, label: "5'0\" (152cm)" },  { cm: 155, label: "5'1\" (155cm)" },
   { cm: 157, label: "5'2\" (157cm)" },  { cm: 160, label: "5'3\" (160cm)" },
@@ -33,6 +38,11 @@ const HEIGHT_LABELS: { cm: number; label: string }[] = [
   { cm: 183, label: "6'0\" (183cm)" },  { cm: 185, label: "6'1\" (185cm)" },
   { cm: 188, label: "6'2\" (188cm)" },  { cm: 191, label: "6'3\" (191cm)" },
   { cm: 193, label: "6'4\" (193cm)" },  { cm: 196, label: "6'5\" (196cm)" },
+  { cm: 198, label: "6'6\" (198cm)" },  { cm: 201, label: "6'7\" (201cm)" },
+  { cm: 203, label: "6'8\" (203cm)" },  { cm: 206, label: "6'9\" (206cm)" },
+  { cm: 208, label: "6'10\" (208cm)" }, { cm: 211, label: "6'11\" (211cm)" },
+  { cm: 213, label: "7'0\" (213cm)" },  { cm: 216, label: "7'1\" (216cm)" },
+  { cm: 218, label: "7'2\" (218cm)" },  { cm: 221, label: "7'3\" (221cm)" },
 ];
 
 const cmToLabel = (cm: number | null): string => {
@@ -54,12 +64,13 @@ let _cachedLookups: LookupMap | null = null;
 async function fetchAllLookups(): Promise<LookupMap> {
   if (_cachedLookups) return _cachedLookups;
   try {
-    const res = await fetch(`${API_BASE}/api/v1/lookup/options`);
+    const res = await fetch(`${API_V1}/lookup/options`);
     if (!res.ok) throw new Error('lookup fetch failed');
-    const data = await res.json() as Record<string, Array<{ emoji?: string; label: string }>>;
+    const data = await res.json() as Record<string, Array<{ id: number; emoji?: string; label: string }>>;
     const map: LookupMap = {};
     for (const [cat, rows] of Object.entries(data)) {
-      map[cat] = rows.map(r => ({ emoji: r.emoji ?? undefined, label: r.label }));
+      // Store id as the `value` field so ChipSelectorSheet returns the ID (as string)
+      map[cat] = rows.map(r => ({ value: String(r.id), emoji: r.emoji ?? undefined, label: r.label }));
     }
     _cachedLookups = map;
     return map;
@@ -174,6 +185,7 @@ function SettingRow({
 export default function MyProfilePage({ colors, insets }: { colors: AppColors; insets: any }) {
   const router = useRouter();
   const { token, refreshToken, signOut, profile } = useAuth();
+  const { isDark, toggle } = useAppTheme();
   const { save } = useProfileSave();
 
   // ── Lookup options from backend ───────────────────────────────────────────
@@ -193,39 +205,40 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
   const displayName = profile?.full_name ?? '—';
   const heightLabel = cmToLabel(profile?.height_cm ?? null);
 
-  // Lifestyle sub-fields live in the JSONB lifestyle dict
-  const lf = (profile?.lifestyle as Record<string, string> | null) ?? {};
+  // Lifestyle sub-fields live in the JSONB lifestyle dict (values are now IDs)
+  const lf = (profile?.lifestyle as Record<string, number> | null) ?? {};
 
-  // Local editable state initialised from real profile
-  const [height,         setHeight]         = useState(heightLabel);
-  const [exercise,       setExercise]       = useState(lf.exercise       ?? '');
-  const [educationLevel, setEducationLevel] = useState(profile?.education_level ?? '');
-  const [drinking,       setDrinking]       = useState(lf.drinking       ?? '');
-  const [smoking,        setSmoking]        = useState(lf.smoking        ?? '');
-  const [lookingFor,     setLookingFor]     = useState(profile?.looking_for   ?? '');
-  const [familyPlans,    setFamilyPlans]    = useState(profile?.family_plans  ?? '');
-  const [haveKids,       setHaveKids]       = useState(profile?.have_kids     ?? '');
-  const [starSign,       setStarSign]       = useState(profile?.star_sign     ?? '');
-  const [religion,       setReligion]       = useState(profile?.religion      ?? '');
-  const [languages,      setLanguages]      = useState<string[]>(profile?.languages ?? []);
+  // Local editable state — stored as string IDs for ChipSelectorSheet compatibility
+  // (ChipSelectorSheet.selected is string[], so we store id.toString())
+  const [height,           setHeight]           = useState(heightLabel);
+  const [exerciseId,       setExerciseId]       = useState(lf.exercise       ? String(lf.exercise)       : '');
+  const [drinkingId,       setDrinkingId]       = useState(lf.drinking       ? String(lf.drinking)       : '');
+  const [smokingId,        setSmokingId]        = useState(lf.smoking        ? String(lf.smoking)        : '');
+  const [educationLevelId, setEducationLevelId] = useState(profile?.education_level_id ? String(profile.education_level_id) : '');
+  const [lookingForId,     setLookingForId]     = useState(profile?.looking_for_id     ? String(profile.looking_for_id)     : '');
+  const [familyPlansId,    setFamilyPlansId]    = useState(profile?.family_plans_id    ? String(profile.family_plans_id)    : '');
+  const [haveKidsId,       setHaveKidsId]       = useState(profile?.have_kids_id       ? String(profile.have_kids_id)       : '');
+  const [starSignId,       setStarSignId]       = useState(profile?.star_sign_id       ? String(profile.star_sign_id)       : '');
+  const [religionId,       setReligionId]       = useState(profile?.religion_id        ? String(profile.religion_id)        : '');
+  const [languageIds,      setLanguageIds]      = useState<string[]>((profile?.languages ?? []).map(String));
 
   const [snooze, setSnooze] = useState(false);
 
   // Sync if profile loads after mount
   useEffect(() => {
     if (!profile) return;
-    const ls = (profile.lifestyle as Record<string, string> | null) ?? {};
+    const ls = (profile.lifestyle as Record<string, number> | null) ?? {};
     setHeight(cmToLabel(profile.height_cm));
-    setExercise(ls.exercise       ?? '');
-    setEducationLevel(profile.education_level ?? '');
-    setDrinking(ls.drinking       ?? '');
-    setSmoking(ls.smoking         ?? '');
-    setLookingFor(profile.looking_for   ?? '');
-    setFamilyPlans(profile.family_plans ?? '');
-    setHaveKids(profile.have_kids       ?? '');
-    setStarSign(profile.star_sign       ?? '');
-    setReligion(profile.religion        ?? '');
-    setLanguages(profile.languages      ?? []);
+    setExerciseId(ls.exercise  ? String(ls.exercise)  : '');
+    setDrinkingId(ls.drinking  ? String(ls.drinking)  : '');
+    setSmokingId(ls.smoking    ? String(ls.smoking)   : '');
+    setEducationLevelId(profile.education_level_id ? String(profile.education_level_id) : '');
+    setLookingForId(profile.looking_for_id         ? String(profile.looking_for_id)     : '');
+    setFamilyPlansId(profile.family_plans_id       ? String(profile.family_plans_id)    : '');
+    setHaveKidsId(profile.have_kids_id             ? String(profile.have_kids_id)       : '');
+    setStarSignId(profile.star_sign_id             ? String(profile.star_sign_id)       : '');
+    setReligionId(profile.religion_id              ? String(profile.religion_id)        : '');
+    setLanguageIds((profile.languages ?? []).map(String));
   }, [profile?.id]);
 
   // ── Save helpers ─────────────────────────────────────────────────────────
@@ -293,7 +306,10 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
             <View style={styles.actionRow}>
               <Pressable
                 style={[styles.actionBtn, { borderWidth: 1, borderColor: colors.border }]}
-                onPress={() => router.push('/edit-profile')}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                  router.push('/edit-profile');
+                }}
               >
                 <Ionicons name="create-outline" size={12} color={colors.text} />
                 <Text style={[styles.actionBtnText, { color: colors.text }]}>Edit Profile</Text>
@@ -323,6 +339,20 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
         </Pressable>
       </View>
 
+      {/* ── ZOD WORK ────────────────────────────────────────────────────── */}
+      <View style={styles.section}>
+        <SectionLabel title="ZOD WORK" colors={colors} />
+        <Group colors={colors}>
+          <SettingRow
+            icon="briefcase-outline"
+            label="Manage Zod Work"
+            subtitle="Work profile, experience & preferences"
+            colors={colors}
+            onPress={() => router.push('/zod-work')}
+          />
+        </Group>
+      </View>
+
       {/* ── ABOUT YOU ───────────────────────────────────────────────────── */}
       <View style={styles.section}>
         <SectionLabel title="ABOUT YOU" colors={colors} />
@@ -333,75 +363,75 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
               onDone: (v) => { setHeight(v); const cm = labelToCm(v); if (cm) saveField({ height_cm: cm }); },
             })} colors={colors} />
 
-          <EditRow icon="fitness-outline" label="Exercise" value={exercise || '—'}
+          <EditRow icon="fitness-outline" label="Exercise" value={getLookupLabel('exercise', exerciseId ? Number(exerciseId) : null) || '—'}
             onPress={() => setChipPicker({
               title: 'Exercise', options: opts('exercise'), single: true,
-              selected: exercise ? [exercise] : [],
-              onDone: ([v]) => { setExercise(v); saveField({ lifestyle: { ...lf, exercise: v } }); },
+              selected: exerciseId ? [exerciseId] : [],
+              onDone: ([v]) => { setExerciseId(v); saveField({ lifestyle: { ...lf, exercise: Number(v) } }); },
             })} colors={colors} />
 
-          <EditRow icon="ribbon-outline" label="Education Level" value={educationLevel || '—'}
+          <EditRow icon="ribbon-outline" label="Education Level" value={getLookupLabel('education_level', educationLevelId ? Number(educationLevelId) : null) || '—'}
             onPress={() => setChipPicker({
               title: 'Education Level', options: opts('education_level'), single: true,
-              selected: educationLevel ? [educationLevel] : [],
-              onDone: ([v]) => { setEducationLevel(v); saveField({ education_level: v }); },
+              selected: educationLevelId ? [educationLevelId] : [],
+              onDone: ([v]) => { setEducationLevelId(v); saveField({ education_level_id: Number(v) }); },
             })} colors={colors} />
 
-          <EditRow icon="wine-outline" label="Drinking" value={drinking || '—'}
+          <EditRow icon="wine-outline" label="Drinking" value={getLookupLabel('drinking', drinkingId ? Number(drinkingId) : null) || '—'}
             onPress={() => setChipPicker({
               title: 'Drinking', options: opts('drinking'), single: true,
-              selected: drinking ? [drinking] : [],
-              onDone: ([v]) => { setDrinking(v); saveField({ lifestyle: { ...lf, drinking: v } }); },
+              selected: drinkingId ? [drinkingId] : [],
+              onDone: ([v]) => { setDrinkingId(v); saveField({ lifestyle: { ...lf, drinking: Number(v) } }); },
             })} colors={colors} />
 
-          <EditRow icon="flame-outline" label="Smoking" value={smoking || '—'}
+          <EditRow icon="flame-outline" label="Smoking" value={getLookupLabel('smoking', smokingId ? Number(smokingId) : null) || '—'}
             onPress={() => setChipPicker({
               title: 'Smoking', options: opts('smoking'), single: true,
-              selected: smoking ? [smoking] : [],
-              onDone: ([v]) => { setSmoking(v); saveField({ lifestyle: { ...lf, smoking: v } }); },
+              selected: smokingId ? [smokingId] : [],
+              onDone: ([v]) => { setSmokingId(v); saveField({ lifestyle: { ...lf, smoking: Number(v) } }); },
             })} colors={colors} />
 
-          <EditRow icon="heart-outline" label="Looking For" value={lookingFor || '—'}
+          <EditRow icon="heart-outline" label="Looking For" value={getLookupLabel('looking_for', lookingForId ? Number(lookingForId) : null) || '—'}
             onPress={() => setChipPicker({
               title: 'Looking For', options: opts('looking_for'), single: true,
-              selected: lookingFor ? [lookingFor] : [],
-              onDone: ([v]) => { setLookingFor(v); saveField({ looking_for: v }); },
+              selected: lookingForId ? [lookingForId] : [],
+              onDone: ([v]) => { setLookingForId(v); saveField({ looking_for_id: Number(v) }); },
             })} colors={colors} />
 
-          <EditRow icon="people-outline" label="Family Plans" value={familyPlans || '—'}
+          <EditRow icon="people-outline" label="Family Plans" value={getLookupLabel('family_plans', familyPlansId ? Number(familyPlansId) : null) || '—'}
             onPress={() => setChipPicker({
               title: 'Family Plans', options: opts('family_plans'), single: true,
-              selected: familyPlans ? [familyPlans] : [],
-              onDone: ([v]) => { setFamilyPlans(v); saveField({ family_plans: v }); },
+              selected: familyPlansId ? [familyPlansId] : [],
+              onDone: ([v]) => { setFamilyPlansId(v); saveField({ family_plans_id: Number(v) }); },
             })} colors={colors} />
 
-          <EditRow icon="happy-outline" label="Have Kids" value={haveKids || '—'}
+          <EditRow icon="happy-outline" label="Have Kids" value={getLookupLabel('have_kids', haveKidsId ? Number(haveKidsId) : null) || '—'}
             onPress={() => setChipPicker({
               title: 'Have Kids', options: opts('have_kids'), single: true,
-              selected: haveKids ? [haveKids] : [],
-              onDone: ([v]) => { setHaveKids(v); saveField({ have_kids: v }); },
+              selected: haveKidsId ? [haveKidsId] : [],
+              onDone: ([v]) => { setHaveKidsId(v); saveField({ have_kids_id: Number(v) }); },
             })} colors={colors} />
 
-          <EditRow icon="star-outline" label="Star Sign" value={starSign || '—'}
+          <EditRow icon="star-outline" label="Star Sign" value={getLookupLabel('star_sign', starSignId ? Number(starSignId) : null) || '—'}
             onPress={() => setChipPicker({
               title: 'Star Sign', options: opts('star_sign'), single: true,
-              selected: starSign ? [starSign] : [],
-              onDone: ([v]) => { setStarSign(v); saveField({ star_sign: v }); },
+              selected: starSignId ? [starSignId] : [],
+              onDone: ([v]) => { setStarSignId(v); saveField({ star_sign_id: Number(v) }); },
             })} colors={colors} />
 
-          <EditRow icon="book-outline" label="Religion" value={religion || '—'}
+          <EditRow icon="book-outline" label="Religion" value={getLookupLabel('religion', religionId ? Number(religionId) : null) || '—'}
             onPress={() => setChipPicker({
               title: 'Religion', options: opts('religion'), single: true,
-              selected: religion ? [religion] : [],
-              onDone: ([v]) => { setReligion(v); saveField({ religion: v }); },
+              selected: religionId ? [religionId] : [],
+              onDone: ([v]) => { setReligionId(v); saveField({ religion_id: Number(v) }); },
             })} colors={colors} />
 
           <EditRow icon="language-outline" label="Languages"
-            value={languages.length ? languages.join(', ') : '—'}
+            value={getLookupLabels('language', languageIds.map(Number)).join(', ') || '—'}
             onPress={() => setChipPicker({
               title: 'Languages', subtitle: 'Pick all that apply',
-              options: opts('language'), single: false, selected: languages,
-              onDone: (vals) => { setLanguages(vals); saveField({ languages: vals }); },
+              options: opts('language'), single: false, selected: languageIds,
+              onDone: (vals) => { setLanguageIds(vals); saveField({ languages: vals.map(Number) }); },
             })} colors={colors} last />
         </Group>
       </View>
@@ -419,6 +449,15 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
       <View style={styles.section}>
         <SectionLabel title="APP SETTINGS" colors={colors} />
         <Group colors={colors}>
+          <SettingRow
+            icon={isDark ? 'sunny-outline' : 'moon-outline'}
+            label="Appearance"
+            subtitle={isDark ? 'Dark mode' : 'Light mode'}
+            colors={colors}
+            toggle
+            toggleVal={isDark}
+            onToggle={toggle}
+          />
           <SettingRow
             icon="moon-outline" label="Snooze Mode"
             subtitle="Pause your profile visibility"
@@ -456,6 +495,13 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
           <SettingRow icon="document-text-outline" label="Legal Information" colors={colors} onPress={() => router.push('/legal')} />
           <SettingRow icon="help-circle-outline"   label="Get Help"          colors={colors} onPress={() => router.push('/get-help')} />
           <SettingRow icon="card-outline"          label="Purchases"         colors={colors} onPress={() => router.push('/purchases')} />
+          <SettingRow
+            icon="scan-outline"
+            label="Verification Records"
+            subtitle="Admin · All user scans"
+            colors={colors}
+            onPress={() => router.push('/admin-verifications')}
+          />
         </Group>
       </View>
 

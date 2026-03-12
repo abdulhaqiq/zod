@@ -1,16 +1,18 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useRouter } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { AppColors } from '@/constants/appColors';
+import { useAppTheme } from '@/context/ThemeContext';
 
 interface ScreenHeaderProps {
   title: string;
-  onClose: () => void;
+  onClose?: () => void;
   /** Label for the right-side action button (e.g. "Save", "Reset", "Done") */
   rightLabel?: string;
   onRightPress?: () => void;
-  colors: AppColors;
+  colors?: AppColors;
   /** Extra content rendered below the header row (e.g. tab pills) */
   children?: React.ReactNode;
 }
@@ -20,11 +22,16 @@ export default function ScreenHeader({
   onClose,
   rightLabel,
   onRightPress,
-  colors,
+  colors: colorsProp,
   children,
 }: ScreenHeaderProps) {
+  const { colors: themeColors } = useAppTheme();
+  const colors = colorsProp ?? themeColors;
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const isDark = colors.bg === '#000000';
+
+  const handleClose = onClose ?? (() => router.back());
 
   const gradientColors = isDark
     ? (['#1a1a1a', '#111111', '#000000'] as const)
@@ -40,7 +47,7 @@ export default function ScreenHeader({
       <View style={styles.headerRow}>
         {/* Left — close / back */}
         <Pressable
-          onPress={onClose}
+          onPress={handleClose}
           hitSlop={12}
           style={({ pressed }) => [styles.closeBtn, pressed && { opacity: 0.6 }]}
         >
@@ -51,9 +58,16 @@ export default function ScreenHeader({
         <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
 
         {/* Right — action or spacer */}
-        {rightLabel && onRightPress ? (
-          <Pressable onPress={onRightPress} hitSlop={12} style={({ pressed }) => [pressed && { opacity: 0.6 }]}>
-            <Text style={[styles.rightLabel, { color: colors.textSecondary }]}>{rightLabel}</Text>
+        {rightLabel ? (
+          <Pressable
+            onPress={onRightPress}
+            hitSlop={12}
+            disabled={!onRightPress}
+            style={({ pressed }) => [pressed && onRightPress && { opacity: 0.6 }]}
+          >
+            <Text style={[styles.rightLabel, { color: onRightPress ? colors.text : colors.textSecondary }]}>
+              {rightLabel}
+            </Text>
           </Pressable>
         ) : (
           <View style={styles.placeholder} />

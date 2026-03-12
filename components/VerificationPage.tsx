@@ -1,8 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Animated,
   Easing,
   Image,
@@ -16,131 +18,375 @@ import {
 } from 'react-native';
 import ScreenHeader from '@/components/ui/ScreenHeader';
 import Squircle from '@/components/ui/Squircle';
+import { API_V1, WS_V1 } from '@/constants/api';
+import { useAuth } from '@/context/AuthContext';
 import { useAppTheme } from '@/context/ThemeContext';
 import type { AppColors } from '@/constants/appColors';
 
-// ─── Face Tab ─────────────────────────────────────────────────────────────────
+// ─── Liveness challenges ──────────────────────────────────────────────────────
 
-function PulseRing({ colors }: { colors: AppColors }) {
-  const pulse = useRef(new Animated.Value(1)).current;
+const CHALLENGES = [
+  { id: 'blink',      icon: 'eye-outline',         text: 'Blink slowly twice' },
+  { id: 'smile',      icon: 'happy-outline',        text: 'Smile naturally' },
+  { id: 'left',       icon: 'arrow-back-outline',   text: 'Turn your head slightly left' },
+  { id: 'right',      icon: 'arrow-forward-outline',text: 'Turn your head slightly right' },
+  { id: 'nod',        icon: 'arrow-down-outline',   text: 'Nod your head once' },
+];
+
+function pickChallenges(n = 2) {
+  const shuffled = [...CHALLENGES].sort(() => Math.random() - 0.5);
+  return shuffled.slice(0, n);
+}
+
+// ─── Pulse ring ───────────────────────────────────────────────────────────────
+
+function PulseRing({ color }: { color: string }) {
+  const pulse   = useRef(new Animated.Value(1)).current;
   const opacity = useRef(new Animated.Value(0.6)).current;
 
   useEffect(() => {
     Animated.loop(
       Animated.parallel([
         Animated.sequence([
-          Animated.timing(pulse, { toValue: 1.18, duration: 900, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-          Animated.timing(pulse, { toValue: 1, duration: 900, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+          Animated.timing(pulse,   { toValue: 1.18, duration: 900, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+          Animated.timing(pulse,   { toValue: 1,    duration: 900, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
         ]),
         Animated.sequence([
           Animated.timing(opacity, { toValue: 0.15, duration: 900, useNativeDriver: true }),
-          Animated.timing(opacity, { toValue: 0.6, duration: 900, useNativeDriver: true }),
+          Animated.timing(opacity, { toValue: 0.6,  duration: 900, useNativeDriver: true }),
         ]),
       ])
     ).start();
   }, []);
 
   return (
-    <Animated.View
-      style={[
-        styles.pulseRing,
-        { borderColor: colors.text, opacity, transform: [{ scale: pulse }] },
-      ]}
-    />
+    <Animated.View style={[styles.pulseRing, { borderColor: color, opacity, transform: [{ scale: pulse }] }]} />
   );
 }
 
+// ─── Challenge progress bar ───────────────────────────────────────────────────
+
+function ChallengeBar({ duration, color }: { duration: number; color: string }) {
+  const width = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    width.setValue(0);
+    Animated.timing(width, { toValue: 100, duration, useNativeDriver: false }).start();
+  }, [duration]);
+
+  return (
+    <View style={styles.challengeBarTrack}>
+      <Animated.View
+        style={[styles.challengeBarFill, { backgroundColor: color, width: width.interpolate({ inputRange: [0, 100], outputRange: ['0%', '100%'] }) }]}
+      />
+    </View>
+  );
+}
+
+// ─── Face Tab ─────────────────────────────────────────────────────────────────
+
+type FaceState =
+  | 'idle'
+  | 'camera'
+  | 'challenge'
+  | 'capturing'
+  | 'submitting'   // uploading to backend
+  | 'pending'      // waiting for bg analysis
+  | 'passed'
+  | 'failed';
+
 function FaceTab({ colors }: { colors: AppColors }) {
-  const [scanned, setScanned] = useState(false);
+  const { token, profile } = useAuth();
+  const [permission, requestPermission] = useCameraPermissions();
+  const cameraRef = useRef<CameraView>(null);
+  const wsRef     = useRef<WebSocket | null>(null);
+
+  const [state,        setState]        = useState<FaceState>('idle');
+  const [challenges,   setChallenges]   = useState(pickChallenges(2));
+  const [challengeIdx, setChallengeIdx] = useState(0);
+  const [failReason,   setFailReason]   = useState<string | null>(null);
+  const [matchScore,   setMatchScore]   = useState<number | null>(null);
+  const [initializing, setInitializing] = useState(true);
+
+  const CHALLENGE_MS = 3000;
+
+  // On mount: restore pending/verified; show failed if rejected (with reason)
+  useEffect(() => {
+    if (!token) { setInitializing(false); return; }
+    fetch(`${API_V1}/upload/verify-face/status`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        const s = data?.attempt?.status;
+        if (s === 'pending') {
+          setState('pending');
+        } else if (s === 'verified') {
+          setMatchScore(data.attempt?.face_match_score ?? null);
+          setState('passed');
+        } else if (s === 'rejected') {
+          setMatchScore(data.attempt?.face_match_score ?? null);
+          setFailReason(data.attempt?.rejection_reason ?? 'Verification failed. Please try again.');
+          setState('failed');
+        }
+        // no attempt → stay idle
+      })
+      .catch(() => {})
+      .finally(() => setInitializing(false));
+  }, [token]);
+
+  // Auto-advance challenges then capture
+  useEffect(() => {
+    if (state !== 'challenge') return;
+    const timer = setTimeout(async () => {
+      if (challengeIdx < challenges.length - 1) {
+        setChallengeIdx(i => i + 1);
+      } else {
+        setState('capturing');
+        await new Promise(r => setTimeout(r, 600));
+        await captureAndSubmit();
+      }
+    }, CHALLENGE_MS);
+    return () => clearTimeout(timer);
+  }, [state, challengeIdx]);
+
+  // WebSocket: real-time status updates while pending
+  useEffect(() => {
+    if (state !== 'pending' || !profile?.id) {
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+      return;
+    }
+
+    const ws = new WebSocket(`${WS_V1}/ws/verify-face/${profile.id}`);
+    wsRef.current = ws;
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.status === 'verified') {
+          setMatchScore(data.face_match_score ?? null);
+          setState('passed');
+          ws.close();
+        } else if (data.status === 'rejected') {
+          setMatchScore(data.face_match_score ?? null);
+          setFailReason(data.rejection_reason ?? 'Verification failed. Please try again.');
+          setState('failed');
+          ws.close();
+        }
+      } catch {}
+    };
+
+    ws.onerror = () => ws.close();
+
+    return () => {
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+    };
+  }, [state, profile?.id]);
+
+  const startScan = async () => {
+    if (!permission?.granted) {
+      const result = await requestPermission();
+      if (!result.granted) return;
+    }
+    setChallenges(pickChallenges(2));
+    setChallengeIdx(0);
+    setFailReason(null);
+    setMatchScore(null);
+    setState('camera');
+    setTimeout(() => setState('challenge'), 1200);
+  };
+
+  const captureAndSubmit = async () => {
+    setState('submitting');
+    try {
+      const photo = await cameraRef.current?.takePictureAsync({ base64: false, quality: 0.92, exif: true });
+      if (!photo?.uri) throw new Error('No photo captured');
+
+      const formData = new FormData();
+      formData.append('file', { uri: photo.uri, name: 'face.jpg', type: 'image/jpeg' } as any);
+      formData.append('platform', Platform.OS);
+      formData.append('device_model', `${Platform.OS} ${Platform.Version}`);
+
+      const res = await fetch(`${API_V1}/upload/verify-face`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+      const data = await res.json();
+
+      if (data.status === 'pending') {
+        setState('pending');
+      } else {
+        // Unexpected fallback
+        setFailReason(data.detail ?? 'Submission failed. Please try again.');
+        setState('failed');
+      }
+    } catch {
+      setFailReason('Could not submit scan. Check your connection and try again.');
+      setState('failed');
+    }
+  };
+
+  const isLiveCamera  = state === 'camera' || state === 'challenge' || state === 'capturing';
+  const currentChallenge = challenges[challengeIdx];
+  const ringColor =
+    state === 'passed'  ? '#22c55e' :
+    state === 'failed'  ? colors.error :
+    state === 'pending' ? '#f59e0b' : colors.text;
+
+  // While checking existing status — show neutral spinner
+  if (initializing) {
+    return (
+      <View style={[styles.tabContent, { alignItems: 'center', justifyContent: 'center', paddingTop: 60 }]}>
+        <ActivityIndicator size="large" color={colors.textSecondary} />
+        <Text style={{ color: colors.textSecondary, fontFamily: 'ProductSans-Regular', fontSize: 13, marginTop: 12 }}>
+          Checking status…
+        </Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.tabContent}>
-      {/* Camera preview area */}
+      {/* Camera / preview area */}
       <View style={styles.facePreviewWrap}>
-        <PulseRing colors={colors} />
-        <Squircle
-          style={styles.facePreview}
-          cornerRadius={56}
-          cornerSmoothing={1}
-          fillColor={colors.surface}
-          strokeColor={colors.border}
-          strokeWidth={2}
-        >
-          {scanned ? (
-            <View style={styles.scannedInner}>
-              <Squircle
-                style={styles.scannedBadge}
-                cornerRadius={24}
-                cornerSmoothing={1}
-                fillColor={colors.text}
-              >
-                <Ionicons name="checkmark" size={32} color={colors.bg} />
-              </Squircle>
-              <Text style={[styles.scannedLabel, { color: colors.text }]}>Face verified!</Text>
+        <PulseRing color={ringColor} />
+
+        <View style={[styles.facePreview, { borderRadius: 56, overflow: 'hidden', borderWidth: 2, borderColor: ringColor }]}>
+          {isLiveCamera ? (
+            <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing="front" />
+
+          ) : state === 'passed' ? (
+            <View style={[StyleSheet.absoluteFill, styles.overlayCenter, { backgroundColor: '#052010' }]}>
+              <View style={[styles.scannedBadge, { backgroundColor: '#22c55e' }]}>
+                <Ionicons name="checkmark" size={32} color="#fff" />
+              </View>
+              <Text style={[styles.scannedLabel, { color: '#22c55e' }]}>Face Verified!</Text>
+              {matchScore !== null && (
+                <Text style={{ fontSize: 13, color: 'rgba(34,197,94,0.75)', fontFamily: 'ProductSans-Bold' }}>
+                  {matchScore.toFixed(0)}% match
+                </Text>
+              )}
             </View>
+
+          ) : state === 'failed' ? (
+            <View style={[StyleSheet.absoluteFill, styles.overlayCenter, { backgroundColor: '#1a0800' }]}>
+              <Ionicons name="close-circle" size={56} color={colors.error} />
+              <Text style={[styles.cameraHint, { color: colors.error }]}>Verification failed</Text>
+              {matchScore !== null && matchScore > 0 && (
+                <Text style={{ fontSize: 13, color: 'rgba(255,59,48,0.7)', fontFamily: 'ProductSans-Bold' }}>
+                  {matchScore.toFixed(0)}% match (need 70%)
+                </Text>
+              )}
+            </View>
+
+          ) : state === 'pending' ? (
+            <View style={[StyleSheet.absoluteFill, styles.overlayCenter, { backgroundColor: 'rgba(0,0,0,0.85)' }]}>
+              <ActivityIndicator size="large" color="#f59e0b" />
+              <Text style={[styles.scannedLabel, { color: '#f59e0b', marginTop: 10 }]}>Under Review</Text>
+              <Text style={[styles.cameraHint, { color: 'rgba(245,158,11,0.7)' }]}>Analysing your scan…</Text>
+            </View>
+
+          ) : state === 'submitting' ? (
+            <View style={[StyleSheet.absoluteFill, styles.overlayCenter, { backgroundColor: 'rgba(0,0,0,0.6)' }]}>
+              <ActivityIndicator size="large" color="#fff" />
+              <Text style={[styles.cameraHint, { color: '#fff', marginTop: 12 }]}>Submitting…</Text>
+            </View>
+
           ) : (
-            <View style={styles.cameraPlaceholder}>
+            <View style={[StyleSheet.absoluteFill, styles.overlayCenter, { backgroundColor: colors.surface }]}>
               <Ionicons name="person-outline" size={56} color={colors.textTertiary} />
-              <Text style={[styles.cameraHint, { color: colors.textTertiary }]}>
-                Position your face here
-              </Text>
+              <Text style={[styles.cameraHint, { color: colors.textTertiary }]}>Position your face here</Text>
             </View>
           )}
-        </Squircle>
-      </View>
 
-      {/* Instructions */}
-      <View style={styles.instructionCard}>
-        <Squircle
-          style={styles.instructionInner}
-          cornerRadius={20}
-          cornerSmoothing={1}
-          fillColor={colors.surface}
-          strokeColor={colors.border}
-          strokeWidth={1}
-        >
-          {[
-            { icon: 'sunny-outline', text: 'Find good lighting, face the light' },
-            { icon: 'eye-outline', text: 'Look directly at the camera' },
-            { icon: 'remove-circle-outline', text: 'Remove glasses or hat if wearing any' },
-          ].map((item, i, arr) => (
-            <View
-              key={item.icon}
-              style={[
-                styles.instructionRow,
-                i < arr.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
-              ]}
-            >
-              <Squircle style={styles.instrIcon} cornerRadius={10} cornerSmoothing={1} fillColor={colors.surface2}>
-                <Ionicons name={item.icon as any} size={15} color={colors.text} />
-              </Squircle>
-              <Text style={[styles.instrText, { color: colors.text }]}>{item.text}</Text>
+          {/* Challenge overlay */}
+          {state === 'challenge' && currentChallenge && (
+            <View style={styles.challengeOverlay}>
+              <View style={[styles.challengeCard, { backgroundColor: 'rgba(0,0,0,0.72)' }]}>
+                <Ionicons name={currentChallenge.icon as any} size={22} color="#fff" />
+                <Text style={styles.challengeText}>{currentChallenge.text}</Text>
+                <Text style={styles.challengeCounter}>{challengeIdx + 1} / {challenges.length}</Text>
+              </View>
+              <ChallengeBar duration={CHALLENGE_MS} color="#fff" key={`${challengeIdx}`} />
             </View>
-          ))}
-        </Squircle>
+          )}
+
+          {/* Capturing overlay */}
+          {state === 'capturing' && (
+            <View style={[styles.challengeOverlay, { justifyContent: 'center' }]}>
+              <View style={[styles.challengeCard, { backgroundColor: 'rgba(0,0,0,0.72)' }]}>
+                <ActivityIndicator color="#fff" />
+                <Text style={styles.challengeText}>Hold still…</Text>
+              </View>
+            </View>
+          )}
+        </View>
       </View>
 
-      {/* CTA */}
-      <Pressable
-        style={({ pressed }) => [pressed && { opacity: 0.75 }]}
-        onPress={() => setScanned(v => !v)}
-      >
-        <Squircle
-          style={styles.ctaBtn}
-          cornerRadius={28}
-          cornerSmoothing={1}
-          fillColor={scanned ? colors.surface2 : colors.text}
-        >
-          <Ionicons
-            name={scanned ? 'refresh-outline' : 'scan-outline'}
-            size={18}
-            color={scanned ? colors.text : colors.bg}
-          />
-          <Text style={[styles.ctaBtnText, { color: scanned ? colors.text : colors.bg }]}>
-            {scanned ? 'Scan Again' : 'Start Face Scan'}
+      {/* Pending notice */}
+      {state === 'pending' && (
+        <Squircle style={styles.pendingCard} cornerRadius={16} cornerSmoothing={1}
+          fillColor={'rgba(245,158,11,0.1)'} strokeColor={'#f59e0b'} strokeWidth={StyleSheet.hairlineWidth}>
+          <Ionicons name="hourglass-outline" size={16} color="#f59e0b" />
+          <Text style={[styles.failText, { color: '#f59e0b' }]}>
+            Your scan has been submitted and is being reviewed. This usually takes a few seconds.
           </Text>
         </Squircle>
-      </Pressable>
+      )}
+
+      {/* Failure reason */}
+      {state === 'failed' && failReason && (
+        <Squircle style={styles.failCard} cornerRadius={16} cornerSmoothing={1}
+          fillColor={colors.errorBg} strokeColor={colors.error} strokeWidth={StyleSheet.hairlineWidth}>
+          <Ionicons name="warning-outline" size={16} color={colors.error} />
+          <Text style={[styles.failText, { color: colors.error }]}>{failReason}</Text>
+        </Squircle>
+      )}
+
+      {/* Instructions (only while idle) */}
+      {state === 'idle' && (
+        <View style={styles.instructionCard}>
+          <Squircle style={styles.instructionInner} cornerRadius={20} cornerSmoothing={1}
+            fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
+            {[
+              { icon: 'sunny-outline',            text: 'Find good lighting, face the light' },
+              { icon: 'eye-outline',               text: 'Look directly at the camera' },
+              { icon: 'remove-circle-outline',     text: 'Remove glasses or hat if wearing any' },
+              { icon: 'shield-checkmark-outline',  text: 'Liveness check detects photos & screens' },
+            ].map((item, i, arr) => (
+              <View key={item.icon} style={[
+                styles.instructionRow,
+                i < arr.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+              ]}>
+                <Squircle style={styles.instrIcon} cornerRadius={10} cornerSmoothing={1} fillColor={colors.surface2}>
+                  <Ionicons name={item.icon as any} size={15} color={colors.text} />
+                </Squircle>
+                <Text style={[styles.instrText, { color: colors.text }]}>{item.text}</Text>
+              </View>
+            ))}
+          </Squircle>
+        </View>
+      )}
+
+      {/* CTA — idle: start scan · failed: try again */}
+      {(state === 'idle' || state === 'failed') && (
+        <Pressable style={({ pressed }) => [pressed && { opacity: 0.75 }]} onPress={startScan}>
+          <Squircle style={styles.ctaBtn} cornerRadius={28} cornerSmoothing={1} fillColor={colors.text}>
+            <Ionicons name="scan-outline" size={18} color={colors.bg} />
+            <Text style={[styles.ctaBtnText, { color: colors.bg }]}>
+              {state === 'failed' ? 'Try Again' : 'Start Face Scan'}
+            </Text>
+          </Squircle>
+        </Pressable>
+      )}
+
     </View>
   );
 }
@@ -148,11 +394,12 @@ function FaceTab({ colors }: { colors: AppColors }) {
 // ─── ID Upload zone ────────────────────────────────────────────────────────────
 
 function IDZone({
-  label, icon, colors,
-}: { label: string; icon: string; colors: AppColors }) {
-  const [uri, setUri] = useState<string | null>(null);
+  label, icon, colors, uri, onSet,
+}: { label: string; icon: string; colors: AppColors; uri: string | null; onSet: (u: string) => void }) {
+  const [showOptions, setShowOptions] = useState(false);
 
-  const pick = async () => {
+  const fromGallery = async () => {
+    setShowOptions(false);
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') return;
     const res = await ImagePicker.launchImageLibraryAsync({
@@ -161,48 +408,322 @@ function IDZone({
       aspect: [16, 10],
       quality: 0.9,
     });
-    if (!res.canceled) setUri(res.assets[0].uri);
+    if (!res.canceled) onSet(res.assets[0].uri);
+  };
+
+  const fromCamera = async () => {
+    setShowOptions(false);
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') return;
+    const res = await ImagePicker.launchCameraAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [16, 10],
+      quality: 0.9,
+    });
+    if (!res.canceled) onSet(res.assets[0].uri);
   };
 
   return (
-    <Pressable onPress={pick} style={({ pressed }) => [pressed && { opacity: 0.75 }]}>
-      <Squircle
-        style={styles.idZone}
-        cornerRadius={22}
-        cornerSmoothing={1}
-        fillColor={colors.surface}
-        strokeColor={uri ? colors.text : colors.border}
-        strokeWidth={uri ? 2 : 1}
-      >
-        {uri ? (
-          <>
-            <Image source={{ uri }} style={styles.idPreview} resizeMode="cover" />
-            <View style={[styles.idReplaceBadge, { backgroundColor: colors.surface }]}>
+    <Squircle
+      style={styles.idZone}
+      cornerRadius={22}
+      cornerSmoothing={1}
+      fillColor={colors.surface}
+      strokeColor={uri ? colors.text : colors.border}
+      strokeWidth={uri ? 2 : 1}
+    >
+      {uri ? (
+        <>
+          <Image source={{ uri }} style={styles.idPreview} resizeMode="cover" />
+          {showOptions ? (
+            <View style={[styles.idOptionBar, { backgroundColor: 'rgba(0,0,0,0.72)' }]}>
+              <Pressable onPress={fromCamera} style={styles.idOptionBtn}>
+                <Ionicons name="camera-outline" size={16} color="#fff" />
+                <Text style={styles.idOptionText}>Camera</Text>
+              </Pressable>
+              <View style={[styles.idOptionDivider, { backgroundColor: 'rgba(255,255,255,0.2)' }]} />
+              <Pressable onPress={fromGallery} style={styles.idOptionBtn}>
+                <Ionicons name="images-outline" size={16} color="#fff" />
+                <Text style={styles.idOptionText}>Gallery</Text>
+              </Pressable>
+              <View style={[styles.idOptionDivider, { backgroundColor: 'rgba(255,255,255,0.2)' }]} />
+              <Pressable onPress={() => setShowOptions(false)} style={styles.idOptionBtn}>
+                <Ionicons name="close-outline" size={16} color="rgba(255,255,255,0.6)" />
+              </Pressable>
+            </View>
+          ) : (
+            <Pressable
+              style={[styles.idReplaceBadge, { backgroundColor: colors.surface }]}
+              onPress={() => setShowOptions(true)}
+            >
               <Ionicons name="pencil" size={13} color={colors.text} />
               <Text style={[styles.idReplaceText, { color: colors.text }]}>Replace</Text>
-            </View>
-          </>
-        ) : (
-          <View style={styles.idZonePlaceholder}>
-            <Squircle style={styles.idIconWrap} cornerRadius={18} cornerSmoothing={1} fillColor={colors.surface2}>
-              <Ionicons name={icon as any} size={26} color={colors.textSecondary} />
-            </Squircle>
-            <Text style={[styles.idZoneLabel, { color: colors.text }]}>{label}</Text>
-            <Text style={[styles.idZoneSub, { color: colors.textSecondary }]}>
-              Tap to upload · JPG or PNG
-            </Text>
+            </Pressable>
+          )}
+        </>
+      ) : (
+        <View style={styles.idZonePlaceholder}>
+          <Squircle style={styles.idIconWrap} cornerRadius={18} cornerSmoothing={1} fillColor={colors.surface2}>
+            <Ionicons name={icon as any} size={26} color={colors.textSecondary} />
+          </Squircle>
+          <Text style={[styles.idZoneLabel, { color: colors.text }]}>{label}</Text>
+          <View style={styles.idSourceRow}>
+            <Pressable
+              style={({ pressed }) => [styles.idSourceBtn, { backgroundColor: colors.surface2, opacity: pressed ? 0.7 : 1 }]}
+              onPress={fromCamera}
+            >
+              <Ionicons name="camera-outline" size={15} color={colors.text} />
+              <Text style={[styles.idSourceLabel, { color: colors.text }]}>Camera</Text>
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [styles.idSourceBtn, { backgroundColor: colors.surface2, opacity: pressed ? 0.7 : 1 }]}
+              onPress={fromGallery}
+            >
+              <Ionicons name="images-outline" size={15} color={colors.text} />
+              <Text style={[styles.idSourceLabel, { color: colors.text }]}>Gallery</Text>
+            </Pressable>
           </View>
-        )}
-      </Squircle>
-    </Pressable>
+        </View>
+      )}
+    </Squircle>
   );
 }
 
+type IDState = 'idle' | 'submitting' | 'pending' | 'passed' | 'failed';
+
+interface IDResult {
+  id_face_match_score: number | null;
+  id_has_name: boolean | null;
+  id_has_dob: boolean | null;
+  id_has_expiry: boolean | null;
+  id_has_number: boolean | null;
+  rejection_reason: string | null;
+}
+
 function IDTab({ colors }: { colors: AppColors }) {
+  const { token, profile } = useAuth();
+  const [frontUri, setFrontUri] = useState<string | null>(null);
+  const [backUri,  setBackUri]  = useState<string | null>(null);
+  const [idState,  setIdState]  = useState<IDState>('idle');
+  const [idResult, setIdResult] = useState<IDResult | null>(null);
+  const [idInitializing, setIdInitializing] = useState(true);
+  const wsIdRef = useRef<WebSocket | null>(null);
+
+  // Restore status on mount
+  useEffect(() => {
+    if (!token) { setIdInitializing(false); return; }
+    fetch(`${API_V1}/upload/verify-id/status`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        const s = data?.attempt?.status;
+        if (s === 'pending') {
+          setIdState('pending');
+        } else if (s === 'verified') {
+          setIdResult(data.attempt);
+          setIdState('passed');
+        } else if (s === 'rejected') {
+          setIdResult(data.attempt);
+          setIdState('failed');
+        }
+      })
+      .catch(() => {})
+      .finally(() => setIdInitializing(false));
+  }, [token]);
+
+  // WebSocket while pending
+  useEffect(() => {
+    if (idState !== 'pending' || !profile?.id) {
+      wsIdRef.current?.close();
+      wsIdRef.current = null;
+      return;
+    }
+    const ws = new WebSocket(`${WS_V1}/ws/verify-face/${profile.id}?type=id`);
+    wsIdRef.current = ws;
+    ws.onmessage = (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        if (data.status === 'verified') {
+          setIdResult(data);
+          setIdState('passed');
+          ws.close();
+        } else if (data.status === 'rejected') {
+          setIdResult(data);
+          setIdState('failed');
+          ws.close();
+        }
+      } catch {}
+    };
+    ws.onerror = () => ws.close();
+    return () => { wsIdRef.current?.close(); wsIdRef.current = null; };
+  }, [idState, profile?.id]);
+
+  const submit = async () => {
+    if (!frontUri) return;
+    setIdState('submitting');
+    try {
+      const formData = new FormData();
+      formData.append('front', { uri: frontUri, name: 'id_front.jpg', type: 'image/jpeg' } as any);
+      if (backUri) {
+        formData.append('back', { uri: backUri, name: 'id_back.jpg', type: 'image/jpeg' } as any);
+      }
+      formData.append('platform', Platform.OS);
+      formData.append('device_model', `${Platform.OS} ${Platform.Version}`);
+
+      const res = await fetch(`${API_V1}/upload/verify-id`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+      const data = await res.json();
+      if (data.status === 'pending') {
+        setIdState('pending');
+      } else {
+        setIdResult({ rejection_reason: data.detail ?? 'Submission failed.', id_face_match_score: null, id_has_name: null, id_has_dob: null, id_has_expiry: null, id_has_number: null });
+        setIdState('failed');
+      }
+    } catch {
+      setIdResult({ rejection_reason: 'Could not submit. Check your connection.', id_face_match_score: null, id_has_name: null, id_has_dob: null, id_has_expiry: null, id_has_number: null });
+      setIdState('failed');
+    }
+  };
+
+  const tryAgain = () => {
+    setIdState('idle');
+    setIdResult(null);
+    setFrontUri(null);
+    setBackUri(null);
+  };
+
+  if (idInitializing) {
+    return (
+      <View style={[styles.tabContent, { alignItems: 'center', justifyContent: 'center', paddingTop: 60 }]}>
+        <ActivityIndicator size="large" color={colors.textSecondary} />
+        <Text style={{ color: colors.textSecondary, fontFamily: 'ProductSans-Regular', fontSize: 13, marginTop: 12 }}>
+          Checking status…
+        </Text>
+      </View>
+    );
+  }
+
+  // ── Passed state ─────────────────────────────────────────────────────────────
+  if (idState === 'passed') {
+    const fields = [
+      { label: 'Name detected',   val: idResult?.id_has_name },
+      { label: 'Date of birth',   val: idResult?.id_has_dob },
+      { label: 'Expiry date',     val: idResult?.id_has_expiry },
+      { label: 'ID number',       val: idResult?.id_has_number },
+    ];
+    return (
+      <View style={styles.tabContent}>
+        <Squircle style={styles.idResultCard} cornerRadius={22} cornerSmoothing={1}
+          fillColor={'#052010'} strokeColor={'#22c55e'} strokeWidth={1}>
+          <View style={styles.idResultHeader}>
+            <View style={[styles.idResultIcon, { backgroundColor: '#22c55e' }]}>
+              <Ionicons name="checkmark" size={28} color="#fff" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.idResultTitle, { color: '#22c55e' }]}>ID Verified!</Text>
+              {idResult?.id_face_match_score != null && (
+                <Text style={[styles.idResultSub, { color: 'rgba(34,197,94,0.7)' }]}>
+                  {idResult.id_face_match_score.toFixed(0)}% face match
+                </Text>
+              )}
+            </View>
+          </View>
+          <View style={styles.idFieldList}>
+            {fields.map(f => (
+              <View key={f.label} style={styles.idFieldRow}>
+                <Ionicons name={f.val ? 'checkmark-circle' : 'ellipse-outline'} size={15}
+                  color={f.val ? '#22c55e' : 'rgba(34,197,94,0.3)'} />
+                <Text style={[styles.idFieldText, { color: f.val ? '#22c55e' : 'rgba(34,197,94,0.5)' }]}>{f.label}</Text>
+              </View>
+            ))}
+          </View>
+        </Squircle>
+      </View>
+    );
+  }
+
+  // ── Failed state ─────────────────────────────────────────────────────────────
+  if (idState === 'failed') {
+    const fields = idResult ? [
+      { label: 'Name detected',   val: idResult.id_has_name },
+      { label: 'Date of birth',   val: idResult.id_has_dob },
+      { label: 'Expiry date',     val: idResult.id_has_expiry },
+      { label: 'ID number',       val: idResult.id_has_number },
+    ] : [];
+    return (
+      <View style={styles.tabContent}>
+        <Squircle style={styles.idResultCard} cornerRadius={22} cornerSmoothing={1}
+          fillColor={'#1a0800'} strokeColor={colors.error} strokeWidth={1}>
+          <View style={styles.idResultHeader}>
+            <Ionicons name="close-circle" size={40} color={colors.error} />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.idResultTitle, { color: colors.error }]}>Verification Failed</Text>
+              {idResult?.id_face_match_score != null && idResult.id_face_match_score > 0 && (
+                <Text style={[styles.idResultSub, { color: 'rgba(255,59,48,0.7)' }]}>
+                  {idResult.id_face_match_score.toFixed(0)}% face match (need 70%)
+                </Text>
+              )}
+            </View>
+          </View>
+          {idResult?.rejection_reason && (
+            <Text style={[styles.idResultReason, { color: 'rgba(255,59,48,0.85)' }]}>
+              {idResult.rejection_reason}
+            </Text>
+          )}
+          {fields.some(f => f.val !== null) && (
+            <View style={styles.idFieldList}>
+              {fields.map(f => f.val !== null ? (
+                <View key={f.label} style={styles.idFieldRow}>
+                  <Ionicons name={f.val ? 'checkmark-circle' : 'close-circle'} size={15}
+                    color={f.val ? 'rgba(255,59,48,0.5)' : colors.error} />
+                  <Text style={[styles.idFieldText, { color: f.val ? 'rgba(255,59,48,0.5)' : colors.error }]}>{f.label}</Text>
+                </View>
+              ) : null)}
+            </View>
+          )}
+        </Squircle>
+        <Pressable style={({ pressed }) => [pressed && { opacity: 0.75 }]} onPress={tryAgain}>
+          <Squircle style={styles.ctaBtn} cornerRadius={28} cornerSmoothing={1} fillColor={colors.text}>
+            <Ionicons name="refresh-outline" size={18} color={colors.bg} />
+            <Text style={[styles.ctaBtnText, { color: colors.bg }]}>Try Again</Text>
+          </Squircle>
+        </Pressable>
+      </View>
+    );
+  }
+
+  // ── Pending state ─────────────────────────────────────────────────────────────
+  if (idState === 'pending' || idState === 'submitting') {
+    return (
+      <View style={styles.tabContent}>
+        <Squircle style={styles.idResultCard} cornerRadius={22} cornerSmoothing={1}
+          fillColor={'rgba(245,158,11,0.08)'} strokeColor={'#f59e0b'} strokeWidth={1}>
+          <View style={styles.idResultHeader}>
+            <ActivityIndicator size="small" color="#f59e0b" />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.idResultTitle, { color: '#f59e0b' }]}>
+                {idState === 'submitting' ? 'Uploading…' : 'Under Review'}
+              </Text>
+              <Text style={[styles.idResultSub, { color: 'rgba(245,158,11,0.7)' }]}>
+                {idState === 'submitting' ? 'Sending your ID…' : 'Analysing your ID, usually a few seconds'}
+              </Text>
+            </View>
+          </View>
+        </Squircle>
+      </View>
+    );
+  }
+
+  // ── Idle state ────────────────────────────────────────────────────────────────
   return (
     <View style={styles.tabContent}>
-      <IDZone label="Front of ID" icon="card-outline" colors={colors} />
-      <IDZone label="Back of ID" icon="card-outline" colors={colors} />
+      <IDZone label="Front of ID" icon="card-outline" colors={colors} uri={frontUri} onSet={setFrontUri} />
+      <IDZone label="Back of ID (optional)" icon="card-outline" colors={colors} uri={backUri} onSet={setBackUri} />
 
       {/* Why we verify */}
       <Squircle
@@ -215,15 +736,29 @@ function IDTab({ colors }: { colors: AppColors }) {
       >
         <View style={styles.whyRow}>
           <Ionicons name="shield-checkmark-outline" size={18} color={colors.text} />
-          <Text style={[styles.whyTitle, { color: colors.text }]}>Why we verify your ID</Text>
+          <Text style={[styles.whyTitle, { color: colors.text }]}>What we check</Text>
         </View>
-        <Text style={[styles.whyText, { color: colors.textSecondary }]}>
-          ID verification helps keep our community safe and authentic. Your ID is securely processed
-          and never stored or shared. Only your verified status is shown to others.
-        </Text>
+        {[
+          { icon: 'person-outline',         text: 'Name is visible on the ID' },
+          { icon: 'calendar-outline',        text: 'Date of birth is readable' },
+          { icon: 'barcode-outline',         text: 'ID number is present' },
+          { icon: 'scan-circle-outline',     text: 'Face on ID matches your selfie' },
+        ].map((item, i, arr) => (
+          <View key={item.icon} style={[styles.instructionRow,
+            i < arr.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border }]}>
+            <Squircle style={styles.instrIcon} cornerRadius={10} cornerSmoothing={1} fillColor={colors.surface2}>
+              <Ionicons name={item.icon as any} size={15} color={colors.text} />
+            </Squircle>
+            <Text style={[styles.instrText, { color: colors.text }]}>{item.text}</Text>
+          </View>
+        ))}
       </Squircle>
 
-      <Pressable style={({ pressed }) => [pressed && { opacity: 0.75 }]}>
+      <Pressable
+        style={({ pressed }) => [pressed && { opacity: 0.75 }, !frontUri && { opacity: 0.4 }]}
+        onPress={submit}
+        disabled={!frontUri}
+      >
         <Squircle style={styles.ctaBtn} cornerRadius={28} cornerSmoothing={1} fillColor={colors.text}>
           <Ionicons name="checkmark-circle-outline" size={18} color={colors.bg} />
           <Text style={[styles.ctaBtnText, { color: colors.bg }]}>Submit for Review</Text>
@@ -301,12 +836,23 @@ const styles = StyleSheet.create({
   // Face scan
   facePreviewWrap:    { alignItems: 'center', justifyContent: 'center', height: 280 },
   pulseRing:          { position: 'absolute', width: 240, height: 240, borderRadius: 120, borderWidth: 3 },
-  facePreview:        { width: 210, height: 210, alignItems: 'center', justifyContent: 'center' },
-  cameraPlaceholder:  { alignItems: 'center', gap: 10 },
+  facePreview:        { width: 210, height: 210 },
+  overlayCenter:      { alignItems: 'center', justifyContent: 'center', gap: 10 },
   cameraHint:         { fontSize: 13, fontFamily: 'ProductSans-Regular', textAlign: 'center' },
-  scannedInner:       { alignItems: 'center', gap: 12 },
-  scannedBadge:       { width: 64, height: 64, alignItems: 'center', justifyContent: 'center' },
+  scannedBadge:       { width: 64, height: 64, borderRadius: 32, alignItems: 'center', justifyContent: 'center' },
   scannedLabel:       { fontSize: 15, fontFamily: 'ProductSans-Bold' },
+
+  // Challenge overlay
+  challengeOverlay:   { position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 12, paddingBottom: 12, gap: 8 },
+  challengeCard:      { flexDirection: 'row', alignItems: 'center', gap: 10, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12 },
+  challengeText:      { flex: 1, fontSize: 14, fontFamily: 'ProductSans-Bold', color: '#fff' },
+  challengeCounter:   { fontSize: 11, fontFamily: 'ProductSans-Regular', color: 'rgba(255,255,255,0.55)' },
+  challengeBarTrack:  { height: 3, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 2, overflow: 'hidden' },
+  challengeBarFill:   { height: 3, borderRadius: 2 },
+
+  // Failure card
+  failCard:           { flexDirection: 'row', alignItems: 'flex-start', gap: 10, padding: 14 },
+  failText:           { flex: 1, fontSize: 13, fontFamily: 'ProductSans-Regular', lineHeight: 19 },
 
   // Instructions
   instructionCard:    { },
@@ -320,18 +866,41 @@ const styles = StyleSheet.create({
   ctaBtnText:         { fontSize: 15, fontFamily: 'ProductSans-Black' },
 
   // ID zones
-  idZone:             { height: 140, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
-  idPreview:          { width: '100%', height: '100%' },
+  idZone:             { minHeight: 160, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
+  idPreview:          { width: '100%', height: '100%', position: 'absolute' },
   idReplaceBadge:     { position: 'absolute', bottom: 10, right: 12, flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5 },
   idReplaceText:      { fontSize: 11, fontFamily: 'ProductSans-Bold' },
-  idZonePlaceholder:  { alignItems: 'center', gap: 10 },
+  idZonePlaceholder:  { alignItems: 'center', gap: 12, paddingVertical: 20 },
   idIconWrap:         { width: 52, height: 52, alignItems: 'center', justifyContent: 'center' },
   idZoneLabel:        { fontSize: 15, fontFamily: 'ProductSans-Bold' },
   idZoneSub:          { fontSize: 12, fontFamily: 'ProductSans-Regular' },
+  // Source picker buttons
+  idSourceRow:        { flexDirection: 'row', gap: 10 },
+  idSourceBtn:        { flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: 50, paddingHorizontal: 16, paddingVertical: 8 },
+  idSourceLabel:      { fontSize: 13, fontFamily: 'ProductSans-Bold' },
+  // Option bar (when image is set and Replace tapped)
+  idOptionBar:        { position: 'absolute', bottom: 0, left: 0, right: 0, flexDirection: 'row', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 12 },
+  idOptionBtn:        { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 4 },
+  idOptionText:       { fontSize: 13, fontFamily: 'ProductSans-Bold', color: '#fff' },
+  idOptionDivider:    { width: 1, height: 20 },
+
+  // Pending card
+  pendingCard:        { flexDirection: 'row', alignItems: 'flex-start', gap: 10, padding: 14 },
 
   // Why card
   whyCard:            { padding: 16, gap: 10 },
   whyRow:             { flexDirection: 'row', alignItems: 'center', gap: 8 },
   whyTitle:           { fontSize: 14, fontFamily: 'ProductSans-Bold' },
   whyText:            { fontSize: 13, fontFamily: 'ProductSans-Regular', lineHeight: 20 },
+
+  // ID result card (passed / failed)
+  idResultCard:       { padding: 18, gap: 14 },
+  idResultHeader:     { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  idResultIcon:       { width: 52, height: 52, borderRadius: 26, alignItems: 'center', justifyContent: 'center' },
+  idResultTitle:      { fontSize: 17, fontFamily: 'ProductSans-Black' },
+  idResultSub:        { fontSize: 13, fontFamily: 'ProductSans-Regular', marginTop: 2 },
+  idResultReason:     { fontSize: 13, fontFamily: 'ProductSans-Regular', lineHeight: 19 },
+  idFieldList:        { gap: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: 'rgba(255,255,255,0.08)', paddingTop: 12 },
+  idFieldRow:         { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  idFieldText:        { fontSize: 13, fontFamily: 'ProductSans-Regular' },
 });

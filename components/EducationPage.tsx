@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import ScreenHeader from '@/components/ui/ScreenHeader';
 import Squircle from '@/components/ui/Squircle';
-import { API_BASE, apiFetch } from '@/constants/api';
+import { apiFetch } from '@/constants/api';
 import { useAuth } from '@/context/AuthContext';
 import { useAppTheme } from '@/context/ThemeContext';
 import type { AppColors } from '@/constants/appColors';
@@ -33,7 +33,7 @@ interface EduEntry {
   gradYear: string;
 }
 
-const MAX_ENTRIES = 2;
+const MAX_ENTRIES = 3;
 
 // ─── Field input ──────────────────────────────────────────────────────────────
 
@@ -76,7 +76,7 @@ function DegreePicker({
 }: { value: string; onChange: (v: string) => void; colors: AppColors }) {
   return (
     <View style={styles.fieldWrap}>
-      <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>Degree Type</Text>
+      <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>DEGREE TYPE</Text>
       <View style={styles.degreeChips}>
         {DEGREES.map(d => {
           const selected = d === value;
@@ -140,14 +140,14 @@ function EduCard({
 
       <View style={styles.cardBody}>
         <Field
-          label="Institution Name"
+          label="INSTITUTION"
           value={entry.institution}
           onChangeText={set('institution')}
           placeholder="e.g. UCLA, Harvard, MIT"
           colors={colors}
         />
         <Field
-          label="Course / Field of Study"
+          label="COURSE / FIELD OF STUDY"
           value={entry.course}
           onChangeText={set('course')}
           placeholder="e.g. Computer Science, Design"
@@ -155,7 +155,7 @@ function EduCard({
         />
         <DegreePicker value={entry.degree} onChange={set('degree')} colors={colors} />
         <Field
-          label="Graduation Year"
+          label="GRADUATION YEAR"
           value={entry.gradYear}
           onChangeText={set('gradYear')}
           placeholder="e.g. 2022"
@@ -212,23 +212,15 @@ export default function EducationPage() {
         degree: e.degree.trim(),
         grad_year: e.gradYear.trim(),
       }));
-      const res = await apiFetch(`${API_BASE}/api/v1/profile/me`, {
+      const updated = await apiFetch<any>('/profile/me', {
         method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+        token: token ?? undefined,
         body: JSON.stringify({ education: payload }),
       });
-      if (res.ok) {
-        const updated = await res.json();
-        updateProfile(updated);
-        router.back();
-      } else {
-        Alert.alert('Error', 'Failed to save. Please try again.');
-      }
+      updateProfile(updated);
+      router.back();
     } catch {
-      Alert.alert('Error', 'Network error. Please try again.');
+      Alert.alert('Error', 'Failed to save. Please try again.');
     } finally {
       setSaving(false);
     }
@@ -305,7 +297,7 @@ const styles = StyleSheet.create({
   // Field
   fieldWrap:      { gap: 6 },
   fieldLabel:     { fontSize: 11, fontFamily: 'ProductSans-Bold', letterSpacing: 0.5 },
-  inputBox:       { height: 46, paddingHorizontal: 14 },
+  inputBox:       { height: 46, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center' },
   input:          { flex: 1, fontSize: 15, fontFamily: 'ProductSans-Regular' },
 
   // Degree picker

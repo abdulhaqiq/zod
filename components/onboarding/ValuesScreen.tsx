@@ -4,26 +4,25 @@ import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '@/context/AuthContext';
 import { useAppTheme } from '@/context/ThemeContext';
+import { LOOKUP } from '@/constants/lookupData';
 import { useProfileSave } from '@/hooks/useProfileSave';
 import OnboardingShell from './OnboardingShell';
 
-const ALL_VALUES = [
-  'Loyalty', 'Ambition', 'Kindness', 'Honesty', 'Humor',
-  'Family', 'Independence', 'Creativity', 'Spirituality', 'Compassion',
-  'Curiosity', 'Stability', 'Adventure', 'Integrity', 'Respect',
-];
+// Personal values only (first 16 items, excluding life goals)
+const ALL_VALUES = LOOKUP.values_list.slice(0, 16);
 
 export default function ValuesScreen() {
   const router = useRouter();
   const { colors } = useAppTheme();
   const { save, saving } = useProfileSave();
   const { profile } = useAuth();
-  const existingValues = (profile?.values_list ?? []).filter((v) => ALL_VALUES.includes(v));
-  const [selected, setSelected] = useState<string[]>(existingValues);
+  const valueIds = ALL_VALUES.map(v => v.id);
+  const existingValues = (profile?.values_list ?? []).filter(id => valueIds.includes(id));
+  const [selected, setSelected] = useState<number[]>(existingValues);
 
-  const toggle = (v: string) =>
+  const toggle = (id: number) =>
     setSelected((prev) =>
-      prev.includes(v) ? prev.filter((x) => x !== v) : prev.length < 5 ? [...prev, v] : prev,
+      prev.includes(id) ? prev.filter((x) => x !== id) : prev.length < 5 ? [...prev, id] : prev,
     );
 
   const handleContinue = async () => {
@@ -42,12 +41,12 @@ export default function ValuesScreen() {
       loading={saving}
     >
       <View style={styles.grid}>
-        {ALL_VALUES.map((v) => {
-          const active = selected.includes(v);
+        {ALL_VALUES.map((item) => {
+          const active = selected.includes(item.id);
           return (
             <Pressable
-              key={v}
-              onPress={() => toggle(v)}
+              key={item.id}
+              onPress={() => toggle(item.id)}
               style={[
                 styles.chip,
                 {
@@ -56,7 +55,7 @@ export default function ValuesScreen() {
                 },
               ]}
             >
-              <Text style={[styles.chipText, { color: active ? colors.bg : colors.text }]}>{v}</Text>
+              <Text style={[styles.chipText, { color: active ? colors.bg : colors.text }]}>{item.label}</Text>
             </Pressable>
           );
         })}
