@@ -188,6 +188,20 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
   const { isDark, toggle } = useAppTheme();
   const { save } = useProfileSave();
 
+  // ── Live profile stats ────────────────────────────────────────────────────
+  const [statsMatches, setStatsMatches] = useState<number | null>(null);
+  const [statsViews,   setStatsViews]   = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!token) return;
+    apiFetch<{ liked_you: number; matches: number; views: number; unread_chats: number }>(
+      '/discover/counts', { token }
+    ).then(res => {
+      setStatsMatches(res.matches);
+      setStatsViews(res.views);
+    }).catch(() => {});
+  }, [token]);
+
   // ── Lookup options from backend ───────────────────────────────────────────
   const [lookups, setLookups] = useState<LookupMap>(_cachedLookups ?? {});
   const lookupsLoaded = useRef(false);
@@ -223,6 +237,26 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
   const [languageIds,      setLanguageIds]      = useState<string[]>((profile?.languages ?? []).map(String));
 
   const [snooze, setSnooze] = useState(false);
+
+  // ── Profile completeness score ────────────────────────────────────────────
+  const profileFields: { label: string; filled: boolean; tip: string }[] = [
+    { label: 'Photos',        filled: (profile?.photos?.length ?? 0) >= 3,  tip: 'Add at least 3 photos' },
+    { label: 'Bio',           filled: !!(profile?.about_me),                 tip: 'Write a bio about yourself' },
+    { label: 'Height',        filled: !!(profile?.height_cm),                tip: 'Add your height' },
+    { label: 'Exercise',      filled: !!exerciseId,                          tip: 'Set your exercise habits' },
+    { label: 'Drinking',      filled: !!drinkingId,                          tip: 'Set your drinking habits' },
+    { label: 'Smoking',       filled: !!smokingId,                           tip: 'Set your smoking habits' },
+    { label: 'Looking For',   filled: !!lookingForId,                        tip: 'Set what you\'re looking for' },
+    { label: 'Family Plans',  filled: !!familyPlansId,                       tip: 'Set your family plans' },
+    { label: 'Star Sign',     filled: !!starSignId,                          tip: 'Add your star sign' },
+    { label: 'Religion',      filled: !!religionId,                          tip: 'Add your religion' },
+    { label: 'Languages',     filled: languageIds.length > 0,                tip: 'Add languages you speak' },
+    { label: 'Interests',     filled: (profile?.interests?.length ?? 0) >= 3, tip: 'Pick at least 3 interests' },
+    { label: 'Work/Education', filled: !!(profile?.company || profile?.school), tip: 'Add your work or education' },
+  ];
+  const filledCount  = profileFields.filter(f => f.filled).length;
+  const scorePercent = Math.round((filledCount / profileFields.length) * 100);
+  const missing      = profileFields.filter(f => !f.filled).slice(0, 3);
 
   // Sync if profile loads after mount
   useEffect(() => {
@@ -321,25 +355,81 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
         <View style={styles.statsRow}>
           <StatCol label="Photos"  value={String(profile?.photos?.length ?? 0)} colors={colors} />
           <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
-          <StatCol label="Matches" value="—"  colors={colors} />
+          <StatCol label="Matches" value={statsMatches !== null ? String(statsMatches) : '—'} colors={colors} />
           <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
-          <StatCol label="Views"   value="—" colors={colors} />
+          <StatCol label="Views"   value={statsViews !== null ? String(statsViews) : '—'} colors={colors} />
         </View>
       </View>
 
       {/* ── Subscription banner ─────────────────────────────────────────── */}
       <View style={{ paddingHorizontal: 16, marginTop: 16 }}>
-        <Pressable style={styles.subBanner} onPress={() => router.push('/subscription')}>
+        <Pressable style={[styles.subBanner, { backgroundColor: colors.surface }]} onPress={() => router.push('/subscription')}>
           <Ionicons name="star" size={14} color="#FFD60A" />
-          <Text style={styles.subBannerPlan}>Zod Free</Text>
-          <Text style={styles.subBannerSub}>· Unlock all features</Text>
+          <Text style={[styles.subBannerPlan, { color: colors.text }]}>Zod Free</Text>
+          <Text style={[styles.subBannerSub, { color: colors.textSecondary }]}>· Unlock all features</Text>
           <View style={{ flex: 1 }} />
-          <Text style={styles.subBannerCta}>Upgrade now</Text>
-          <Ionicons name="chevron-forward" size={13} color="#c084fc" />
+          <Text style={[styles.subBannerCta, { color: colors.text }]}>Upgrade now</Text>
+          <Ionicons name="chevron-forward" size={13} color={colors.textSecondary} />
         </Pressable>
       </View>
 
-      {/* ── ZOD WORK ────────────────────────────────────────────────────── */}
+      {/* ── AI Profile Score ────────────────────────────────────────────── */}
+      <View style={{ paddingHorizontal: 16, marginTop: 14 }}>
+        <Squircle
+          style={styles.scoreCard}
+          cornerRadius={22}
+          cornerSmoothing={1}
+          fillColor={colors.surface}
+          strokeColor={colors.border}
+          strokeWidth={1}
+        >
+          {/* Header */}
+          <View style={styles.scoreHeader}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+              <View style={[styles.scoreIconWrap, { backgroundColor: colors.surface2 }]}>
+                <Ionicons name="sparkles" size={14} color={colors.text} />
+              </View>
+              <View>
+                <Text style={[styles.scoreTitle, { color: colors.text }]}>AI Profile Score</Text>
+                <Text style={[styles.scoreSubtitle, { color: colors.textSecondary }]}>
+                  {scorePercent >= 90 ? 'Looking great!' : scorePercent >= 60 ? 'Good — a few tweaks left' : 'Complete your profile to get more matches'}
+                </Text>
+              </View>
+            </View>
+            <Text style={[styles.scorePercent, { color: colors.text }]}>
+              {scorePercent}%
+            </Text>
+          </View>
+
+          {/* Progress bar */}
+          <View style={[styles.scoreBarBg, { backgroundColor: colors.surface2 }]}>
+            <View
+              style={[
+                styles.scoreBarFill,
+                {
+                  width: `${scorePercent}%`,
+                  backgroundColor: colors.text,
+                },
+              ]}
+            />
+          </View>
+
+          {/* Tips */}
+          {missing.length > 0 && (
+            <View style={styles.scoreTips}>
+              <Text style={[styles.scoreTipsTitle, { color: colors.textSecondary }]}>IMPROVE YOUR SCORE</Text>
+              {missing.map((f) => (
+                <View key={f.label} style={styles.scoreTipRow}>
+                  <Ionicons name="add-circle-outline" size={15} color={colors.textSecondary} />
+                  <Text style={[styles.scoreTipText, { color: colors.text }]}>{f.tip}</Text>
+                </View>
+              ))}
+            </View>
+          )}
+        </Squircle>
+      </View>
+
+      {/* ZOD WORK — temporarily disabled
       <View style={styles.section}>
         <SectionLabel title="ZOD WORK" colors={colors} />
         <Group colors={colors}>
@@ -352,6 +442,7 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
           />
         </Group>
       </View>
+      */}
 
       {/* ── ABOUT YOU ───────────────────────────────────────────────────── */}
       <View style={styles.section}>
@@ -568,10 +659,10 @@ const styles = StyleSheet.create({
   actionBtn:         { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, borderRadius: 22, paddingVertical: 11 },
   actionBtnText:     { fontSize: 12, fontFamily: 'ProductSans-Bold' },
 
-  subBanner:         { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#1a0a2e', borderRadius: 14, paddingHorizontal: 14, paddingVertical: 13 },
-  subBannerPlan:     { fontSize: 13, fontFamily: 'ProductSans-Bold', color: '#fff' },
-  subBannerSub:      { fontSize: 12, fontFamily: 'ProductSans-Regular', color: 'rgba(255,255,255,0.45)' },
-  subBannerCta:      { fontSize: 12, fontFamily: 'ProductSans-Bold', color: '#c084fc' },
+  subBanner:         { flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 13 },
+  subBannerPlan:     { fontSize: 13, fontFamily: 'ProductSans-Bold' },
+  subBannerSub:      { fontSize: 12, fontFamily: 'ProductSans-Regular' },
+  subBannerCta:      { fontSize: 12, fontFamily: 'ProductSans-Bold' },
 
   section:           { paddingHorizontal: 16, marginTop: 22, gap: 6 },
   sectionLabel:      { fontSize: 12, fontFamily: 'ProductSans-Bold', letterSpacing: 1.5, marginLeft: 2, marginBottom: 2 },
@@ -593,4 +684,17 @@ const styles = StyleSheet.create({
 
   avatarImage:       { width: 64, height: 64, borderRadius: 32 },
   avatarPlaceholder: { alignItems: 'center', justifyContent: 'center' },
+
+  scoreCard:         { padding: 16, gap: 12 },
+  scoreHeader:       { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  scoreIconWrap:     { width: 32, height: 32, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  scoreTitle:        { fontSize: 14, fontFamily: 'ProductSans-Bold' },
+  scoreSubtitle:     { fontSize: 11, fontFamily: 'ProductSans-Regular', marginTop: 1 },
+  scorePercent:      { fontSize: 22, fontFamily: 'ProductSans-Black' },
+  scoreBarBg:        { height: 6, borderRadius: 99, overflow: 'hidden' },
+  scoreBarFill:      { height: 6, borderRadius: 99 },
+  scoreTips:         { gap: 8, marginTop: 2 },
+  scoreTipsTitle:    { fontSize: 10, fontFamily: 'ProductSans-Bold', letterSpacing: 1.2 },
+  scoreTipRow:       { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  scoreTipText:      { fontSize: 13, fontFamily: 'ProductSans-Regular' },
 });

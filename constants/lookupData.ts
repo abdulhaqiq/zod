@@ -36,10 +36,8 @@ export const RELATIONSHIP_TYPES: RelationshipType[] = [
 // ── All lookup_options by category ─────────────────────────────────────────
 export const LOOKUP: Record<string, LookupItem[]> = {
   gender: [
-    { id: 223, emoji: '♂️',  label: 'Man' },
-    { id: 224, emoji: '♀️',  label: 'Woman' },
-    { id: 225, emoji: '⚧',  label: 'Non-binary' },
-    { id: 226, emoji: '🤷',  label: 'Prefer not to say' },
+    { id: 223, emoji: '♂️',  label: 'Male' },
+    { id: 224, emoji: '♀️',  label: 'Female' },
   ],
 
   interests: [

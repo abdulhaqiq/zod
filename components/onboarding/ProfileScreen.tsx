@@ -1,8 +1,9 @@
-// Step 1 — Full name + date of birth
+// Step 1 — Full name + email + date of birth
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Modal,
   Pressable,
   SafeAreaView,
@@ -13,6 +14,7 @@ import {
   View,
 } from 'react-native';
 import Squircle from '@/components/ui/Squircle';
+import { API_V1 } from '@/constants/api';
 import { useAuth } from '@/context/AuthContext';
 import { useAppTheme } from '@/context/ThemeContext';
 import { useProfileSave } from '@/hooks/useProfileSave';
@@ -27,6 +29,8 @@ const MAX_DOB = (() => {
 
 const DEFAULT_PICKER_DATE = MAX_DOB;
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 function parseDob(iso: string | null | undefined): Date | null {
   if (!iso) return null;
   const d = new Date(iso + 'T00:00:00');
@@ -40,24 +44,69 @@ export default function ProfileScreen() {
   const { profile } = useAuth();
 
   const [fullName, setFullName] = useState(profile?.full_name ?? '');
+  const [email, setEmail] = useState(profile?.email ?? '');
+  const [emailError, setEmailError] = useState<string | null>(null);
+  const [checkingEmail, setCheckingEmail] = useState(false);
+
   const existingDob = parseDob(profile?.date_of_birth);
   const [dob, setDob] = useState<Date | null>(existingDob);
   const [showPicker, setShowPicker] = useState(false);
   const [pickerTemp, setPickerTemp] = useState<Date>(existingDob ?? DEFAULT_PICKER_DATE);
 
-  const isValid = fullName.trim().length >= 2 && dob !== null;
+  // Debounce ref — avoid firing on every keystroke
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const emailFormatValid = EMAIL_REGEX.test(email.trim());
+  const isValid = fullName.trim().length >= 2 && emailFormatValid && emailError === null && !checkingEmail && dob !== null;
+
+  const handleEmailChange = (text: string) => {
+    setEmail(text);
+    setEmailError(null);
+
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+
+    if (!EMAIL_REGEX.test(text.trim())) return;
+
+    // Skip check if it's the same as what's already saved
+    if (text.trim().toLowerCase() === (profile?.email ?? '').toLowerCase()) return;
+
+    setCheckingEmail(true);
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`${API_V1}/profile/check-email`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: text.trim() }),
+        });
+        const data = await res.json();
+        if (!data.available) {
+          setEmailError('This email is already in use.');
+        }
+      } catch {
+        // Network error — allow user to continue, backend will catch duplicate
+      } finally {
+        setCheckingEmail(false);
+      }
+    }, 600);
+  };
 
   const handleContinue = async () => {
     if (!isValid) return;
     const ok = await save({
       full_name: fullName.trim(),
+      email: email.trim().toLowerCase(),
       date_of_birth: dob!.toISOString().split('T')[0],
     });
     if (ok) router.push('/gender');
   };
 
+  // Build the label manually to guarantee Gregorian English — avoids device Hijri calendar
+  const MONTH_NAMES = [
+    'January','February','March','April','May','June',
+    'July','August','September','October','November','December',
+  ];
   const dobLabel = dob
-    ? dob.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+    ? `${MONTH_NAMES[dob.getMonth()]} ${dob.getDate()}, ${dob.getFullYear()}`
     : null;
 
   return (
@@ -69,6 +118,7 @@ export default function ProfileScreen() {
       continueDisabled={!isValid}
       loading={saving}
       hideBack
+      keyboardAvoiding
     >
       {/* Full name input */}
       <Squircle
@@ -87,9 +137,37 @@ export default function ProfileScreen() {
           onChangeText={setFullName}
           autoFocus
           autoCapitalize="words"
-          returnKeyType="done"
+          returnKeyType="next"
         />
       </Squircle>
+
+      {/* Email input */}
+      <Squircle
+        style={[styles.inputBox, { marginBottom: emailError ? 6 : 28 }]}
+        cornerRadius={18}
+        cornerSmoothing={1}
+        fillColor={colors.surface}
+        strokeColor={emailError ? '#ef4444' : email.length > 0 ? colors.borderActive : colors.border}
+        strokeWidth={email.length > 0 || emailError ? 2 : 1.5}
+      >
+        <TextInput
+          style={[styles.input, { color: colors.text, flex: 1 }]}
+          placeholder="Email address"
+          placeholderTextColor={colors.placeholder}
+          value={email}
+          onChangeText={handleEmailChange}
+          keyboardType="email-address"
+          autoCapitalize="none"
+          autoCorrect={false}
+          returnKeyType="done"
+        />
+        {checkingEmail && (
+          <ActivityIndicator size="small" color={colors.textSecondary} style={{ marginRight: 4 }} />
+        )}
+      </Squircle>
+      {emailError ? (
+        <Text style={[styles.errorText, { color: '#ef4444' }]}>{emailError}</Text>
+      ) : null}
 
       {/* Date of birth trigger */}
       <Text style={[styles.label, { color: colors.textSecondary }]}>Date of birth</Text>
@@ -152,6 +230,7 @@ export default function ProfileScreen() {
             mode="date"
             display="spinner"
             maximumDate={MAX_DOB}
+            locale="en-US"
             onChange={(_, selected) => {
               if (selected) setPickerTemp(selected);
             }}
@@ -167,8 +246,9 @@ export default function ProfileScreen() {
 }
 
 const styles = StyleSheet.create({
-  inputBox: { height: 60, paddingHorizontal: 18, justifyContent: 'center', marginBottom: 28 },
-  input: { fontSize: 17, fontFamily: 'ProductSans-Medium' },
+  inputBox: { height: 60, paddingHorizontal: 18, justifyContent: 'center', flexDirection: 'row', alignItems: 'center', marginBottom: 14 },
+  input: { fontSize: 17, fontFamily: 'ProductSans-Medium', flex: 1 },
+  errorText: { fontSize: 12, fontFamily: 'ProductSans-Regular', marginBottom: 14, marginLeft: 4 },
   label: { fontSize: 13, fontFamily: 'ProductSans-Regular', marginBottom: 8 },
   dobBox: {
     height: 60,

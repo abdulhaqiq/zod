@@ -10,7 +10,12 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.zod.ai"
+      "bundleIdentifier": "com.zod.ai",
+      "infoPlist": {
+        "CFBundleDevelopmentRegion": "en",
+        "CFBundleLocalizations": ["en"],
+        "CFBundleAllowMixedLocalizations": false
+      }
     },
     "android": {
       "package": "com.zod.ai",

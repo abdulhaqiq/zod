@@ -99,7 +99,7 @@ export function useSubscription() {
           '/subscription/verify',
           {
             method: 'POST',
-            token,
+            token: token ?? undefined,
             body: JSON.stringify({ revenuecat_customer_id: rcCustomerId }),
           },
         );
@@ -132,7 +132,7 @@ export function useSubscription() {
           '/subscription/verify',
           {
             method: 'POST',
-            token,
+            token: token ?? undefined,
             body: JSON.stringify({ revenuecat_customer_id: rcCustomerId }),
           },
         );

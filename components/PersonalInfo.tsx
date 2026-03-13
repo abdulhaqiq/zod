@@ -19,8 +19,13 @@ import Button from '@/components/ui/Button';
 import Squircle from '@/components/ui/Squircle';
 import { useAppTheme } from '@/context/ThemeContext';
 
+const _MONTH_NAMES = [
+  'January','February','March','April','May','June',
+  'July','August','September','October','November','December',
+];
+
 function formatDate(date: Date): string {
-  return date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  return `${_MONTH_NAMES[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
 }
 
 function getAge(dob: Date): number {
@@ -253,6 +258,7 @@ export default function PersonalInfo() {
             display="spinner"
             maximumDate={MAX_DATE}
             minimumDate={MIN_DATE}
+            locale="en-US"
             onChange={(_, date) => { if (date) setTempDate(date); }}
             textColor={colors.text}
             style={styles.datePicker}

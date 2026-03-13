@@ -12,14 +12,14 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useAuth } from '@/context/AuthContext';
 
 const { width: W } = Dimensions.get('window');
 
 const CARD_W = W * 0.46;
 const CARD_H = CARD_W * 1.42;
 
-// Current user mock photo
-const MY_PHOTO = 'https://randomuser.me/api/portraits/men/75.jpg';
+const FALLBACK_AVATAR = 'https://randomuser.me/api/portraits/lego/1.jpg';
 
 export interface MatchedProfile {
   id: string;
@@ -36,6 +36,8 @@ interface Props {
 
 export default function MatchScreen({ profile, onChat, onDismiss }: Props) {
   const insets = useSafeAreaInsets();
+  const { profile: me } = useAuth();
+  const myPhoto = me?.photos?.[0] ?? FALLBACK_AVATAR;
   const opacity  = useRef(new Animated.Value(0)).current;
   const scaleMe  = useRef(new Animated.Value(0.85)).current;
   const scaleThem = useRef(new Animated.Value(0.85)).current;
@@ -81,7 +83,7 @@ export default function MatchScreen({ profile, onChat, onDismiss }: Props) {
 
         {/* My card — back left */}
         <Animated.View style={[styles.cardBack, { transform: [{ scale: scaleMe }, { translateX: -CARD_W * 0.28 }, { translateY: -CARD_H * 0.06 }, { rotate: '-9deg' }] }]}>
-          <Image source={{ uri: MY_PHOTO }} style={styles.cardPhoto} resizeMode="cover" />
+          <Image source={{ uri: myPhoto }} style={styles.cardPhoto} resizeMode="cover" />
           <LinearGradient colors={['transparent', 'rgba(0,0,0,0.72)']} style={styles.cardGrad}>
             <Text style={styles.cardName}>You</Text>
           </LinearGradient>

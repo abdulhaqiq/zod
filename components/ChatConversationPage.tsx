@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
@@ -17,6 +17,8 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Squircle from '@/components/ui/Squircle';
+import { apiFetch, WS_V1 } from '@/constants/api';
+import { useAuth } from '@/context/AuthContext';
 import { useAppTheme } from '@/context/ThemeContext';
 
 const { width: W } = Dimensions.get('window');
@@ -33,6 +35,17 @@ interface Msg {
   isCard?: boolean;
   isAnswer?: boolean;
   answerTo?: string;
+}
+
+interface ApiMessage {
+  id: string;
+  sender_id: string;
+  receiver_id: string;
+  content: string;
+  msg_type: string;
+  metadata: Record<string, string> | null;
+  is_read: boolean;
+  created_at: string;
 }
 
 // ─── Question card data ───────────────────────────────────────────────────────
@@ -79,18 +92,11 @@ const CATEGORY_ACCENT: Record<CardCategory, string> = {
   'Would You Rather': '#ec4899',
 };
 
-// ─── Mock match profile ───────────────────────────────────────────────────────
+// ─── Match profile (passed via route params — filled from API as needed) ──────
 
-const MATCH_PROFILE = {
-  name: 'Sophia',
-  age: 25,
-  height: "5'4\"",
-  lookingFor: 'Something serious',
+const PLACEHOLDER_PROFILE = {
   sharedInterests: ['Travel', 'Books', 'Photography'],
-  interests: ['Travel', 'Books', 'Photography', 'Yoga', 'Coffee'],
-  religion: 'Christian',
-  starSign: 'Leo',
-  aiSummary: 'Sophia loves exploring new countries and is an avid reader. You two share a passion for travel and books — great conversation starters!',
+  aiSummary: 'You matched! Start a conversation to learn more about each other.',
 };
 
 const SHARED_EMOJIS: Record<string, string> = {
@@ -98,6 +104,10 @@ const SHARED_EMOJIS: Record<string, string> = {
   Music: '🎵', Art: '🎨', Gaming: '🎮', Food: '🍕', Fitness: '💪',
   Hiking: '🥾', Movies: '🎬', Nature: '🌿', Cycling: '🚴',
 };
+
+function _formatTime(isoStr: string): string {
+  return new Date(isoStr).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
 
 const AI_LINES = [
   `If travel were a language, we'd be fluent ✈️`,
@@ -110,17 +120,11 @@ const AI_LINES = [
   `They say the best adventures are unplanned — like meeting you 🛫`,
 ];
 
-const INITIAL_MESSAGES: Msg[] = [
-  { id: '1', text: "Hey! I saw we both love traveling ✈️", from: 'them', time: '2:10 PM' },
-  { id: '2', text: "Yes! I've been to 14 countries so far 🌍", from: 'me',   time: '2:11 PM' },
-  { id: '3', text: "That's amazing! Which was your favourite?", from: 'them', time: '2:12 PM' },
-];
-
 const nowTime = () => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
 // ─── AI Profile Insight Card — bottom-sheet modal ─────────────────────────────
 
-function AiInsightPanel({ colors, name, onClose }: { colors: any; name: string; onClose: () => void }) {
+function AiInsightPanel({ colors, name, onClose, matchSummary }: { colors: any; name: string; onClose: () => void; matchSummary?: string }) {
   const slideY = useRef(new Animated.Value(500)).current;
 
   useEffect(() => {
@@ -162,35 +166,19 @@ function AiInsightPanel({ colors, name, onClose }: { colors: any; name: string; 
             {/* AI summary */}
             <View style={{ paddingHorizontal: 16, gap: 16, paddingBottom: 28 }}>
               <Squircle style={styles.insightSummaryBox} cornerRadius={16} cornerSmoothing={1} fillColor={colors.surface2}>
-                <Text style={[styles.insightSummary, { color: colors.text }]}>{MATCH_PROFILE.aiSummary}</Text>
+                <Text style={[styles.insightSummary, { color: colors.text }]}>
+                  {matchSummary ?? PLACEHOLDER_PROFILE.aiSummary}
+                </Text>
               </Squircle>
 
-              {/* Shared interests */}
+              {/* Shared interests placeholder */}
               <View style={styles.insightSection}>
-                <Text style={[styles.insightSectionLabel, { color: colors.textSecondary }]}>YOU BOTH LOVE</Text>
+                <Text style={[styles.insightSectionLabel, { color: colors.textSecondary }]}>YOU MATCHED!</Text>
                 <View style={styles.insightChips}>
-                  {MATCH_PROFILE.sharedInterests.map(interest => (
+                  {PLACEHOLDER_PROFILE.sharedInterests.map(interest => (
                     <View key={interest} style={[styles.insightChip, { backgroundColor: colors.surface2, borderColor: colors.border }]}>
                       <Text style={styles.insightChipEmoji}>{SHARED_EMOJIS[interest] ?? '⭐'}</Text>
                       <Text style={[styles.insightChipText, { color: colors.text }]}>{interest}</Text>
-                    </View>
-                  ))}
-                </View>
-              </View>
-
-              {/* Profile highlights */}
-              <View style={styles.insightSection}>
-                <Text style={[styles.insightSectionLabel, { color: colors.textSecondary }]}>{name.toUpperCase()}'S HIGHLIGHTS</Text>
-                <View style={styles.insightHighlights}>
-                  {[
-                    { icon: 'resize-outline',  val: MATCH_PROFILE.height },
-                    { icon: 'heart-outline',   val: MATCH_PROFILE.lookingFor },
-                    { icon: 'star-outline',    val: MATCH_PROFILE.starSign },
-                    { icon: 'book-outline',    val: MATCH_PROFILE.religion },
-                  ].map(h => (
-                    <View key={h.val} style={[styles.insightHighlight, { backgroundColor: colors.surface2, borderColor: colors.border }]}>
-                      <Ionicons name={h.icon as any} size={12} color={colors.textSecondary} />
-                      <Text style={[styles.insightHighlightText, { color: colors.text }]}>{h.val}</Text>
                     </View>
                   ))}
                 </View>
@@ -566,50 +554,139 @@ export default function ChatConversationPage() {
   const router  = useRouter();
   const insets  = useSafeAreaInsets();
   const { colors } = useAppTheme();
-  const params  = useLocalSearchParams<{ name?: string; image?: string; online?: string }>();
+  const { token, profile } = useAuth();
+  const params  = useLocalSearchParams<{ partnerId?: string; name?: string; image?: string; online?: string }>();
 
-  const name   = params.name  ?? 'Sophia';
-  const image  = params.image ?? 'https://randomuser.me/api/portraits/women/44.jpg';
-  const online = params.online !== 'false';
+  const partnerId = params.partnerId ?? '';
+  const name      = params.name   ?? 'Match';
+  const image     = params.image  ?? '';
+  const online    = params.online !== 'false';
 
-  const [messages,    setMessages]    = useState<Msg[]>(INITIAL_MESSAGES);
-  const [text,        setText]        = useState('');
-  const [showAi,      setShowAi]      = useState(false);
-  const [showCards,   setShowCards]   = useState(false);
-  const [showInsight, setShowInsight] = useState(false);
+  const [messages,      setMessages]      = useState<Msg[]>([]);
+  const [text,          setText]          = useState('');
+  const [showAi,        setShowAi]        = useState(false);
+  const [showCards,     setShowCards]     = useState(false);
+  const [showInsight,   setShowInsight]   = useState(false);
   const [answeringCard, setAnsweringCard] = useState<string | null>(null);
+  const [isPartnerTyping, setIsPartnerTyping] = useState(false);
+  const [loadingHistory,  setLoadingHistory]  = useState(true);
   const scrollRef = useRef<ScrollView>(null);
+  const wsRef     = useRef<WebSocket | null>(null);
+  const myId      = profile?.id ?? '';
 
+  // ── Convert API message to local Msg ──────────────────────────────────────
+  const apiMsgToMsg = useCallback((m: ApiMessage): Msg => ({
+    id:      m.id,
+    text:    m.content,
+    from:    m.sender_id === myId ? 'me' : 'them',
+    time:    _formatTime(m.created_at),
+    isCard:  m.msg_type === 'card',
+    isAnswer: m.msg_type === 'answer',
+    answerTo: m.metadata?.answerTo,
+  }), [myId]);
+
+  // ── Load message history ──────────────────────────────────────────────────
+  useEffect(() => {
+    if (!token || !partnerId) { setLoadingHistory(false); return; }
+    apiFetch<{ messages: ApiMessage[] }>(`/chat/${partnerId}/messages`, { token })
+      .then(r => {
+        setMessages(r.messages.map(apiMsgToMsg));
+        setTimeout(() => scrollRef.current?.scrollToEnd({ animated: false }), 100);
+      })
+      .catch(() => {})
+      .finally(() => setLoadingHistory(false));
+  }, [token, partnerId]);
+
+  // ── WebSocket connection ──────────────────────────────────────────────────
+  useEffect(() => {
+    if (!token || !partnerId) return;
+
+    const ws = new WebSocket(`${WS_V1}/ws/chat/${partnerId}?token=${token}`);
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      // Send read receipt when conversation opens
+      ws.send(JSON.stringify({ type: 'read' }));
+    };
+
+    ws.onmessage = (e) => {
+      try {
+        const payload = JSON.parse(e.data);
+        if (payload.type === 'message') {
+          const m: ApiMessage = payload;
+          const msg = apiMsgToMsg({ ...m, content: payload.content });
+          setMessages(prev => {
+            // Avoid duplicates (REST send already added the optimistic message)
+            if (prev.find(x => x.id === msg.id)) return prev;
+            return [...prev, msg];
+          });
+          setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 80);
+          // Mark as read immediately
+          ws.send(JSON.stringify({ type: 'read' }));
+        } else if (payload.type === 'typing') {
+          setIsPartnerTyping(Boolean(payload.is_typing));
+          if (payload.is_typing) {
+            setTimeout(() => setIsPartnerTyping(false), 3000);
+          }
+        }
+      } catch {}
+    };
+
+    ws.onerror = () => {};
+    ws.onclose = () => { wsRef.current = null; };
+
+    return () => {
+      ws.close();
+      wsRef.current = null;
+    };
+  }, [token, partnerId]);
+
+  // ── Typing indicator ──────────────────────────────────────────────────────
+  const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleTextChange = (val: string) => {
+    setText(val);
+    const ws = wsRef.current;
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'typing', is_typing: true }));
+      if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+      typingTimerRef.current = setTimeout(() => {
+        ws.send(JSON.stringify({ type: 'typing', is_typing: false }));
+      }, 2000);
+    }
+  };
+
+  // ── Send message ──────────────────────────────────────────────────────────
   const sendMessage = (txt: string, opts?: { isCard?: boolean; isAnswer?: boolean; answerTo?: string }) => {
     if (!txt.trim()) return;
-    const msg: Msg = {
-      id: Date.now().toString(),
-      text: txt.trim(),
-      from: 'me',
-      time: nowTime(),
-      isCard: opts?.isCard,
+
+    const msgType  = opts?.isCard ? 'card' : opts?.isAnswer ? 'answer' : 'text';
+    const metadata = opts?.answerTo ? { answerTo: opts.answerTo } : null;
+
+    // Optimistic UI update
+    const optimistic: Msg = {
+      id:       `opt-${Date.now()}`,
+      text:     txt.trim(),
+      from:     'me',
+      time:     nowTime(),
+      isCard:   opts?.isCard,
       isAnswer: opts?.isAnswer,
       answerTo: opts?.answerTo,
     };
-    setMessages(prev => [...prev, msg]);
+    setMessages(prev => [...prev, optimistic]);
     setText('');
     setAnsweringCard(null);
-    setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
+    setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 80);
 
-    if (opts?.isCard) {
-      setTimeout(() => {
-        const replies = [
-          "Oh great question! 🤔", "Hmm let me think about that...",
-          "Love this game! My answer is...", "That's such a fun one!",
-        ];
-        const reply: Msg = {
-          id: (Date.now() + 1).toString(),
-          text: replies[Math.floor(Math.random() * replies.length)],
-          from: 'them', time: nowTime(),
-        };
-        setMessages(prev => [...prev, reply]);
-        setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
-      }, 1500);
+    // Send via WebSocket if connected, otherwise fall back to REST
+    const ws = wsRef.current;
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'message', content: txt.trim(), msg_type: msgType, metadata }));
+    } else if (token && partnerId) {
+      apiFetch(`/chat/${partnerId}/messages`, {
+        token,
+        method: 'POST',
+        body: JSON.stringify({ content: txt.trim(), msg_type: msgType, metadata }),
+      }).catch(() => {});
     }
   };
 
@@ -622,8 +699,10 @@ export default function ChatConversationPage() {
   };
 
   useEffect(() => {
-    setTimeout(() => scrollRef.current?.scrollToEnd({ animated: false }), 80);
-  }, []);
+    if (!loadingHistory) {
+      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: false }), 80);
+    }
+  }, [loadingHistory]);
 
   return (
     <View style={[styles.root, { backgroundColor: colors.bg }]}>
@@ -693,6 +772,12 @@ export default function ChatConversationPage() {
             <View style={[styles.dateLine, { backgroundColor: colors.border }]} />
           </View>
 
+          {loadingHistory && (
+            <View style={{ alignItems: 'center', padding: 24 }}>
+              <Text style={{ color: colors.textSecondary, fontFamily: 'ProductSans-Regular', fontSize: 13 }}>Loading messages…</Text>
+            </View>
+          )}
+
           {messages.map(msg => (
             <Bubble
               key={msg.id}
@@ -705,6 +790,15 @@ export default function ChatConversationPage() {
               }}
             />
           ))}
+
+          {/* Typing indicator */}
+          {isPartnerTyping && (
+            <View style={[styles.bubbleRow, styles.bubbleRowThem]}>
+              <View style={[styles.bubble, styles.bubbleThem, { backgroundColor: colors.surface, paddingHorizontal: 16, paddingVertical: 12 }]}>
+                <Text style={{ color: colors.textSecondary, fontSize: 18 }}>• • •</Text>
+              </View>
+            </View>
+          )}
         </ScrollView>
 
         {/* ── Input bar ── */}
@@ -750,7 +844,7 @@ export default function ChatConversationPage() {
                 placeholder={answeringCard ? 'Your answer…' : 'Message…'}
                 placeholderTextColor={colors.placeholder}
                 value={text}
-                onChangeText={setText}
+                onChangeText={handleTextChange}
                 multiline
                 maxLength={500}
                 selectionColor={colors.text}
@@ -817,6 +911,7 @@ export default function ChatConversationPage() {
           colors={colors}
           name={name}
           onClose={() => setShowInsight(false)}
+          matchSummary={undefined}
         />
       )}
     </View>

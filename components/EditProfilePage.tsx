@@ -16,11 +16,11 @@ import {
   Text,
   TextInput,
   View,
-} from 'react-native';
-import ChipSelectorSheet, { type ChipOption } from '@/components/ui/ChipSelectorSheet';
+} from 'react-native';import ChipSelectorSheet, { type ChipOption } from '@/components/ui/ChipSelectorSheet';
 import ScreenHeader from '@/components/ui/ScreenHeader';
 import Squircle from '@/components/ui/Squircle';
 import { apiFetch, API_V1 } from '@/constants/api';
+import { getLookupLabel, LOOKUP } from '@/constants/lookupData';
 import { useAuth } from '@/context/AuthContext';
 import { useAppTheme } from '@/context/ThemeContext';
 import type { AppColors } from '@/constants/appColors';
@@ -30,44 +30,11 @@ const GRID_PADDING = 12;
 const GRID_GAP = 8;
 const SLOT_SIZE = (W - 32 - GRID_PADDING * 2 - GRID_GAP * 2) / 3;
 
-// ─── Chip data ────────────────────────────────────────────────────────────────
+// ─── Chip data (from shared LOOKUP — IDs match DB lookup_options rows) ────────
 
-const INTERESTS: ChipOption[] = [
-  { emoji: '☕', label: 'Coffee' },    { emoji: '✈️', label: 'Travel' },
-  { emoji: '📚', label: 'Books' },     { emoji: '🎨', label: 'Art' },
-  { emoji: '🎵', label: 'Music' },     { emoji: '🎮', label: 'Gaming' },
-  { emoji: '🍕', label: 'Food' },      { emoji: '🧘', label: 'Yoga' },
-  { emoji: '🏋️', label: 'Fitness' },  { emoji: '📸', label: 'Photography' },
-  { emoji: '🍷', label: 'Wine' },      { emoji: '🥾', label: 'Hiking' },
-  { emoji: '🎬', label: 'Movies' },    { emoji: '🌿', label: 'Nature' },
-  { emoji: '🧁', label: 'Baking' },    { emoji: '🎤', label: 'Karaoke' },
-  { emoji: '🐾', label: 'Pets' },      { emoji: '🏄', label: 'Surfing' },
-  { emoji: '🎸', label: 'Guitar' },    { emoji: '🌍', label: 'Languages' },
-  { emoji: '🏀', label: 'Basketball' }, { emoji: '⚽', label: 'Football' },
-  { emoji: '🎭', label: 'Theatre' },   { emoji: '🚴', label: 'Cycling' },
-];
-
-const CAUSES: ChipOption[] = [
-  { emoji: '🌍', label: 'Environment' },     { emoji: '📖', label: 'Education' },
-  { emoji: '💚', label: 'Mental Health' },   { emoji: '🤝', label: 'Volunteering' },
-  { emoji: '🐾', label: 'Animal Rights' },   { emoji: '🌱', label: 'Sustainability' },
-  { emoji: '⚖️', label: 'Social Justice' },  { emoji: '🏥', label: 'Healthcare' },
-  { emoji: '🌊', label: 'Ocean Conservation' }, { emoji: '🍎', label: 'Food Security' },
-  { emoji: '👶', label: 'Child Welfare' },   { emoji: '🕊️', label: 'Peace' },
-  { emoji: '🏘️', label: 'Community' },      { emoji: '💡', label: 'Innovation' },
-  { emoji: '🎓', label: 'Scholarships' },
-];
-
-const QUALITIES: ChipOption[] = [
-  { emoji: '💫', label: 'Loyalty' },         { emoji: '🤝', label: 'Honesty' },
-  { emoji: '😄', label: 'Humor' },            { emoji: '🚀', label: 'Ambition' },
-  { emoji: '💛', label: 'Kindness' },         { emoji: '🧠', label: 'Intelligence' },
-  { emoji: '🎯', label: 'Drive' },            { emoji: '🌈', label: 'Open-mindedness' },
-  { emoji: '💪', label: 'Confidence' },       { emoji: '🎭', label: 'Creativity' },
-  { emoji: '🤗', label: 'Empathy' },          { emoji: '🏆', label: 'Resilience' },
-  { emoji: '✨', label: 'Authenticity' },     { emoji: '🌱', label: 'Growth mindset' },
-  { emoji: '🎶', label: 'Passion' },          { emoji: '🦁', label: 'Courage' },
-];
+const INTERESTS: ChipOption[] = LOOKUP.interests.map(r => ({ value: String(r.id), emoji: r.emoji, label: r.label }));
+const CAUSES: ChipOption[]    = LOOKUP.causes.map(r => ({ value: String(r.id), emoji: r.emoji, label: r.label }));
+const QUALITIES: ChipOption[] = LOOKUP.values_list.map(r => ({ value: String(r.id), emoji: r.emoji, label: r.label }));
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -362,6 +329,56 @@ export default function EditProfilePage() {
   const { colors } = useAppTheme();
   const { profile, token, updateProfile } = useAuth();
 
+  // ── Email inline edit ─────────────────────────────────────────────────────
+  const [editingEmail, setEditingEmail] = useState(false);
+  const [emailDraft, setEmailDraft] = useState(profile?.email ?? '');
+  const [emailError, setEmailError] = useState<string | null>(null);
+  const [checkingEmail, setCheckingEmail] = useState(false);
+  const [savingEmail, setSavingEmail] = useState(false);
+  const emailDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const emailFormatValid = EMAIL_REGEX.test(emailDraft.trim());
+  const emailUnchanged = emailDraft.trim().toLowerCase() === (profile?.email ?? '').toLowerCase();
+
+  const handleEmailChange = (text: string) => {
+    setEmailDraft(text);
+    setEmailError(null);
+    if (emailDebounceRef.current) clearTimeout(emailDebounceRef.current);
+    if (!EMAIL_REGEX.test(text.trim()) || text.trim().toLowerCase() === (profile?.email ?? '').toLowerCase()) return;
+    setCheckingEmail(true);
+    emailDebounceRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`${API_V1}/profile/check-email`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: text.trim() }),
+        });
+        const data = await res.json();
+        if (!data.available) setEmailError('This email is already in use.');
+      } catch { /* allow — backend will catch */ }
+      finally { setCheckingEmail(false); }
+    }, 600);
+  };
+
+  const handleEmailSave = async () => {
+    if (!emailFormatValid || emailError || checkingEmail) return;
+    setSavingEmail(true);
+    try {
+      const updated = await apiFetch<any>('/profile/me', {
+        method: 'PATCH',
+        token: token ?? undefined,
+        body: JSON.stringify({ email: emailDraft.trim().toLowerCase() }),
+      });
+      updateProfile(updated);
+      setEditingEmail(false);
+    } catch (e: any) {
+      setEmailError(e?.detail ?? 'Could not save email. Please try again.');
+    } finally {
+      setSavingEmail(false);
+    }
+  };
+
   // ── Photos ───────────────────────────────────────────────────────────────
   const buildPhotoSlots = (urls: string[] | null): (string | null)[] => {
     const filled = (urls ?? []).slice(0, 6);
@@ -378,13 +395,10 @@ export default function EditProfilePage() {
   const [bio, setBio] = useState(profile?.bio ?? '');
   const MAX_BIO = 300;
 
-  // ── Chip selections ───────────────────────────────────────────────────────
-  const [interests, setInterests]   = useState<string[]>(profile?.interests ?? []);
-  const [causes, setCauses]         = useState<string[]>(profile?.causes ?? []);
-  const QUALITY_LABELS = QUALITIES.map(q => q.label);
-  const [qualities, setQualities]   = useState<string[]>(
-    (profile?.values_list ?? []).filter(v => QUALITY_LABELS.includes(v))
-  );
+  // ── Chip selections (stored as string ID keys matching ChipOption.value) ──
+  const [interests, setInterests]   = useState<string[]>((profile?.interests ?? []).map(String));
+  const [causes, setCauses]         = useState<string[]>((profile?.causes ?? []).map(String));
+  const [qualities, setQualities]   = useState<string[]>((profile?.values_list ?? []).map(String));
 
   const [showInterests, setShowInterests]   = useState(false);
   const [showCauses, setShowCauses]         = useState(false);
@@ -414,23 +428,23 @@ export default function EditProfilePage() {
     patch({ photos: urls });
   }, [photos]);
 
-  // Auto-save chip arrays on close
+  // Auto-save chip arrays on close — convert string IDs back to numbers for backend
   const saveInterests = useCallback((vals: string[]) => {
     setInterests(vals);
     setShowInterests(false);
-    patch({ interests: vals });
+    patch({ interests: vals.map(Number) });
   }, [patch]);
 
   const saveCauses = useCallback((vals: string[]) => {
     setCauses(vals);
     setShowCauses(false);
-    patch({ causes: vals });
+    patch({ causes: vals.map(Number) });
   }, [patch]);
 
   const saveQualities = useCallback((vals: string[]) => {
     setQualities(vals);
     setShowQualities(false);
-    patch({ values_list: vals });
+    patch({ values_list: vals.map(Number) });
   }, [patch]);
 
   // ── Derived display values ────────────────────────────────────────────────
@@ -570,11 +584,81 @@ export default function EditProfilePage() {
               <EditRow
                 icon="person-outline"
                 label="Gender"
-                value={profile?.gender ? profile.gender.charAt(0).toUpperCase() + profile.gender.slice(1) : undefined}
+                value={getLookupLabel('gender', profile?.gender_id ?? null) || undefined}
                 colors={colors}
                 locked
                 last
               />
+            </Group>
+          </View>
+
+          {/* ── ACCOUNT ─────────────────────────────────────────────────── */}
+          <View style={styles.section}>
+            <SectionLabel title="ACCOUNT" colors={colors} />
+            <Group colors={colors}>
+              {editingEmail ? (
+                <View style={[styles.editRow, { flexDirection: 'column', alignItems: 'stretch', gap: 8 }]}>
+                  <Text style={[styles.editLabel, { color: colors.text }]}>Email address</Text>
+                  <Squircle
+                    style={{ height: 48, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center' }}
+                    cornerRadius={14} cornerSmoothing={1}
+                    fillColor={colors.surface2}
+                    strokeColor={emailError ? '#ef4444' : emailFormatValid ? colors.borderActive : colors.border}
+                    strokeWidth={emailFormatValid || emailError ? 2 : 1.5}
+                  >
+                    <TextInput
+                      style={[styles.editLabel, { color: colors.text, flex: 1 }]}
+                      value={emailDraft}
+                      onChangeText={handleEmailChange}
+                      keyboardType="email-address"
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      autoFocus
+                      returnKeyType="done"
+                      onSubmitEditing={handleEmailSave}
+                      placeholderTextColor={colors.placeholder}
+                      placeholder="your@email.com"
+                    />
+                    {checkingEmail && <ActivityIndicator size="small" color={colors.textSecondary} />}
+                  </Squircle>
+                  {emailError ? (
+                    <Text style={{ fontSize: 12, fontFamily: 'ProductSans-Regular', color: '#ef4444' }}>
+                      {emailError}
+                    </Text>
+                  ) : null}
+                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                    <Pressable
+                      onPress={() => { setEditingEmail(false); setEmailDraft(profile?.email ?? ''); setEmailError(null); }}
+                      style={({ pressed }) => [styles.emailBtn, { backgroundColor: colors.surface2, opacity: pressed ? 0.7 : 1 }]}
+                    >
+                      <Text style={[styles.emailBtnText, { color: colors.textSecondary }]}>Cancel</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={handleEmailSave}
+                      disabled={!emailFormatValid || !!emailError || checkingEmail || emailUnchanged || savingEmail}
+                      style={({ pressed }) => [
+                        styles.emailBtn,
+                        { flex: 1, backgroundColor: colors.text, opacity: (!emailFormatValid || !!emailError || checkingEmail || emailUnchanged || savingEmail) ? 0.4 : pressed ? 0.8 : 1 },
+                      ]}
+                    >
+                      {savingEmail
+                        ? <ActivityIndicator size="small" color={colors.bg} />
+                        : <Text style={[styles.emailBtnText, { color: colors.bg }]}>Save</Text>
+                      }
+                    </Pressable>
+                  </View>
+                </View>
+              ) : (
+                <EditRow
+                  icon="mail-outline"
+                  label="Email"
+                  value={profile?.email ?? undefined}
+                  preview={profile?.email ? undefined : 'Tap to add'}
+                  onPress={() => { setEmailDraft(profile?.email ?? ''); setEmailError(null); setEditingEmail(true); }}
+                  colors={colors}
+                  last
+                />
+              )}
             </Group>
           </View>
 
@@ -707,4 +791,7 @@ const styles = StyleSheet.create({
   bioBox:         { padding: 14, minHeight: 120 },
   bioInput:       { fontSize: 15, fontFamily: 'ProductSans-Regular', lineHeight: 22, textAlignVertical: 'top' },
   bioCount:       { fontSize: 11, fontFamily: 'ProductSans-Regular', textAlign: 'right', marginRight: 4 },
+
+  emailBtn:       { borderRadius: 12, paddingVertical: 10, paddingHorizontal: 16, alignItems: 'center', justifyContent: 'center' },
+  emailBtnText:   { fontSize: 14, fontFamily: 'ProductSans-Bold' },
 });

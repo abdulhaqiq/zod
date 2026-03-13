@@ -1,5 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
+import type { ComponentProps } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+type IoniconsName = ComponentProps<typeof Ionicons>['name'];
 import { useRef, useState } from 'react';
 import {
   Dimensions,
@@ -138,7 +140,7 @@ interface ExtendedProfile {
 // ─── Detail chip ──────────────────────────────────────────────────────────────
 
 function DetailChip({ icon, label, value, colors }: {
-  icon: keyof typeof import('@expo/vector-icons/build/Ionicons').glyphMap;
+  icon: IoniconsName;
   label: string;
   value: string;
   colors: any;

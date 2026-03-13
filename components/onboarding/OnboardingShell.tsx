@@ -4,7 +4,7 @@
  */
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { Pressable, SafeAreaView, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, Pressable, SafeAreaView, StyleSheet, Text, View } from 'react-native';
 import Button from '@/components/ui/Button';
 import Squircle from '@/components/ui/Squircle';
 import { useAppTheme } from '@/context/ThemeContext';
@@ -18,6 +18,8 @@ interface Props {
   loading?: boolean;
   children: React.ReactNode;
   hideBack?: boolean;
+  /** When true, the footer button rises above the keyboard */
+  keyboardAvoiding?: boolean;
 }
 
 export default function OnboardingShell({
@@ -29,12 +31,13 @@ export default function OnboardingShell({
   loading,
   children,
   hideBack,
+  keyboardAvoiding,
 }: Props) {
   const router = useRouter();
   const { colors } = useAppTheme();
 
-  return (
-    <SafeAreaView style={[styles.safe, { backgroundColor: colors.bg }]}>
+  const inner = (
+    <>
       {/* Top bar */}
       <View style={styles.topBar}>
         {!hideBack && (
@@ -69,6 +72,20 @@ export default function OnboardingShell({
           style={styles.btn}
         />
       </View>
+    </>
+  );
+
+  return (
+    <SafeAreaView style={[styles.safe, { backgroundColor: colors.bg }]}>
+      {keyboardAvoiding ? (
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={0}
+        >
+          {inner}
+        </KeyboardAvoidingView>
+      ) : inner}
     </SafeAreaView>
   );
 }

@@ -27,7 +27,11 @@ export default function ValuesScreen() {
 
   const handleContinue = async () => {
     if (selected.length === 0) return;
-    const ok = await save({ values_list: selected });
+    // Merge with existing values_list — keep life goals (ids >= 267), replace personal values
+    const existing = profile?.values_list ?? [];
+    const goalIds = LOOKUP.values_list.slice(16).map(v => v.id);
+    const mergedGoals = existing.filter(id => goalIds.includes(id));
+    const ok = await save({ values_list: [...selected, ...mergedGoals] });
     if (ok) router.push('/prompts');
   };
 

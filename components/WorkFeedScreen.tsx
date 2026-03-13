@@ -6,7 +6,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Animated,
   Dimensions,
@@ -21,6 +21,8 @@ import {
 import { Image as ExpoImage } from 'expo-image';
 import Squircle from '@/components/ui/Squircle';
 import MatchScreen, { type MatchedProfile } from '@/components/MatchScreen';
+import { apiFetch } from '@/constants/api';
+import { useAuth } from '@/context/AuthContext';
 
 const { width: W, height: H } = Dimensions.get('window');
 const CARD_W          = W - 32;
@@ -103,31 +105,9 @@ const WORK_PROFILES: WorkProfile[] = [
   },
 ];
 
-const WORK_MATCHED: WorkProfile[] = [
-  { ...WORK_PROFILES[1], id: 'wm1' },
-  { ...WORK_PROFILES[3], id: 'wm2' },
-];
+const WORK_MATCHED: WorkProfile[] = [];
 
-const WORK_AI_PICKS = [
-  {
-    profile: WORK_PROFILES[1], score: 96,
-    sharedAreas: ['Fintech', 'Product', 'Growth'],
-    reason: "Priya's fintech product background perfectly complements your engineering skill set. She has the GTM experience you're missing and wants a technical co-founder immediately.",
-    insights: ['Both focused on B2C fintech', 'Complementary skills: Tech ↔ GTM', 'Same commitment level'],
-  },
-  {
-    profile: WORK_PROFILES[3], score: 91,
-    sharedAreas: ['AI', 'Deep Tech', 'Engineering'],
-    reason: "Sarah's LLM expertise at Mistral directly matches your AI infrastructure vision. Strong technical alignment and she's open to founding in the next 12 months.",
-    insights: ['Shared AI / ML focus', 'Both value equity + salary', 'Research-grade technical depth'],
-  },
-  {
-    profile: WORK_PROFILES[2], score: 83,
-    sharedAreas: ['B2B', 'Sales', 'Climate Tech'],
-    reason: "Jordan has a successful exit and now targets climate tech — the exact intersection of his sales pedigree and your market thesis.",
-    insights: ['Prev. successful exit', 'Complementary: Tech ↔ Sales', 'Actively hiring'],
-  },
-];
+const WORK_AI_PICKS: { profile: WorkProfile; score: number; sharedAreas: string[]; reason: string; insights: string[] }[] = [];
 
 // ─── LinkedIn & work badge styles ─────────────────────────────────────────────
 
@@ -489,14 +469,86 @@ interface WorkFeedScreenProps {
 
 export default function WorkFeedScreen({ colors, insets, activeTab }: WorkFeedScreenProps) {
   const router = useRouter();
-  const [workProfiles, setWorkProfiles] = useState<WorkProfile[]>(WORK_PROFILES);
+  const { token } = useAuth();
+  const [workProfiles, setWorkProfiles] = useState<WorkProfile[]>([]);
+  const [loading,      setLoading]      = useState(false);
+  const [feedPage,     setFeedPage]     = useState(0);
+  const [hasMore,      setHasMore]      = useState(true);
   const [matched,      setMatched]      = useState<string[]>([]);
   const [matchedProfile, setMatchedProfile] = useState<MatchedProfile | null>(null);
 
-  const removeTop = () => setWorkProfiles(p => p.slice(1));
-  const reset     = () => setWorkProfiles(WORK_PROFILES);
+  const fetchFeed = useCallback(async (page: number = 0, replace: boolean = true) => {
+    if (!token) return;
+    setLoading(true);
+    try {
+      const res = await apiFetch<{ profiles: any[]; has_more: boolean }>(
+        `/discover/feed?page=${page}&limit=10&mode=work`,
+        { token },
+      );
+      // Map API response to WorkProfile shape
+      const mapped: WorkProfile[] = res.profiles.map(p => ({
+        id:              p.id,
+        name:            p.name ?? 'Unknown',
+        role:            (p.work?.prompts?.[0]?.answer ?? p.about ?? '').slice(0, 60),
+        company:         '',
+        verified:        p.verified,
+        linkedInUrl:     undefined,
+        distance:        p.distance ?? '',
+        about:           p.about ?? '',
+        images:          p.work?.photos?.length ? p.work.photos : (p.images ?? []),
+        matchingGoals:   p.work?.matchingGoals ?? [],
+        commitmentLevel: p.work?.commitmentLevel ?? '',
+        equitySplit:     p.work?.equitySplit ?? '',
+        industries:      p.work?.industries ?? [],
+        skills:          p.work?.skills ?? [],
+        areYouHiring:    p.work?.areYouHiring ?? false,
+        experience:      (p.work_experience ?? []).map((e: any) => ({
+          title:   e.job_title ?? '',
+          company: e.company ?? '',
+          years:   e.start_year ? `${e.start_year}${e.end_year ? '–' + e.end_year : '–now'}` : '',
+        })),
+        prompts: p.work?.prompts ?? p.prompts ?? [],
+      }));
+      setWorkProfiles(prev => replace ? mapped : [...prev, ...mapped]);
+      setHasMore(res.has_more);
+      setFeedPage(page);
+    } catch {
+      // keep existing on error
+    } finally {
+      setLoading(false);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    fetchFeed(0, true);
+  }, [fetchFeed]);
+
+  const removeTop = () => {
+    setWorkProfiles(p => {
+      const next = p.slice(1);
+      if (next.length <= 2 && hasMore) fetchFeed(feedPage + 1, false);
+      return next;
+    });
+  };
+  const reset = () => fetchFeed(0, true);
+
+  // Record swipe to backend (fire-and-forget)
+  const recordSwipe = (profileId: string, direction: 'left' | 'right') => {
+    if (!token) return;
+    apiFetch('/discover/swipe', {
+      token,
+      method: 'POST',
+      body: JSON.stringify({ swiped_id: profileId, direction, mode: 'work' }),
+    }).catch(() => {});
+  };
+
+  const handleSwipeLeft = (p: WorkProfile) => {
+    recordSwipe(p.id, 'left');
+    removeTop();
+  };
 
   const handleSwipeRight = (p: WorkProfile) => {
+    recordSwipe(p.id, 'right');
     setMatched(prev => [...prev, p.id]);
     setTimeout(() => {
       setMatchedProfile({ id: p.id, name: p.name, age: 0, image: p.images[0] });
@@ -515,13 +567,17 @@ export default function WorkFeedScreen({ colors, insets, activeTab }: WorkFeedSc
   // 'people' tab — swipe feed
   return (
     <View style={{ flex: 1, width: '100%', alignItems: 'center', justifyContent: 'center' }}>
-      {workProfiles.length === 0 ? (
+      {loading && workProfiles.length === 0 ? (
+        <View style={{ alignItems: 'center', gap: 12 }}>
+          <Text style={[{ fontSize: 14, fontFamily: 'ProductSans-Regular', color: colors.textSecondary }]}>Finding co-founders near you…</Text>
+        </View>
+      ) : workProfiles.length === 0 ? (
         <EmptyState onReset={reset} colors={colors} />
       ) : (
         <WorkProfileCard
           key={workProfiles[0].id}
           profile={workProfiles[0]}
-          onSwipedLeft={removeTop}
+          onSwipedLeft={() => handleSwipeLeft(workProfiles[0])}
           onSwipedRight={() => handleSwipeRight(workProfiles[0])}
           colors={colors}
         />

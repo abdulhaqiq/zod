@@ -32,6 +32,7 @@ export default function PromptsScreen() {
       onContinue={handleContinue}
       continueDisabled={bio.trim().length < 10}
       loading={saving}
+      keyboardAvoiding
     >
       <Squircle
         style={styles.inputBox}

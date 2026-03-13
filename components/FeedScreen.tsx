@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import SliderRN from '@react-native-community/slider';
 import { useRouter } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
@@ -20,15 +20,19 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Defs, LinearGradient as SvgGrad, Path, Rect, Stop, Svg } from 'react-native-svg';
 import { Image as ExpoImage } from 'expo-image';
 import Squircle from '@/components/ui/Squircle';
 import MatchScreen, { type MatchedProfile } from '@/components/MatchScreen';
 import MyProfilePage from '@/components/MyProfilePage';
 import ExplorePage from '@/components/ExplorePage';
 import WorkFeedScreen from '@/components/WorkFeedScreen';
+import ChatsPage from '@/components/ChatsPage';
+import LikedYouPage from '@/components/LikedYouPage';
+import AiMatchPage from '@/components/AiMatchPage';
+import WorkMatchedPage from '@/components/WorkMatchedPage';
+import WorkAiInsightsPage from '@/components/WorkAiInsightsPage';
 import DateFilterSheet from '@/components/filters/DateFilterSheet';
-import WorkFilterSheet from '@/components/filters/WorkFilterSheet';
+import { apiFetch } from '@/constants/api';
 import { useAuth } from '@/context/AuthContext';
 import { useAppTheme } from '@/context/ThemeContext';
 
@@ -44,61 +48,77 @@ const SWIPE_THRESHOLD = W * 0.27;
 
 type AppMode = 'date' | 'work';
 
-function AppLogo({ color, mode, onPress }: { color: string; mode: AppMode; onPress: () => void }) {
+// ─── Shimmer Skeleton ─────────────────────────────────────────────────────────
+
+function ShimmerBox({ width, height, borderRadius = 12, style }: {
+  width: number | string; height: number; borderRadius?: number; style?: any;
+}) {
+  const anim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(anim, { toValue: 1, duration: 900, useNativeDriver: true }),
+        Animated.timing(anim, { toValue: 0, duration: 900, useNativeDriver: true }),
+      ])
+    ).start();
+  }, [anim]);
+  const opacity = anim.interpolate({ inputRange: [0, 1], outputRange: [0.35, 0.65] });
   return (
-    <Pressable onPress={onPress} hitSlop={8} style={styles.logoBtn}>
+    <Animated.View style={[{ width, height, borderRadius, backgroundColor: '#555', opacity }, style]} />
+  );
+}
+
+function FeedCardSkeleton({ colors }: { colors: any }) {
+  return (
+    <View style={{ width: CARD_W, height: CARD_H, borderRadius: 28, overflow: 'hidden', backgroundColor: colors.surface }}>
+      <ShimmerBox width={CARD_W} height={CARD_H} borderRadius={28} />
+      <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: 20, gap: 10 }}>
+        <ShimmerBox width={160} height={22} borderRadius={8} />
+        <ShimmerBox width={110} height={16} borderRadius={6} />
+        <View style={{ flexDirection: 'row', gap: 8, marginTop: 4 }}>
+          <ShimmerBox width={72} height={28} borderRadius={20} />
+          <ShimmerBox width={88} height={28} borderRadius={20} />
+          <ShimmerBox width={64} height={28} borderRadius={20} />
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function LikedCardSkeleton({ colors }: { colors: any }) {
+  const cardW = Math.floor((W - 44) / 2);
+  const photoH = Math.floor(cardW * 4 / 3);
+  return (
+    <View style={{ width: cardW, borderRadius: 24, overflow: 'hidden', backgroundColor: colors.surface, marginBottom: 12 }}>
+      <ShimmerBox width={cardW} height={photoH} borderRadius={0} />
+      <View style={{ padding: 12, gap: 8 }}>
+        <ShimmerBox width={80} height={14} borderRadius={6} />
+        <ShimmerBox width={50} height={12} borderRadius={6} />
+        <View style={{ flexDirection: 'row', gap: 8, marginTop: 4 }}>
+          <ShimmerBox width={44} height={36} borderRadius={20} />
+          <ShimmerBox width={44} height={36} borderRadius={20} />
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function AppLogo({ color }: { color: string; mode?: AppMode; onPress?: () => void }) {
+  return (
+    <View style={styles.logoBtn}>
       <Text style={[styles.logoText, { color }]}>zod</Text>
-      <Text style={[styles.logoMode, { color }]}>{mode === 'date' ? ' date' : ' work'}</Text>
-      <Ionicons name="chevron-down" size={11} color={color} style={{ marginTop: 3 }} />
-    </Pressable>
+      <Text style={[styles.logoMode, { color }]}> date</Text>
+    </View>
   );
 }
 
 // ─── Mode select modal ────────────────────────────────────────────────────────
-
+// Work mode is disabled for now — modal is kept but only shows Date option.
 function ModeModal({ visible, mode, onSelect, onClose, colors }: {
   visible: boolean; mode: AppMode;
   onSelect: (m: AppMode) => void; onClose: () => void; colors: any;
 }) {
-  const options: { id: AppMode; label: string; sub: string; icon: keyof typeof Ionicons.glyphMap }[] = [
-    { id: 'date', label: 'Zod Date',  sub: 'Find your perfect match',        icon: 'heart-outline'   },
-    { id: 'work', label: 'Zod Work',  sub: 'Connect with professionals',     icon: 'briefcase-outline' },
-  ];
-  return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable style={mStyles.backdrop} onPress={onClose}>
-        <Pressable style={[mStyles.sheet, { backgroundColor: colors.surface }]}>
-          <View style={mStyles.handle} />
-          <Text style={[mStyles.heading, { color: colors.text }]}>Choose mode</Text>
-          <View style={{ gap: 10, marginTop: 16 }}>
-            {options.map(opt => {
-              const active = mode === opt.id;
-              return (
-                <Pressable
-                  key={opt.id}
-                  onPress={() => { onSelect(opt.id); onClose(); }}
-                  style={({ pressed }) => [
-                    mStyles.option,
-                    { borderColor: active ? colors.text : colors.border, backgroundColor: active ? colors.bg : 'transparent' },
-                    pressed && { opacity: 0.7 },
-                  ]}
-                >
-                  <View style={[mStyles.optIconWrap, { backgroundColor: colors.bg }]}>
-                    <Ionicons name={opt.icon} size={20} color={colors.text} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[mStyles.optLabel, { color: colors.text }]}>{opt.label}</Text>
-                    <Text style={[mStyles.optSub,   { color: colors.textSecondary }]}>{opt.sub}</Text>
-                  </View>
-                  {active && <Ionicons name="checkmark-circle" size={20} color={colors.text} />}
-                </Pressable>
-              );
-            })}
-          </View>
-        </Pressable>
-      </Pressable>
-    </Modal>
-  );
+  return null; // Mode switching disabled — only date mode available
 }
 
 const mStyles = StyleSheet.create({
@@ -114,11 +134,11 @@ const mStyles = StyleSheet.create({
 
 // ─── Nav tabs ─────────────────────────────────────────────────────────────────
 
-const DATE_NAV_TABS = [
+const BASE_DATE_NAV_TABS = [
   { id: 'people',  icon: 'people-outline'      as const, iconActive: 'people'      as const },
-  { id: 'likeyou', icon: 'heart-outline'       as const, iconActive: 'heart'       as const, badge: '7' },
+  { id: 'likeyou', icon: 'heart-outline'       as const, iconActive: 'heart'       as const },
   { id: 'ai',      icon: 'sparkles-outline'    as const, iconActive: 'sparkles'    as const },
-  { id: 'chats',   icon: 'chatbubbles-outline' as const, iconActive: 'chatbubbles' as const, badge: '4' },
+  { id: 'chats',   icon: 'chatbubbles-outline' as const, iconActive: 'chatbubbles' as const },
   { id: 'profile', icon: 'person-outline'      as const, iconActive: 'person'      as const },
 ];
 
@@ -145,23 +165,11 @@ interface Profile {
 }
 
 // ─── Data ─────────────────────────────────────────────────────────────────────
+// Discovery feed (PROFILES) is now API-driven via GET /discover/feed
+// Likes, chats, and matches are pending backend implementation — shown as empty stubs
 
-const PROFILES: Profile[] = [
-  { id:'1', name:'Sophia',  age:25, verified:true,  premium:false, location:'Los Angeles, CA', distance:'3.5 km', about:"Hey! I'm Sophia 👋 I love long drives, spontaneous trips, and deep conversations over coffee. If you can make me laugh, we'll get along great 😄", images:['https://randomuser.me/api/portraits/women/44.jpg','https://randomuser.me/api/portraits/women/45.jpg','https://randomuser.me/api/portraits/women/46.jpg'], details:{height:"5'6\" (168 cm)",drinks:'Socially',smokes:'Never',gender:'Woman',wantsKids:'Open to it',sign:'♊ Gemini',politics:'Liberal',religion:'Spiritual',work:'UX Designer · Adobe',education:'UCLA – Design'}, lookingFor:'Something serious', interests:[{emoji:'☕',label:'Coffee'},{emoji:'✈️',label:'Travel'},{emoji:'📚',label:'Books'},{emoji:'🎨',label:'Art'},{emoji:'🍕',label:'Food'}], prompts:[{question:"Don't be mad if I…",answer:"Order dessert before checking the menu 🍰"},{question:'My ideal Sunday looks like…',answer:"Farmers market → coffee → nowhere to be 🌿"}], languages:['English','Spanish'] },
-  { id:'2', name:'Elena',   age:22, verified:true,  premium:true,  location:'New York, NY',    distance:'1.2 km', about:"Artist by day, dreamer by night 🎨 I find magic in small things — a good book, a rainy afternoon, and the perfect playlist.", images:['https://randomuser.me/api/portraits/women/68.jpg','https://randomuser.me/api/portraits/women/69.jpg'], details:{height:"5'4\" (163 cm)",drinks:'Never',smokes:'Never',gender:'Woman',wantsKids:'Yes, I do',sign:'♓ Pisces',politics:'Progressive',religion:'Agnostic',work:'Fine Art Painter',education:'NYU – Fine Arts'}, lookingFor:'My forever person', interests:[{emoji:'🎨',label:'Art'},{emoji:'🎵',label:'Music'},{emoji:'🧘',label:'Yoga'},{emoji:'📸',label:'Photography'},{emoji:'🍷',label:'Wine'}], prompts:[{question:'The way to win me over is…',answer:"Show up with coffee and zero agenda ☕"},{question:'My most controversial opinion…',answer:"Pineapple on pizza is fine. Fight me 🍍"}], languages:['English','French'] },
-  { id:'3', name:'Maya',    age:27, verified:false, premium:false, location:'Miami, FL',        distance:'5.8 km', about:"Beach lover, fitness freak, and foodie 🌊 Living my best life in Miami. Let's explore this city together!", images:['https://randomuser.me/api/portraits/women/50.jpg','https://randomuser.me/api/portraits/women/51.jpg'], details:{height:"5'7\" (170 cm)",drinks:'Socially',smokes:'Never',gender:'Woman',wantsKids:'No',sign:'♌ Leo',politics:'Moderate',religion:'Christian',work:'Personal Trainer',education:'FIU – Sports Science'}, lookingFor:'Casual dating', interests:[{emoji:'🏖️',label:'Beach'},{emoji:'🏋️',label:'Gym'},{emoji:'🍜',label:'Food'},{emoji:'🏄',label:'Surfing'},{emoji:'📸',label:'Photography'}], prompts:[{question:"Don't be mad if I…",answer:"Drag you to the gym at 6am and love it 💪"}], languages:['English','Portuguese'] },
-  { id:'4', name:'Aria',    age:24, verified:true,  premium:false, location:'Austin, TX',       distance:'2.1 km', about:"Engineer who codes by day and dances by night 💃 Looking for someone who can keep up.", images:['https://randomuser.me/api/portraits/women/79.jpg','https://randomuser.me/api/portraits/women/80.jpg'], details:{height:"5'5\" (165 cm)",drinks:'Regularly',smokes:'Never',gender:'Woman',wantsKids:'Open to it',sign:'♈ Aries',politics:'Liberal',religion:'Atheist',work:'Software Engineer · Apple',education:'UT Austin – CS'}, lookingFor:'Something serious', interests:[{emoji:'💃',label:'Dancing'},{emoji:'👗',label:'Fashion'},{emoji:'💻',label:'Tech'},{emoji:'🎮',label:'Gaming'},{emoji:'🌮',label:'Tacos'}], prompts:[{question:'Two truths and a lie…',answer:"I've met Elon. I speak 3 languages. I hate tacos 👀"}], languages:['English','Korean'] },
-  { id:'5', name:'Zara',    age:26, verified:true,  premium:true,  location:'Chicago, IL',      distance:'4.0 km', about:"Adventure seeker with a glass of red 🍷 Happiest on a mountain trail or rooftop bar. Let's do both.", images:['https://randomuser.me/api/portraits/women/32.jpg','https://randomuser.me/api/portraits/women/33.jpg','https://randomuser.me/api/portraits/women/34.jpg'], details:{height:"5'8\" (173 cm)",drinks:'Regularly',smokes:'Socially',gender:'Woman',wantsKids:'No',sign:'♏ Scorpio',politics:'Moderate',religion:'Buddhist',work:'Travel Photographer',education:'Northwestern – Journalism'}, lookingFor:'Casual dating', interests:[{emoji:'🥾',label:'Hiking'},{emoji:'📸',label:'Photography'},{emoji:'🍷',label:'Wine'},{emoji:'🏕️',label:'Camping'},{emoji:'⛷️',label:'Skiing'}], prompts:[{question:'I know the best spot for…',answer:"Rooftop sunsets + cheap cocktails 🌅"},{question:'Catch flights or feelings?',answer:"Both. At the same time. Efficiency 🛫❤️"}], languages:['English','Swahili'] },
-];
-
-const LIKED_PROFILES: Profile[] = [
-  { id:'l1', name:'Mia',    age:24, verified:true,  premium:false, location:'San Francisco, CA', distance:'2.1 km', about:"Coffee addict & bookworm ☕📚", images:['https://randomuser.me/api/portraits/women/22.jpg'], details:{height:"5'4\"",drinks:'Socially',smokes:'Never',gender:'Woman',wantsKids:'Open to it',sign:'♉ Taurus',politics:'Liberal',religion:'Agnostic',work:'Product Manager',education:'Stanford – Business'}, lookingFor:'Something serious', interests:[{emoji:'☕',label:'Coffee'},{emoji:'📚',label:'Books'}], prompts:[], languages:['English'] },
-  { id:'l2', name:'Jade',   age:26, verified:false, premium:false, location:'Oakland, CA',        distance:'4.3 km', about:"Hiking & tech person 🏔️", images:['https://randomuser.me/api/portraits/women/55.jpg'], details:{height:"5'6\"",drinks:'Never',smokes:'Never',gender:'Woman',wantsKids:'No',sign:'♊ Gemini',politics:'Progressive',religion:'Atheist',work:'Software Engineer',education:'UC Berkeley – CS'}, lookingFor:'Casual dating', interests:[{emoji:'🥾',label:'Hiking'},{emoji:'💻',label:'Tech'}], prompts:[], languages:['English'] },
-  { id:'l3', name:'Luna',   age:23, verified:true,  premium:true,  location:'LA, CA',             distance:'1.0 km', about:"Art & soul 🎨✨", images:['https://randomuser.me/api/portraits/women/63.jpg'], details:{height:"5'3\"",drinks:'Socially',smokes:'Never',gender:'Woman',wantsKids:'Yes',sign:'♓ Pisces',politics:'Moderate',religion:'Spiritual',work:'Illustrator',education:'CalArts'}, lookingFor:'My forever person', interests:[{emoji:'🎨',label:'Art'},{emoji:'🌙',label:'Moonwalks'}], prompts:[], languages:['English','Spanish'] },
-  { id:'l4', name:'River',  age:28, verified:true,  premium:false, location:'Portland, OR',       distance:'8.2 km', about:"Forest + films person 🌲🎬", images:['https://randomuser.me/api/portraits/women/77.jpg'], details:{height:"5'7\"",drinks:'Regularly',smokes:'Socially',gender:'Non-binary',wantsKids:'No',sign:'♍ Virgo',politics:'Liberal',religion:'Pagan',work:'Filmmaker',education:'Portland State'}, lookingFor:'Casual dating', interests:[{emoji:'🎬',label:'Film'},{emoji:'🌲',label:'Nature'}], prompts:[], languages:['English'] },
-  { id:'l5', name:'Chloe',  age:25, verified:false, premium:false, location:'Denver, CO',         distance:'6.0 km', about:"Mountains are my therapy 🏔️", images:['https://randomuser.me/api/portraits/women/88.jpg'], details:{height:"5'5\"",drinks:'Socially',smokes:'Never',gender:'Woman',wantsKids:'Open to it',sign:'♑ Capricorn',politics:'Moderate',religion:'Christian',work:'Nurse',education:'University of Colorado'}, lookingFor:'Something serious', interests:[{emoji:'🏔️',label:'Mountains'},{emoji:'🩺',label:'Health'}], prompts:[], languages:['English'] },
-  { id:'l6', name:'Nadia',  age:29, verified:true,  premium:true,  location:'Seattle, WA',        distance:'3.7 km', about:"Rain & ramen lover 🌧️🍜", images:['https://randomuser.me/api/portraits/women/35.jpg'], details:{height:"5'6\"",drinks:'Regularly',smokes:'Never',gender:'Woman',wantsKids:'No',sign:'♎ Libra',politics:'Progressive',religion:'Buddhist',work:'Data Scientist',education:'UW – Statistics'}, lookingFor:'Casual dating', interests:[{emoji:'🍜',label:'Ramen'},{emoji:'📊',label:'Data'}], prompts:[], languages:['English','Russian'] },
-];
+// LIKED_PROFILES: replaced by server-side likes system (pending)
+const LIKED_PROFILES: Profile[] = [];
 
 // ─── Work profile data ────────────────────────────────────────────────────────
 
@@ -176,64 +184,11 @@ interface WorkProfile {
   experience: { title: string; company: string; years: string }[];
 }
 
-const WORK_PROFILES: WorkProfile[] = [
-  {
-    id: 'w1', name: 'Alex Chen', age: 31, verified: true, premium: true,
-    location: 'San Francisco, CA', distance: '2.1 km',
-    role: 'Co-founder & CTO', company: 'Stealth AI Startup',
-    linkedInUrl: 'https://linkedin.com', about: "Building the next-gen AI infra layer for SMBs. Ex-Google TechLead. Raised $1.2M pre-seed. Looking for a commercial co-founder who can sell.",
-    images: ['https://randomuser.me/api/portraits/men/32.jpg','https://randomuser.me/api/portraits/men/33.jpg'],
-    industries: ['AI', 'SaaS', 'Developer Tools'], skills: ['Engineering', 'AI / ML', 'Product'],
-    commitmentLevel: 'Already full-time on a startup', equitySplit: 'Equal split',
-    matchingGoals: ['Looking for co-founder'], areYouHiring: false,
-    prompts: [{ question: 'My idea in one line', answer: 'GPT-native ERP for small businesses — replace 5 SaaS tools with one.' }, { question: 'The co-founder I\'m looking for', answer: 'A sales-obsessed operator who can close enterprise deals and build a GTM engine from scratch.' }],
-    experience: [{ title: 'TechLead', company: 'Google', years: '4 yrs' }, { title: 'SWE', company: 'Meta', years: '2 yrs' }],
-  },
-  {
-    id: 'w2', name: 'Priya Sharma', age: 28, verified: true, premium: false,
-    location: 'London, UK', distance: '5.0 km',
-    role: 'Product Lead', company: 'Revolut',
-    linkedInUrl: 'https://linkedin.com', about: "5 years fintech product @ Revolut & Monzo. Obsessed with growth loops. Exploring founding my own thing — open to the right idea + founding team.",
-    images: ['https://randomuser.me/api/portraits/women/90.jpg','https://randomuser.me/api/portraits/women/91.jpg'],
-    industries: ['Fintech', 'Consumer', 'Growth'], skills: ['Product', 'Growth', 'Strategy'],
-    commitmentLevel: 'Ready to go full-time right now with right co-founder', equitySplit: 'Fully negotiable',
-    matchingGoals: ['Have an idea, open to explore', 'Looking for co-founder'], areYouHiring: false,
-    prompts: [{ question: 'What I bring to the table', answer: 'Deep fintech domain, strong product sense, and a network of 200+ angel investors in London.' }, { question: 'My biggest learning so far', answer: 'Distribution is harder than building. Founders who figure out growth early win.' }],
-    experience: [{ title: 'Product Lead', company: 'Revolut', years: '3 yrs' }, { title: 'PM', company: 'Monzo', years: '2 yrs' }],
-  },
-  {
-    id: 'w3', name: 'Jordan Lee', age: 34, verified: false, premium: false,
-    location: 'New York, NY', distance: '3.8 km',
-    role: 'Founder', company: 'Loop (prev. Funded)',
-    linkedInUrl: 'https://linkedin.com', about: "Sold my last startup to Shopify in 2022. Now exploring climate tech. Ideally find a deep-tech co-founder.",
-    images: ['https://randomuser.me/api/portraits/men/55.jpg'],
-    industries: ['Climate Tech', 'Deep Tech', 'B2B'], skills: ['Sales', 'Business Development', 'Fundraising'],
-    commitmentLevel: 'Already full-time on a startup', equitySplit: 'Equal split',
-    matchingGoals: ['Looking for co-founder', 'Exploring new ideas'], areYouHiring: true,
-    prompts: [{ question: 'Why now, why me', answer: 'Climate has a distribution problem — I know how to solve that.' }],
-    experience: [{ title: 'Founder → Acq.', company: 'Loop', years: '3 yrs' }, { title: 'Head of Sales', company: 'Shopify', years: '1 yr' }],
-  },
-  {
-    id: 'w4', name: 'Sarah Müller', age: 26, verified: true, premium: true,
-    location: 'Berlin, Germany', distance: '12 km',
-    role: 'Senior ML Engineer', company: 'Mistral AI',
-    linkedInUrl: 'https://linkedin.com', about: "Training large language models @ Mistral. Thesis on efficient transformers. Open to founding or joining an early-stage team as technical co-founder.",
-    images: ['https://randomuser.me/api/portraits/women/42.jpg','https://randomuser.me/api/portraits/women/43.jpg'],
-    industries: ['AI', 'Deep Tech'], skills: ['AI / ML', 'Engineering', 'Product'],
-    commitmentLevel: 'Ready to go full-time in the next year', equitySplit: 'Equity + salary compensation both',
-    matchingGoals: ['Open to chatting', 'Have an idea, open to explore'], areYouHiring: false,
-    prompts: [{ question: 'My superpower is', answer: 'Making large models small — I cut inference cost by 60% at my last gig.' }],
-    experience: [{ title: 'ML Engineer', company: 'Mistral AI', years: '1 yr' }, { title: 'Research Intern', company: 'DeepMind', years: '6 mo' }],
-  },
-];
+// Work swipe handled entirely by WorkFeedScreen (API-driven)
 
-const WORK_MATCHED: WorkProfile[] = [
-  { ...WORK_PROFILES[1], id: 'wm1' },
-  { ...WORK_PROFILES[3], id: 'wm2' },
-  { ...WORK_PROFILES[0], id: 'wm3', name: 'Marcus Wong', role: 'Growth Lead', company: 'Stripe', images: ['https://randomuser.me/api/portraits/men/20.jpg'] },
-  { ...WORK_PROFILES[2], id: 'wm4', name: 'Fatima Al-Rashid', role: 'VC Partner', company: 'Index Ventures', images: ['https://randomuser.me/api/portraits/women/60.jpg'] },
-  { ...WORK_PROFILES[1], id: 'wm5', name: 'Tomas Novak', role: 'CTO', company: 'N26', images: ['https://randomuser.me/api/portraits/men/77.jpg'] },
-];
+// Work swipe and matched data handled entirely by WorkFeedScreen (API-driven)
+// WorkProfile type kept here only for WorkMatchedPage stub in FeedScreen
+const WORK_MATCHED: WorkProfile[] = [];  // replaced by server-side matches (pending)
 
 // ─── Profile Card (scrollable + swipeable) ────────────────────────────────────
 
@@ -331,18 +286,12 @@ function ProfileCard({ profile, onSwipedLeft, onSwipedRight, colors }: {
         {/* Photo */}
         <View style={styles.photoContainer}>
           <Image source={{ uri: profile.images[0] }} style={styles.photo} resizeMode="cover" />
-      <View style={StyleSheet.absoluteFillObject} pointerEvents="none">
-        <Svg width={CARD_W} height={CARD_H}>
-          <Defs>
-                <SvgGrad id={`gp${profile.id}`} x1="0" y1="0" x2="0" y2="1">
-                  <Stop offset="0.5"  stopColor="#000" stopOpacity="0"    />
-                  <Stop offset="0.82" stopColor="#000" stopOpacity="0.7"  />
-                  <Stop offset="1"    stopColor="#000" stopOpacity="0.95" />
-            </SvgGrad>
-          </Defs>
-              <Rect width={CARD_W} height={CARD_H} fill={`url(#gp${profile.id})`} />
-        </Svg>
-      </View>
+          <LinearGradient
+            colors={['transparent', 'rgba(0,0,0,0.55)', 'rgba(0,0,0,0.92)']}
+            locations={[0.45, 0.75, 1]}
+            style={[StyleSheet.absoluteFill]}
+            pointerEvents="none"
+          />
           <View style={styles.photoInfo} pointerEvents="none">
         {profile.premium && (
           <View style={styles.premiumBadge}>
@@ -367,21 +316,26 @@ function ProfileCard({ profile, onSwipedLeft, onSwipedRight, colors }: {
 
         {/* Details */}
         <View style={[styles.detailsSection, { backgroundColor: colors.surface }]}>
-          <View style={styles.sec}>
-            <Text style={[styles.secLabel, { color: colors.textSecondary }]}>ABOUT</Text>
-            <Text style={[styles.aboutText, { color: colors.text }]}>{profile.about}</Text>
-          </View>
-          <View style={[styles.divider, { backgroundColor: colors.border }]} />
 
-          <View style={styles.sec}>
-            <Text style={[styles.secLabel, { color: colors.textSecondary }]}>LOCATION</Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <Ionicons name="location" size={15} color={colors.btnPrimaryBg} />
-              <Text style={[styles.locationCardCity, { color: colors.text }]}>{profile.location}</Text>
-              <Text style={[styles.locationCardDist, { color: colors.textSecondary }]}>· {profile.distance} away</Text>
+          {profile.about ? <>
+            <View style={styles.sec}>
+              <Text style={[styles.secLabel, { color: colors.textSecondary }]}>ABOUT</Text>
+              <Text style={[styles.aboutText, { color: colors.text }]}>{profile.about}</Text>
             </View>
-          </View>
-          <View style={[styles.divider, { backgroundColor: colors.border }]} />
+            <View style={[styles.divider, { backgroundColor: colors.border }]} />
+          </> : null}
+
+          {(profile.location || profile.distance) ? <>
+            <View style={styles.sec}>
+              <Text style={[styles.secLabel, { color: colors.textSecondary }]}>LOCATION</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Ionicons name="location" size={15} color={colors.btnPrimaryBg} />
+                {profile.location ? <Text style={[styles.locationCardCity, { color: colors.text }]}>{profile.location}</Text> : null}
+                {profile.distance ? <Text style={[styles.locationCardDist, { color: colors.textSecondary }]}>· {profile.distance} away</Text> : null}
+              </View>
+            </View>
+            <View style={[styles.divider, { backgroundColor: colors.border }]} />
+          </> : null}
 
           {profile.prompts[0] && <>
             <View style={[styles.promptCard, { backgroundColor: colors.surface2 }]}>
@@ -396,27 +350,31 @@ function ProfileCard({ profile, onSwipedLeft, onSwipedRight, colors }: {
             <View style={[styles.divider, { backgroundColor: colors.border }]} />
           </>}
 
-          <View style={styles.sec}>
-            <Text style={[styles.secLabel, { color: colors.textSecondary }]}>LOOKING FOR</Text>
-            <View style={[styles.lookingRow, { backgroundColor: colors.surface2 }]}>
-              <Ionicons name="heart" size={16} color={colors.btnPrimaryBg} />
-              <Text style={[styles.lookingText, { color: colors.text }]}>{profile.lookingFor}</Text>
+          {profile.lookingFor ? <>
+            <View style={styles.sec}>
+              <Text style={[styles.secLabel, { color: colors.textSecondary }]}>LOOKING FOR</Text>
+              <View style={[styles.lookingRow, { backgroundColor: colors.surface2 }]}>
+                <Ionicons name="heart" size={16} color={colors.btnPrimaryBg} />
+                <Text style={[styles.lookingText, { color: colors.text }]}>{profile.lookingFor}</Text>
+              </View>
             </View>
-          </View>
-          <View style={[styles.divider, { backgroundColor: colors.border }]} />
+            <View style={[styles.divider, { backgroundColor: colors.border }]} />
+          </> : null}
 
-          <View style={styles.sec}>
-            <Text style={[styles.secLabel, { color: colors.textSecondary }]}>INTERESTS</Text>
-            <View style={styles.chipRow}>
-              {profile.interests.map(item => (
-                <View key={item.label} style={[styles.chip, { backgroundColor: colors.surface2 }]}>
-                  <Text style={styles.chipEmoji}>{item.emoji}</Text>
-                  <Text style={[styles.chipLabel, { color: colors.text }]}>{item.label}</Text>
+          {profile.interests?.length > 0 ? <>
+            <View style={styles.sec}>
+              <Text style={[styles.secLabel, { color: colors.textSecondary }]}>INTERESTS</Text>
+              <View style={styles.chipRow}>
+                {profile.interests.map(item => (
+                  <View key={item.label} style={[styles.chip, { backgroundColor: colors.surface2 }]}>
+                    <Text style={styles.chipEmoji}>{item.emoji}</Text>
+                    <Text style={[styles.chipLabel, { color: colors.text }]}>{item.label}</Text>
+                  </View>
+                ))}
+              </View>
             </View>
-          ))}
-        </View>
-      </View>
-          <View style={[styles.divider, { backgroundColor: colors.border }]} />
+            <View style={[styles.divider, { backgroundColor: colors.border }]} />
+          </> : null}
 
           {profile.prompts[1] && <>
             <View style={[styles.promptCard, { backgroundColor: colors.surface2 }]}>
@@ -431,55 +389,65 @@ function ProfileCard({ profile, onSwipedLeft, onSwipedRight, colors }: {
             <View style={[styles.divider, { backgroundColor: colors.border }]} />
           </>}
 
-          <View style={styles.sec}>
-            <Text style={[styles.secLabel, { color: colors.textSecondary }]}>WORK & STUDIES</Text>
-            <View style={styles.workRow}>
-              <View style={[styles.workCard, { backgroundColor: colors.surface2 }]}>
-                <Ionicons name="briefcase-outline" size={18} color={colors.text} />
-                <View style={{ flex: 1, marginLeft: 10 }}>
-                  <Text style={[styles.workLabel, { color: colors.textSecondary }]}>Works at</Text>
-                  <Text style={[styles.workValue, { color: colors.text }]} numberOfLines={2}>{profile.details.work}</Text>
-                </View>
-              </View>
-              <View style={[styles.workCard, { backgroundColor: colors.surface2 }]}>
-                <Ionicons name="school-outline" size={18} color={colors.text} />
-                <View style={{ flex: 1, marginLeft: 10 }}>
-                  <Text style={[styles.workLabel, { color: colors.textSecondary }]}>Studied at</Text>
-                  <Text style={[styles.workValue, { color: colors.text }]} numberOfLines={2}>{profile.details.education}</Text>
-                </View>
-              </View>
-            </View>
-          </View>
-          <View style={[styles.divider, { backgroundColor: colors.border }]} />
-
-          <View style={styles.sec}>
-            <Text style={[styles.secLabel, { color: colors.textSecondary }]}>DETAILS</Text>
-            <View style={styles.detailGrid}>
-              {DETAILS.map(d => (
-                <View key={d.label} style={[styles.detailChip, { backgroundColor: colors.surface2 }]}>
-                  <Ionicons name={d.icon} size={13} color={colors.btnPrimaryBg} />
-                  <View>
-                    <Text style={[styles.detailLabel, { color: colors.textSecondary }]}>{d.label}</Text>
-                    <Text style={[styles.detailValue, { color: colors.text }]}>{d.value}</Text>
+          {(profile.details.work || profile.details.education) ? <>
+            <View style={styles.sec}>
+              <Text style={[styles.secLabel, { color: colors.textSecondary }]}>WORK & STUDIES</Text>
+              <View style={styles.workRow}>
+                {profile.details.work ? (
+                  <View style={[styles.workCard, { backgroundColor: colors.surface2 }]}>
+                    <Ionicons name="briefcase-outline" size={18} color={colors.text} />
+                    <View style={{ flex: 1, marginLeft: 10 }}>
+                      <Text style={[styles.workLabel, { color: colors.textSecondary }]}>Works at</Text>
+                      <Text style={[styles.workValue, { color: colors.text }]} numberOfLines={2}>{profile.details.work}</Text>
+                    </View>
                   </View>
-                </View>
-              ))}
+                ) : null}
+                {profile.details.education ? (
+                  <View style={[styles.workCard, { backgroundColor: colors.surface2 }]}>
+                    <Ionicons name="school-outline" size={18} color={colors.text} />
+                    <View style={{ flex: 1, marginLeft: 10 }}>
+                      <Text style={[styles.workLabel, { color: colors.textSecondary }]}>Studied at</Text>
+                      <Text style={[styles.workValue, { color: colors.text }]} numberOfLines={2}>{profile.details.education}</Text>
+                    </View>
+                  </View>
+                ) : null}
+              </View>
             </View>
-          </View>
-          <View style={[styles.divider, { backgroundColor: colors.border }]} />
+            <View style={[styles.divider, { backgroundColor: colors.border }]} />
+          </> : null}
 
-          <View style={styles.sec}>
-            <Text style={[styles.secLabel, { color: colors.textSecondary }]}>LANGUAGES</Text>
-            <View style={styles.chipRow}>
-              {profile.languages.map(lang => (
-                <View key={lang} style={[styles.chip, { backgroundColor: colors.surface2 }]}>
-                  <Ionicons name="language-outline" size={13} color={colors.textSecondary} />
-                  <Text style={[styles.chipLabel, { color: colors.text }]}>{lang}</Text>
+          {DETAILS.some(d => d.value) ? <>
+            <View style={styles.sec}>
+              <Text style={[styles.secLabel, { color: colors.textSecondary }]}>DETAILS</Text>
+              <View style={styles.detailGrid}>
+                {DETAILS.filter(d => d.value).map(d => (
+                  <View key={d.label} style={[styles.detailChip, { backgroundColor: colors.surface2 }]}>
+                    <Ionicons name={d.icon} size={13} color={colors.btnPrimaryBg} />
+                    <View>
+                      <Text style={[styles.detailLabel, { color: colors.textSecondary }]}>{d.label}</Text>
+                      <Text style={[styles.detailValue, { color: colors.text }]}>{d.value}</Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
             </View>
-          ))}
-        </View>
-      </View>
-          <View style={[styles.divider, { backgroundColor: colors.border }]} />
+            <View style={[styles.divider, { backgroundColor: colors.border }]} />
+          </> : null}
+
+          {profile.languages?.length > 0 ? <>
+            <View style={styles.sec}>
+              <Text style={[styles.secLabel, { color: colors.textSecondary }]}>LANGUAGES</Text>
+              <View style={styles.chipRow}>
+                {profile.languages.map(lang => (
+                  <View key={lang} style={[styles.chip, { backgroundColor: colors.surface2 }]}>
+                    <Ionicons name="language-outline" size={13} color={colors.textSecondary} />
+                    <Text style={[styles.chipLabel, { color: colors.text }]}>{lang}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+            <View style={[styles.divider, { backgroundColor: colors.border }]} />
+          </> : null}
 
           <View style={styles.dangerRow}>
             <Pressable style={({ pressed }) => [styles.dangerBtn, { borderColor: colors.border, backgroundColor: colors.surface2 }, pressed && { opacity: 0.65 }]}>
@@ -848,663 +816,112 @@ function RangeSlider({
   );
 }
 
-// ─── Liked You Page ───────────────────────────────────────────────────────────
-
-const FREE_VISIBLE = 2; // first 2 profiles are clear, rest blurred (free tier)
-
-function LikedYouPage({ colors, insets }: { colors: any; insets: any }) {
-  const router = useRouter();
-  const [passed,        setPassed]        = useState<string[]>([]);
-  const [matched,       setMatched]       = useState<string[]>([]);
-  const [matchedProfile, setMatchedProfile] = useState<MatchedProfile | null>(null);
-  const [isPro,         setIsPro]         = useState(false);   // toggle to see both states
-
-  const visible = LIKED_PROFILES.filter(p => !passed.includes(p.id));
-  const count   = visible.length;
-
-  const handleLike = (id: string, p: { name: string; age: number; image: string }) => {
-    setMatched(prev => [...prev, id]);
-    setTimeout(() => {
-      setMatchedProfile({ id, name: p.name, age: p.age, image: p.image });
-    }, 350);
-  };
-
-  const handlePass = (id: string) => {
-    setPassed(prev => [...prev, id]);
-  };
-
-  return (
-    <View style={{ flex: 1 }}>
-    <ScrollView
-      style={{ flex: 1 }}
-      contentContainerStyle={{ paddingBottom: insets.bottom + 90 }}
-      showsVerticalScrollIndicator={false}
-    >
-      {/* ── Header ── */}
-      <View style={styles.likedHeader}>
-        <View style={{ flex: 1 }}>
-          <Text style={[styles.pageTitle, { color: colors.text }]}>Liked You</Text>
-          <Text style={[styles.pageSub, { color: colors.textSecondary }]}>{count} people already like you</Text>
-        </View>
-        {/* Pro toggle (demo) */}
-        <Pressable onPress={() => setIsPro(v => !v)} style={({ pressed }) => [pressed && { opacity: 0.7 }]}>
-          <Squircle style={styles.likedProBtn} cornerRadius={20} cornerSmoothing={1} fillColor={isPro ? colors.text : colors.surface2} strokeColor={colors.border} strokeWidth={StyleSheet.hairlineWidth}>
-            <Ionicons name="star" size={13} color={isPro ? colors.bg : colors.text} />
-            <Text style={[styles.likedProBtnText, { color: isPro ? colors.bg : colors.text }]}>{isPro ? 'Pro' : 'Free'}</Text>
-          </Squircle>
-        </Pressable>
-      </View>
-
-      {/* ── Upgrade banner (free tier) ── */}
-      {!isPro && (
-        <Pressable
-          onPress={() => router.push('/subscription')}
-          style={({ pressed }) => [pressed && { opacity: 0.85 }]}
-        >
-          <Squircle
-            style={styles.likedUpgradeBanner}
-            cornerRadius={20}
-            cornerSmoothing={1}
-            fillColor={colors.surface}
-            strokeColor={colors.border}
-            strokeWidth={StyleSheet.hairlineWidth}
-          >
-            <Squircle style={styles.likedUpgradeIcon} cornerRadius={14} cornerSmoothing={1} fillColor={colors.surface2}>
-              <Ionicons name="lock-closed" size={18} color={colors.text} />
-            </Squircle>
-            <View style={{ flex: 1, gap: 2 }}>
-              <Text style={[styles.likedUpgradeTitle, { color: colors.text }]}>See everyone who liked you</Text>
-              <Text style={[styles.likedUpgradeSub, { color: colors.textSecondary }]}>Upgrade to Zod Pro to unlock all profiles</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />
-          </Squircle>
-        </Pressable>
-      )}
-
-      {/* ── Cards grid ── */}
-      <View style={styles.likedGrid}>
-        {visible.map((p, i) => {
-          const isBlurred  = !isPro && i >= FREE_VISIBLE;
-          const isMatching = matched.includes(p.id);
-
-          return (
-            <View key={p.id} style={[styles.likedCardWrap, { width: (W - 44) / 2 }]}>
-              <Squircle
-                style={styles.likedCard}
-                cornerRadius={24}
-                cornerSmoothing={1}
-                fillColor={colors.surface}
-                strokeColor={colors.border}
-                strokeWidth={StyleSheet.hairlineWidth}
-              >
-                {/* Photo */}
-                <View style={styles.likedPhotoWrap}>
-                  <ExpoImage
-                    source={{ uri: p.images[0] }}
-                    style={[styles.likedPhoto, isBlurred && styles.likedPhotoBlurred]}
-                    contentFit="cover"
-                    blurRadius={isBlurred ? 18 : 0}
-                  />
-
-                  {/* Gradient overlay */}
-                  {!isBlurred && (
-                    <LinearGradient
-                      colors={['transparent', 'rgba(0,0,0,0.72)']}
-                      style={styles.likedPhotoGrad}
-                    >
-                      <Text style={styles.likedPhotoName}>{p.name}, {p.age}</Text>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                        <Ionicons name="location-outline" size={10} color="rgba(255,255,255,0.7)" />
-                        <Text style={styles.likedPhotoDist}>{p.distance}</Text>
-                        {p.verified && <Ionicons name="checkmark-circle" size={11} color="#fff" />}
-                      </View>
-                    </LinearGradient>
-                  )}
-
-
-                  {/* Lock overlay */}
-                  {isBlurred && (
-                    <Pressable
-                      style={[StyleSheet.absoluteFill, styles.likedLockOverlay]}
-                      onPress={() => router.push('/subscription')}
-                    >
-                      <Squircle style={styles.likedLockIcon} cornerRadius={14} cornerSmoothing={1} fillColor="rgba(0,0,0,0.45)">
-                        <Ionicons name="lock-closed" size={18} color="#fff" />
-                      </Squircle>
-                      <Text style={styles.likedLockText}>Upgrade{'\n'}to see</Text>
-                    </Pressable>
-                  )}
-
-                  {/* Heart liked badge top-right */}
-                  {!isBlurred && (
-                    <View style={[styles.likedHeartBadge, { backgroundColor: colors.text }]}>
-                      <Ionicons name="heart" size={11} color={colors.bg} />
-                    </View>
-                  )}
-                </View>
-
-                {/* Info row (non-blurred only) */}
-                {!isBlurred && (
-                  <View style={styles.likedInfo}>
-                    {/* Shared interest chip */}
-                    {p.interests[0] && (
-                      <Squircle style={styles.likedChip} cornerRadius={20} cornerSmoothing={1} fillColor={colors.surface2}>
-                        <Text style={styles.likedChipEmoji}>{p.interests[0].emoji}</Text>
-                        <Text style={[styles.likedChipLabel, { color: colors.text }]}>{p.interests[0].label}</Text>
-                      </Squircle>
-                    )}
-
-                    {/* Action buttons */}
-                    <View style={styles.likedActions}>
-                      <Pressable
-                        onPress={() => handlePass(p.id)}
-                        style={({ pressed }) => [pressed && { opacity: 0.65 }]}
-                        hitSlop={6}
-                      >
-                        <Squircle style={styles.likedPassBtn} cornerRadius={50} cornerSmoothing={1} fillColor={colors.surface2} strokeColor={colors.border} strokeWidth={StyleSheet.hairlineWidth}>
-                          <Ionicons name="close" size={18} color={colors.text} />
-                        </Squircle>
-                      </Pressable>
-                      <Pressable
-                        onPress={() => handleLike(p.id, { name: p.name, age: p.age, image: p.images[0] })}
-                        style={({ pressed }) => [pressed && { opacity: 0.65 }, { flex: 1 }]}
-                        hitSlop={6}
-                      >
-                        <Squircle style={styles.likedLikeBtn} cornerRadius={50} cornerSmoothing={1} fillColor={colors.text}>
-                          <Ionicons name="heart" size={15} color={colors.bg} />
-                          <Text style={[styles.likedLikeBtnText, { color: colors.bg }]}>Like back</Text>
-                        </Squircle>
-                      </Pressable>
-                    </View>
-                  </View>
-                )}
-              </Squircle>
-            </View>
-          );
-        })}
-      </View>
-
-      {/* Empty state */}
-      {visible.length === 0 && (
-        <View style={styles.likedEmpty}>
-          <Squircle style={styles.likedEmptyIcon} cornerRadius={28} cornerSmoothing={1} fillColor={colors.surface}>
-            <Ionicons name="heart-outline" size={32} color={colors.textTertiary} />
-          </Squircle>
-          <Text style={[styles.likedEmptyTitle, { color: colors.text }]}>You're all caught up</Text>
-          <Text style={[styles.likedEmptySub, { color: colors.textSecondary }]}>Keep swiping to get more likes</Text>
-        </View>
-      )}
-    </ScrollView>
-
-    {/* ── Match celebration overlay ── */}
-    {matchedProfile && (
-      <MatchScreen
-        profile={matchedProfile}
-        onChat={() => {
-          const p = matchedProfile;
-          setPassed(prev => [...prev, p.id]);
-          setMatchedProfile(null);
-          router.push({ pathname: '/chat', params: { name: p.name, image: p.image, online: 'true' } });
-        }}
-        onDismiss={() => {
-          setPassed(prev => [...prev, matchedProfile.id]);
-          setMatchedProfile(null);
-        }}
-      />
-    )}
-    </View>
-  );
-}
-
-// ─── Work Matched Page ────────────────────────────────────────────────────────
-
-function WorkMatchedPage({ colors, insets }: { colors: any; insets: any }) {
-  const router = useRouter();
-  const [dismissed, setDismissed] = useState<string[]>([]);
-  const visible = WORK_MATCHED.filter(p => !dismissed.includes(p.id));
-
-  return (
-    <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: insets.bottom + 90 }} showsVerticalScrollIndicator={false}>
-
-      {/* Header */}
-      <View style={styles.likedHeader}>
-        <View style={{ flex: 1 }}>
-          <Text style={[styles.pageTitle, { color: colors.text }]}>Matched</Text>
-          <Text style={[styles.pageSub, { color: colors.textSecondary }]}>{visible.length} people matched with you</Text>
-        </View>
-      </View>
-
-      {/* Cards */}
-      <View style={[styles.likedGrid, { paddingHorizontal: 16 }]}>
-        {visible.map((p) => (
-          <View key={p.id} style={[styles.likedCardWrap, { width: (W - 44) / 2 }]}>
-            <Squircle style={styles.likedCard} cornerRadius={24} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={StyleSheet.hairlineWidth}>
-              {/* Photo */}
-              <View style={styles.likedPhotoWrap}>
-                <ExpoImage source={{ uri: p.images[0] }} style={styles.likedPhoto} contentFit="cover" />
-                <LinearGradient colors={['transparent', 'rgba(0,0,0,0.75)']} style={styles.likedPhotoGrad}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                    <Text style={styles.likedPhotoName}>{p.name}</Text>
-                    {p.verified && <Ionicons name="checkmark-circle" size={11} color="#fff" />}
-                  </View>
-                  <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: 10, fontFamily: 'ProductSans-Regular' }} numberOfLines={1}>{p.role}</Text>
-                </LinearGradient>
-                {/* LinkedIn badge */}
-                {p.linkedInUrl && (
-                  <View style={[wStyles.linkedInBadge, { position: 'absolute', top: 8, right: 8 }]}>
-                    <Text style={wStyles.linkedInText}>in</Text>
-                  </View>
-                )}
-                {/* Handshake badge */}
-                <View style={[styles.likedHeartBadge, { backgroundColor: colors.text }]}>
-                  <Ionicons name="checkmark" size={11} color={colors.bg} />
-                </View>
-              </View>
-
-              {/* Info */}
-              <View style={styles.likedInfo}>
-                <Squircle style={styles.likedChip} cornerRadius={20} cornerSmoothing={1} fillColor={colors.surface2}>
-                  <Text style={[styles.likedChipLabel, { color: colors.text }]} numberOfLines={1}>{p.industries[0]}</Text>
-                </Squircle>
-                <View style={styles.likedActions}>
-                  <Pressable onPress={() => setDismissed(prev => [...prev, p.id])} style={({ pressed }) => [pressed && { opacity: 0.65 }]} hitSlop={6}>
-                    <Squircle style={styles.likedPassBtn} cornerRadius={50} cornerSmoothing={1} fillColor={colors.surface2} strokeColor={colors.border} strokeWidth={StyleSheet.hairlineWidth}>
-                      <Ionicons name="close" size={18} color={colors.text} />
-                    </Squircle>
-                  </Pressable>
-                  <Pressable onPress={() => router.push({ pathname: '/chat', params: { name: p.name, image: p.images[0], online: 'false' } })} style={({ pressed }) => [pressed && { opacity: 0.65 }, { flex: 1 }]} hitSlop={6}>
-                    <Squircle style={styles.likedLikeBtn} cornerRadius={50} cornerSmoothing={1} fillColor={colors.text}>
-                      <Ionicons name="chatbubble" size={14} color={colors.bg} />
-                      <Text style={[styles.likedLikeBtnText, { color: colors.bg }]}>Message</Text>
-                    </Squircle>
-                  </Pressable>
-                </View>
-              </View>
-            </Squircle>
-          </View>
-        ))}
-      </View>
-
-      {visible.length === 0 && (
-        <View style={styles.likedEmpty}>
-          <Squircle style={styles.likedEmptyIcon} cornerRadius={28} cornerSmoothing={1} fillColor={colors.surface}>
-            <Ionicons name="briefcase-outline" size={32} color={colors.textTertiary} />
-          </Squircle>
-          <Text style={[styles.likedEmptyTitle, { color: colors.text }]}>No matches yet</Text>
-          <Text style={[styles.likedEmptySub, { color: colors.textSecondary }]}>Keep connecting to find your co-founder</Text>
-        </View>
-      )}
-    </ScrollView>
-  );
-}
-
-// ─── AI Match Page ────────────────────────────────────────────────────────────
-
-const AI_PICKS = [
-  { profile: PROFILES[1], score: 94, sharedInterests: ['Art','Books','Coffee'], reason: "You both love creative expression and quiet, meaningful moments. Elena's curiosity matches your energy perfectly." },
-  { profile: PROFILES[4], score: 87, sharedInterests: ['Travel','Photography','Wine'], reason: "Zara's adventurous spirit and your love of exploring new places make this a natural match." },
-  { profile: PROFILES[2], score: 79, sharedInterests: ['Food','Travel'], reason: "Maya's Miami energy and your shared love for food and experiences create an exciting connection." },
-];
-
-function AiMatchPage({ colors, insets }: { colors: any; insets: any }) {
-  return (
-    <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: insets.bottom + 90, gap: 12 }} showsVerticalScrollIndicator={false}>
-
-      {/* Header */}
-      <View style={{ marginBottom: 4 }}>
-        <View style={styles.aiHeaderRow}>
-          <Squircle style={styles.aiHeaderIcon} cornerRadius={14} cornerSmoothing={1} fillColor={colors.surface2}>
-            <Ionicons name="sparkles" size={18} color={colors.text} />
-          </Squircle>
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.pageTitle, { color: colors.text }]}>AI Matches</Text>
-            <Text style={[styles.pageSub, { color: colors.textSecondary }]}>Curated picks based on your profile</Text>
-          </View>
-        </View>
-      </View>
-
-      {AI_PICKS.map(({ profile, score, sharedInterests, reason }) => (
-        <Squircle
-          key={profile.id}
-          style={styles.aiCard}
-          cornerRadius={24}
-          cornerSmoothing={1}
-          fillColor={colors.surface}
-          strokeColor={colors.border}
-          strokeWidth={StyleSheet.hairlineWidth}
-        >
-          {/* Top: photo + info */}
-          <View style={styles.aiCardTop}>
-            <Image source={{ uri: profile.images[0] }} style={styles.aiPhoto} resizeMode="cover" />
-            <View style={styles.aiInfo}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Text style={[styles.aiName, { color: colors.text }]}>{profile.name}, {profile.age}</Text>
-                {profile.verified && <Ionicons name="checkmark-circle" size={14} color={colors.text} />}
-              </View>
-              <Text style={[styles.aiLocation, { color: colors.textSecondary }]}>{profile.distance} away</Text>
-
-              {/* Score pill */}
-              <Squircle style={styles.aiScorePill} cornerRadius={20} cornerSmoothing={1} fillColor={colors.surface2}>
-                <Ionicons name="pulse" size={12} color={colors.text} />
-                <Text style={[styles.aiScoreNum, { color: colors.text }]}>{score}% match</Text>
-              </Squircle>
-
-              {/* Score bar */}
-              <View style={[styles.aiScoreTrack, { backgroundColor: colors.surface2, marginTop: 8 }]}>
-                <View style={[styles.aiScoreFill, { width: `${score}%` as any, backgroundColor: colors.text }]} />
-              </View>
-            </View>
-          </View>
-
-          <View style={[styles.aiDivider, { backgroundColor: colors.border }]} />
-
-          {/* Shared interests */}
-          <View style={{ gap: 8 }}>
-            <Text style={[styles.aiSecLabel, { color: colors.textSecondary }]}>SHARED INTERESTS</Text>
-            <View style={styles.chipRow}>
-              {sharedInterests.map(interest => (
-                <Squircle key={interest} style={styles.aiChip} cornerRadius={20} cornerSmoothing={1} fillColor={colors.surface2}>
-                  <Text style={[styles.aiChipText, { color: colors.text }]}>{interest}</Text>
-                </Squircle>
-              ))}
-            </View>
-          </View>
-
-          <View style={[styles.aiDivider, { backgroundColor: colors.border }]} />
-
-          {/* Why matched */}
-          <View style={{ gap: 6 }}>
-            <Text style={[styles.aiSecLabel, { color: colors.textSecondary }]}>WHY YOU MATCH</Text>
-            <Text style={[styles.aiReason, { color: colors.text }]}>{reason}</Text>
-          </View>
-
-          {/* Actions */}
-          <View style={styles.aiActions}>
-            <Squircle style={[styles.aiActionBtn, styles.aiActionBtnOutline]} cornerRadius={50} cornerSmoothing={1} fillColor="transparent" strokeColor={colors.border} strokeWidth={1.5}>
-              <Text style={[styles.aiActionBtnText, { color: colors.text }]}>View Profile</Text>
-            </Squircle>
-            <Squircle style={[styles.aiActionBtn, styles.aiActionBtnFill]} cornerRadius={50} cornerSmoothing={1} fillColor={colors.text}>
-              <Text style={[styles.aiActionBtnText, { color: colors.bg }]}>Connect</Text>
-            </Squircle>
-          </View>
-        </Squircle>
-      ))}
-    </ScrollView>
-  );
-}
-
-// ─── Work AI Insights Page ────────────────────────────────────────────────────
-
-const WORK_AI_PICKS = [
-  {
-    profile: WORK_PROFILES[1], score: 96,
-    sharedAreas: ['Fintech', 'Product', 'Growth'],
-    reason: "Priya's fintech product background perfectly complements your engineering skill set. She has the GTM experience you're missing and wants a technical co-founder immediately.",
-    insights: ['Both focused on B2C fintech', 'Complementary skills: Tech ↔ GTM', 'Same commitment level'],
-  },
-  {
-    profile: WORK_PROFILES[3], score: 91,
-    sharedAreas: ['AI', 'Deep Tech', 'Engineering'],
-    reason: "Sarah's LLM expertise at Mistral directly matches your AI infrastructure vision. Strong technical alignment and she's open to founding in the next 12 months.",
-    insights: ['Shared AI / ML focus', 'Both value equity + salary', 'Research-grade technical depth'],
-  },
-  {
-    profile: WORK_PROFILES[2], score: 83,
-    sharedAreas: ['B2B', 'Sales', 'Climate Tech'],
-    reason: "Jordan has a successful exit and now targets climate tech — the exact intersection of his sales pedigree and your market thesis. High-quality operator.",
-    insights: ['Prev. successful exit', 'Complementary: Tech ↔ Sales', 'Actively hiring'],
-  },
-];
-
-function WorkAiInsightsPage({ colors, insets }: { colors: any; insets: any }) {
-  return (
-    <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: insets.bottom + 90, gap: 12 }} showsVerticalScrollIndicator={false}>
-
-      {/* Header */}
-      <View style={{ marginBottom: 4 }}>
-        <View style={styles.aiHeaderRow}>
-          <Squircle style={styles.aiHeaderIcon} cornerRadius={14} cornerSmoothing={1} fillColor={colors.surface2}>
-            <Ionicons name="analytics" size={18} color={colors.text} />
-          </Squircle>
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.pageTitle, { color: colors.text }]}>AI Insights</Text>
-            <Text style={[styles.pageSub, { color: colors.textSecondary }]}>Co-founder matches scored by compatibility</Text>
-          </View>
-        </View>
-      </View>
-
-      {WORK_AI_PICKS.map(({ profile, score, sharedAreas, reason, insights }) => (
-        <Squircle key={profile.id} style={styles.aiCard} cornerRadius={24} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={StyleSheet.hairlineWidth}>
-
-          {/* Top: photo + info */}
-          <View style={styles.aiCardTop}>
-            <Image source={{ uri: profile.images[0] }} style={styles.aiPhoto} resizeMode="cover" />
-            <View style={styles.aiInfo}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Text style={[styles.aiName, { color: colors.text }]}>{profile.name}</Text>
-                {profile.verified && <Ionicons name="checkmark-circle" size={14} color={colors.text} />}
-                {/* LinkedIn */}
-                <View style={wStyles.linkedInBadge}>
-                  <Text style={wStyles.linkedInText}>in</Text>
-                </View>
-              </View>
-              <Text style={[styles.aiLocation, { color: colors.textSecondary }]}>{profile.role} · {profile.company}</Text>
-              <Text style={[styles.aiLocation, { color: colors.textSecondary }]}>{profile.distance} away</Text>
-
-              {/* Score pill */}
-              <Squircle style={styles.aiScorePill} cornerRadius={20} cornerSmoothing={1} fillColor={colors.surface2}>
-                <Ionicons name="pulse" size={12} color={colors.text} />
-                <Text style={[styles.aiScoreNum, { color: colors.text }]}>{score}% match</Text>
-              </Squircle>
-
-              {/* Score bar */}
-              <View style={[styles.aiScoreTrack, { backgroundColor: colors.surface2, marginTop: 8 }]}>
-                <View style={[styles.aiScoreFill, { width: `${score}%` as any, backgroundColor: colors.text }]} />
-              </View>
-            </View>
-          </View>
-
-          <View style={[styles.aiDivider, { backgroundColor: colors.border }]} />
-
-          {/* Shared areas */}
-          <View style={{ gap: 8 }}>
-            <Text style={[styles.aiSecLabel, { color: colors.textSecondary }]}>SHARED FOCUS AREAS</Text>
-            <View style={styles.chipRow}>
-              {sharedAreas.map(area => (
-                <Squircle key={area} style={styles.aiChip} cornerRadius={20} cornerSmoothing={1} fillColor={colors.surface2}>
-                  <Text style={[styles.aiChipText, { color: colors.text }]}>{area}</Text>
-                </Squircle>
-              ))}
-            </View>
-          </View>
-
-          <View style={[styles.aiDivider, { backgroundColor: colors.border }]} />
-
-          {/* AI insight bullets */}
-          <View style={{ gap: 8 }}>
-            <Text style={[styles.aiSecLabel, { color: colors.textSecondary }]}>KEY SIGNALS</Text>
-            {insights.map((ins, i) => (
-              <View key={i} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
-                <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: colors.text, marginTop: 5 }} />
-                <Text style={[styles.aiReason, { color: colors.text, flex: 1 }]}>{ins}</Text>
-              </View>
-            ))}
-          </View>
-
-          <View style={[styles.aiDivider, { backgroundColor: colors.border }]} />
-
-          {/* Why matched */}
-          <View style={{ gap: 6 }}>
-            <Text style={[styles.aiSecLabel, { color: colors.textSecondary }]}>WHY YOU MATCH</Text>
-            <Text style={[styles.aiReason, { color: colors.text }]}>{reason}</Text>
-          </View>
-
-          {/* Actions */}
-          <View style={styles.aiActions}>
-            <Squircle style={[styles.aiActionBtn, styles.aiActionBtnOutline]} cornerRadius={50} cornerSmoothing={1} fillColor="transparent" strokeColor={colors.border} strokeWidth={1.5}>
-              <Text style={[styles.aiActionBtnText, { color: colors.text }]}>View Profile</Text>
-            </Squircle>
-            <Squircle style={[styles.aiActionBtn, styles.aiActionBtnFill]} cornerRadius={50} cornerSmoothing={1} fillColor={colors.text}>
-              <Text style={[styles.aiActionBtnText, { color: colors.bg }]}>Connect</Text>
-            </Squircle>
-          </View>
-        </Squircle>
-      ))}
-    </ScrollView>
-  );
-}
-
-// ─── Chats Page ───────────────────────────────────────────────────────────────
-
-const NEW_MATCHES = [
-  { id:'m1', name:'Sophia',  image:'https://randomuser.me/api/portraits/women/44.jpg', online: true },
-  { id:'m2', name:'Elena',   image:'https://randomuser.me/api/portraits/women/68.jpg', online: true },
-  { id:'m3', name:'Maya',    image:'https://randomuser.me/api/portraits/women/50.jpg', online: false },
-  { id:'m4', name:'Zara',    image:'https://randomuser.me/api/portraits/women/32.jpg', online: true },
-  { id:'m5', name:'Aria',    image:'https://randomuser.me/api/portraits/women/79.jpg', online: false },
-];
-
-const CONVERSATIONS = [
-  { id:'c1', name:'Sophia',  image:'https://randomuser.me/api/portraits/women/44.jpg', preview:"Order dessert before checking the menu 🍰", time:'2m',  unread:3, online: true },
-  { id:'c2', name:'Elena',   image:'https://randomuser.me/api/portraits/women/68.jpg', preview:"That's so true! When are you free?",          time:'1h',  unread:0, online: true },
-  { id:'c3', name:'Maya',    image:'https://randomuser.me/api/portraits/women/50.jpg', preview:"Miami has the best sunsets ☀️",               time:'3h',  unread:1, online: false },
-  { id:'c4', name:'Aria',    image:'https://randomuser.me/api/portraits/women/79.jpg', preview:"Haha I would never lie about tacos 🌮",       time:'1d',  unread:0, online: false },
-];
-
-function ChatsPage({ colors, insets }: { colors: any; insets: any }) {
-  const router = useRouter();
-  const [search, setSearch] = useState('');
-  const filtered = search.trim()
-    ? CONVERSATIONS.filter(c => c.name.toLowerCase().includes(search.toLowerCase()))
-    : CONVERSATIONS;
-
-  return (
-    <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: insets.bottom + 90 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-
-      {/* Header */}
-      <View style={styles.chatHeader}>
-        <Text style={[styles.pageTitle, { color: colors.text }]}>Chats</Text>
-        <Squircle style={styles.chatComposeBtn} cornerRadius={14} cornerSmoothing={1} fillColor={colors.surface2}>
-          <Ionicons name="create-outline" size={19} color={colors.text} />
-        </Squircle>
-      </View>
-
-      {/* Search */}
-      <View style={{ paddingHorizontal: 16, marginBottom: 20 }}>
-        <Squircle style={styles.chatSearch} cornerRadius={16} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={StyleSheet.hairlineWidth}>
-          <Ionicons name="search-outline" size={16} color={colors.textSecondary} />
-          <TextInput
-            style={[styles.chatSearchInput, { color: colors.text }]}
-            placeholder="Search conversations…"
-            placeholderTextColor={colors.placeholder}
-            value={search}
-            onChangeText={setSearch}
-            returnKeyType="search"
-            selectionColor={colors.text}
-          />
-          {search.length > 0 && (
-            <Pressable onPress={() => setSearch('')} hitSlop={8}>
-              <Ionicons name="close-circle" size={16} color={colors.textSecondary} />
-            </Pressable>
-          )}
-        </Squircle>
-      </View>
-
-      {/* New Matches */}
-      {!search && (
-        <View style={{ marginBottom: 24 }}>
-          <Text style={[styles.chatSecLabel, { color: colors.textSecondary, paddingHorizontal: 16, marginBottom: 14 }]}>NEW MATCHES</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingHorizontal: 16 }}>
-            {NEW_MATCHES.map(m => (
-              <Pressable key={m.id} onPress={() => router.push({ pathname: '/chat', params: { name: m.name, image: m.image, online: m.online ? 'true' : 'false' } })} style={({ pressed }) => [{ alignItems: 'center', gap: 7 }, pressed && { opacity: 0.75 }]}>
-                <View style={styles.matchRingWrap}>
-                  <View style={[styles.matchRing, { borderColor: colors.text }]}>
-                    <Image source={{ uri: m.image }} style={styles.matchAvatar} />
-                  </View>
-                  {m.online && <View style={[styles.matchDot, { backgroundColor: colors.bg }]}><View style={styles.matchDotInner} /></View>}
-                </View>
-                <Text style={[styles.matchName, { color: colors.text }]}>{m.name}</Text>
-              </Pressable>
-            ))}
-          </ScrollView>
-        </View>
-      )}
-
-      {/* Messages */}
-      <View style={{ paddingHorizontal: 16 }}>
-        <Text style={[styles.chatSecLabel, { color: colors.textSecondary, marginBottom: 12 }]}>MESSAGES</Text>
-        <Squircle
-          style={styles.convGroup}
-          cornerRadius={22}
-          cornerSmoothing={1}
-          fillColor={colors.surface}
-          strokeColor={colors.border}
-          strokeWidth={StyleSheet.hairlineWidth}
-        >
-          {filtered.map((c, i) => (
-            <View key={c.id}>
-              <Pressable onPress={() => router.push({ pathname: '/chat', params: { name: c.name, image: c.image, online: c.online ? 'true' : 'false' } })} style={({ pressed }) => [styles.convRow, pressed && { backgroundColor: colors.surface2 }]}>
-                {/* Avatar */}
-                <View style={styles.convAvatarWrap}>
-                  <Image source={{ uri: c.image }} style={styles.convAvatar} />
-                  {c.online && <View style={[styles.convOnlineDot, { borderColor: colors.surface, backgroundColor: '#22c55e' }]} />}
-                </View>
-                {/* Text */}
-                <View style={{ flex: 1, gap: 3 }}>
-                  <View style={styles.convTopRow}>
-                    <Text style={[styles.convName, { color: colors.text }]}>{c.name}</Text>
-                    <Text style={[styles.convTime, { color: c.unread > 0 ? colors.text : colors.textSecondary, fontFamily: c.unread > 0 ? 'ProductSans-Bold' : 'ProductSans-Regular' }]}>{c.time}</Text>
-                  </View>
-                  <Text
-                    style={[styles.convPreview, { color: c.unread > 0 ? colors.text : colors.textSecondary, fontFamily: c.unread > 0 ? 'ProductSans-Medium' : 'ProductSans-Regular' }]}
-                    numberOfLines={1}
-                  >{c.preview}</Text>
-                </View>
-                {/* Unread badge */}
-                {c.unread > 0 && (
-                  <Squircle style={styles.unreadBadge} cornerRadius={20} cornerSmoothing={1} fillColor={colors.text}>
-                    <Text style={[styles.unreadText, { color: colors.bg }]}>{c.unread}</Text>
-                  </Squircle>
-                )}
-              </Pressable>
-              {i < filtered.length - 1 && (
-                <View style={[styles.convDivider, { backgroundColor: colors.border }]} />
-              )}
-            </View>
-          ))}
-          {filtered.length === 0 && (
-            <View style={{ alignItems: 'center', padding: 32, gap: 8 }}>
-              <Ionicons name="chatbubble-outline" size={28} color={colors.textTertiary} />
-              <Text style={[styles.convPreview, { color: colors.textSecondary, textAlign: 'center' }]}>No conversations found</Text>
-            </View>
-          )}
-        </Squircle>
-      </View>
-    </ScrollView>
-  );
-}
-
 // ─── Main FeedScreen shell ────────────────────────────────────────────────────
 
 export default function FeedScreen() {
   const { colors, isDark } = useAppTheme();
-  const { profile } = useAuth();
+  const { profile, token } = useAuth();
   const insets = useSafeAreaInsets();
   const myAvatar = profile?.photos?.[0] ?? null;
 
-  const [profiles,       setProfiles]     = useState<Profile[]>(PROFILES);
-  const [workProfiles,   setWorkProfiles] = useState<WorkProfile[]>(WORK_PROFILES);
+  const [profiles,       setProfiles]     = useState<Profile[]>([]);
+  const [loadingFeed,    setLoadingFeed]  = useState(false);
+  const [feedPage,       setFeedPage]     = useState(0);
+  const [hasMore,        setHasMore]      = useState(true);
   const [activeTab,      setActiveTab]    = useState('people');
   const [filterOpen,     setFilterOpen]   = useState(false);
   const [exploreOpen,    setExploreOpen]  = useState(false);
-  const [appMode,        setAppMode]      = useState<AppMode>('date');
-  const [modeOpen,       setModeOpen]     = useState(false);
+  const [appMode]                         = useState<AppMode>('date');
+  const [likedYouCount,  setLikedYouCount] = useState(0);
+  const [unreadChats,    setUnreadChats]   = useState(0);
 
-  const navTabs    = appMode === 'work' ? WORK_NAV_TABS : DATE_NAV_TABS;
-  const removeTop  = () => setProfiles(p => p.slice(1));
-  const reset      = () => setProfiles(PROFILES);
-  const removeWorkTop = () => setWorkProfiles(p => p.slice(1));
-  const resetWork     = () => setWorkProfiles(WORK_PROFILES);
+  const fmtBadge = (n: number) => n > 9 ? '9+' : String(n);
+
+  // Build nav tabs with live badge counts
+  const navTabs = BASE_DATE_NAV_TABS.map(t => ({
+    ...t,
+    badge: t.id === 'likeyou' && likedYouCount > 0
+      ? fmtBadge(likedYouCount)
+      : t.id === 'chats' && unreadChats > 0
+        ? fmtBadge(unreadChats)
+        : undefined,
+  }));
+
+  // ── Fetch badge counts from API ──────────────────────────────────────────
+  const fetchCounts = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await apiFetch<{ liked_you: number; matches: number; unread_chats: number }>(
+        '/discover/counts',
+        { token },
+      );
+      setLikedYouCount(res.liked_you);
+      setUnreadChats(res.unread_chats);
+    } catch { /* ignore */ }
+  }, [token]);
+
+  // ── Fetch discover feed from API ──────────────────────────────────────────
+  const fetchFeed = useCallback(async (page: number = 0, replace: boolean = true) => {
+    if (!token) return;
+    setLoadingFeed(true);
+    try {
+      const res = await apiFetch<{ profiles: Profile[]; has_more: boolean }>(
+        `/discover/feed?page=${page}&limit=10`,
+        { token },
+      );
+      setProfiles(prev => replace ? res.profiles : [...prev, ...res.profiles]);
+      setHasMore(res.has_more);
+      setFeedPage(page);
+    } catch {
+      // keep existing profiles on error
+    } finally {
+      setLoadingFeed(false);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    if (appMode === 'date') fetchFeed(0, true);
+  }, [appMode, fetchFeed]);
+
+  useEffect(() => { fetchCounts(); }, [fetchCounts]);
+
+  const removeTop = () => {
+    setProfiles(p => {
+      const next = p.slice(1);
+      // Pre-load next page when running low
+      if (next.length <= 2 && hasMore) fetchFeed(feedPage + 1, false);
+      return next;
+    });
+  };
+  const refetchFeed = () => fetchFeed(0, true);
+
+  const handleStartOver = useCallback(async () => {
+    if (!token) return;
+    try {
+      await apiFetch('/discover/swipes/reset?mode=date', { token, method: 'DELETE' });
+    } catch { /* ignore */ }
+    fetchFeed(0, true);
+  }, [token, fetchFeed]);
+
+  // Record swipe to backend (fire-and-forget — don't block the UI)
+  const recordSwipe = (profileId: string, direction: 'left' | 'right') => {
+    if (!token) return;
+    apiFetch('/discover/swipe', {
+      token,
+      method: 'POST',
+      body: JSON.stringify({ swiped_id: profileId, direction, mode: 'date' }),
+    }).catch(() => {/* silent — swipe is already gone from deck */});
+  };
+
+  const handleSwipeLeft = (profileId: string) => {
+    recordSwipe(profileId, 'left');
+    removeTop();
+  };
+
+  const handleSwipeRight = (profileId: string) => {
+    recordSwipe(profileId, 'right');
+    removeTop();
+  };
 
   // Reset activeTab to 'people' when mode changes to avoid stale tab
   useEffect(() => { setActiveTab('people'); }, [appMode]);
@@ -1522,7 +939,7 @@ export default function FeedScreen() {
               <Ionicons name="compass-outline" size={20} color={colors.text} />
             </Squircle>
           </Pressable>
-          <AppLogo color={colors.text} mode={appMode} onPress={() => setModeOpen(true)} />
+          <AppLogo color={colors.text} />
           <Pressable onPress={() => setFilterOpen(true)} hitSlop={8}>
             <Squircle style={styles.iconBtn} cornerRadius={14} cornerSmoothing={1} fillColor={colors.surface2}>
               <Ionicons name="options-outline" size={20} color={colors.text} />
@@ -1535,26 +952,18 @@ export default function FeedScreen() {
       {activeTab === 'people' && (
         <View style={styles.cardStack}>
           {appMode === 'work' ? (
-            workProfiles.length === 0 ? (
-              <EmptyState onReset={resetWork} colors={colors} />
-            ) : (
-              <WorkProfileCard
-                key={workProfiles[0].id}
-                profile={workProfiles[0]}
-                onSwipedLeft={removeWorkTop}
-                onSwipedRight={removeWorkTop}
-                colors={colors}
-              />
-            )
+            <WorkFeedScreen colors={colors} insets={insets} activeTab="people" />
+          ) : loadingFeed && profiles.length === 0 ? (
+            <FeedCardSkeleton colors={colors} />
           ) : (
             profiles.length === 0 ? (
-              <EmptyState onReset={reset} colors={colors} />
+              <EmptyState onReset={handleStartOver} colors={colors} />
             ) : (
               <ProfileCard
                 key={profiles[0].id}
                 profile={profiles[0]}
-                onSwipedLeft={removeTop}
-                onSwipedRight={removeTop}
+                onSwipedLeft={() => handleSwipeLeft(profiles[0].id)}
+                onSwipedRight={() => handleSwipeRight(profiles[0].id)}
                 colors={colors}
               />
             )
@@ -1563,8 +972,8 @@ export default function FeedScreen() {
       )}
 
       {/* Date mode tabs */}
-      {appMode === 'date' && activeTab === 'likeyou'  && <View style={{ flex: 1 }}><LikedYouPage colors={colors} insets={insets} /></View>}
-      {appMode === 'date' && activeTab === 'ai'       && <View style={{ flex: 1 }}><AiMatchPage  colors={colors} insets={insets} /></View>}
+      {appMode === 'date' && activeTab === 'likeyou'  && <View style={{ flex: 1 }}><LikedYouPage insets={insets} token={token} /></View>}
+      {appMode === 'date' && activeTab === 'ai'       && <View style={{ flex: 1 }}><AiMatchPage  insets={insets} /></View>}
       {/* Work mode — dedicated WorkFeedScreen handles all work tabs */}
       {appMode === 'work' && (activeTab === 'matched' || activeTab === 'insights') && (
         <View style={{ flex: 1 }}>
@@ -1572,7 +981,7 @@ export default function FeedScreen() {
         </View>
       )}
       {/* Shared tabs */}
-      {activeTab === 'chats'   && <View style={{ flex: 1 }}><ChatsPage     colors={colors} insets={insets} /></View>}
+      {activeTab === 'chats'   && <View style={{ flex: 1 }}><ChatsPage     insets={insets} token={token} /></View>}
       {activeTab === 'profile' && <View style={{ flex: 1 }}><MyProfilePage colors={colors} insets={insets} /></View>}
 
       {/* Sticky bottom tab bar */}
@@ -1611,22 +1020,8 @@ export default function FeedScreen() {
         })}
       </View>
 
-      {/* Mode select modal */}
-      <ModeModal
-        visible={modeOpen}
-        mode={appMode}
-        onSelect={setAppMode}
-        onClose={() => setModeOpen(false)}
-        colors={colors}
-      />
-
-      {/* Filter sheets — separate components per mode */}
-      {appMode === 'date' && (
-        <DateFilterSheet visible={filterOpen} onClose={() => setFilterOpen(false)} colors={colors} insets={insets} />
-      )}
-      {appMode === 'work' && (
-        <WorkFilterSheet visible={filterOpen} onClose={() => setFilterOpen(false)} colors={colors} insets={insets} />
-      )}
+      {/* Filter sheet */}
+      <DateFilterSheet visible={filterOpen} onClose={() => setFilterOpen(false)} onApply={refetchFeed} colors={colors} insets={insets} />
 
       {/* Explore overlay */}
       {exploreOpen && (
@@ -1638,7 +1033,7 @@ export default function FeedScreen() {
                 <Ionicons name="arrow-back" size={20} color={colors.text} />
               </Squircle>
             </Pressable>
-            <AppLogo color={colors.text} mode={appMode} onPress={() => setModeOpen(true)} />
+            <AppLogo color={colors.text} />
             <View style={styles.iconBtn} />
           </View>
           <ExplorePage colors={colors} insets={insets} />
@@ -1783,91 +1178,11 @@ const styles = StyleSheet.create({
   proAiTitle:       { fontSize: 14, fontFamily: 'ProductSans-Bold' },
   proAiSub:         { fontSize: 11, fontFamily: 'ProductSans-Regular', marginTop: 2, lineHeight: 16 },
 
-  // Liked you
-  pageTitle:   { fontSize: 24, fontFamily: 'ProductSans-Black' },
-  pageSub:     { fontSize: 13, fontFamily: 'ProductSans-Regular', marginTop: 2, marginBottom: 16 },
-  likedHeader:          { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 4, paddingBottom: 16 },
-  likedProBtn:          { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 7 },
-  likedProBtnText:      { fontSize: 12, fontFamily: 'ProductSans-Bold' },
-  likedUpgradeBanner:   { flexDirection: 'row', alignItems: 'center', gap: 12, marginHorizontal: 16, marginBottom: 16, paddingHorizontal: 14, paddingVertical: 14 },
-  likedUpgradeIcon:     { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
-  likedUpgradeTitle:    { fontSize: 14, fontFamily: 'ProductSans-Black' },
-  likedUpgradeSub:      { fontSize: 12, fontFamily: 'ProductSans-Regular' },
-  likedGrid:            { flexDirection: 'row', flexWrap: 'wrap', gap: 10, paddingHorizontal: 16 },
-  likedCardWrap:        { },
-  likedCard:            { width: '100%', overflow: 'hidden', borderRadius: 24 },
-  likedPhotoWrap:       { width: LIKED_CARD_W, height: LIKED_PHOTO_H, position: 'relative' },
-  likedPhoto:           { width: LIKED_CARD_W, height: LIKED_PHOTO_H },
-  likedPhotoBlurred:    { opacity: 0.6 },
-  likedPhotoGrad:       { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 10, gap: 2 },
-  likedPhotoName:       { fontSize: 14, fontFamily: 'ProductSans-Black', color: '#fff' },
-  likedPhotoDist:       { fontSize: 10, fontFamily: 'ProductSans-Regular', color: 'rgba(255,255,255,0.75)' },
-  likedHeartBadge:      { position: 'absolute', top: 10, right: 10, width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
-  likedMatchOverlay:    { alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: 'rgba(0,0,0,0.45)' },
-  likedMatchText:       { fontSize: 18, fontFamily: 'ProductSans-Black', color: '#fff' },
-  likedLockOverlay:     { alignItems: 'center', justifyContent: 'center', gap: 8 },
-  likedLockIcon:        { width: 42, height: 42, alignItems: 'center', justifyContent: 'center' },
-  likedLockText:        { fontSize: 12, fontFamily: 'ProductSans-Bold', color: '#fff', textAlign: 'center' },
-  likedInfo:            { padding: 10, gap: 8 },
-  likedChip:            { flexDirection: 'row', alignItems: 'center', gap: 5, alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 5 },
-  likedChipEmoji:       { fontSize: 13 },
-  likedChipLabel:       { fontSize: 12, fontFamily: 'ProductSans-Medium' },
-  likedActions:         { flexDirection: 'row', gap: 8, alignItems: 'center' },
-  likedPassBtn:         { width: 38, height: 38, alignItems: 'center', justifyContent: 'center' },
-  likedLikeBtn:         { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10 },
-  likedLikeBtnText:     { fontSize: 13, fontFamily: 'ProductSans-Bold' },
-  likedEmpty:           { alignItems: 'center', paddingTop: 60, gap: 12 },
-  likedEmptyIcon:       { width: 72, height: 72, alignItems: 'center', justifyContent: 'center' },
-  likedEmptyTitle:      { fontSize: 18, fontFamily: 'ProductSans-Black' },
-  likedEmptySub:        { fontSize: 14, fontFamily: 'ProductSans-Regular', textAlign: 'center' },
+  // Liked you — moved to LikedYouPage.tsx
+  // AI Match — moved to AiMatchPage.tsx
+  // Work Matched — moved to WorkMatchedPage.tsx
+  // Work AI Insights — moved to WorkAiInsightsPage.tsx
 
-  // AI match
-  aiHeaderRow:     { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 2 },
-  aiHeaderIcon:    { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
-  aiCard:          { overflow: 'hidden', padding: 16, gap: 14 },
-  aiCardTop:       { flexDirection: 'row', gap: 14, alignItems: 'flex-start' },
-  aiPhoto:         { width: 76, height: 76, borderRadius: 18 },
-  aiInfo:          { flex: 1, gap: 4 },
-  aiName:          { fontSize: 16, fontFamily: 'ProductSans-Black' },
-  aiLocation:      { fontSize: 12, fontFamily: 'ProductSans-Regular' },
-  aiScorePill:     { flexDirection: 'row', alignItems: 'center', gap: 5, alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 5, marginTop: 4 },
-  aiScoreNum:      { fontSize: 12, fontFamily: 'ProductSans-Bold' },
-  aiScoreTrack:    { height: 4, borderRadius: 2, overflow: 'hidden' },
-  aiScoreFill:     { height: 4, borderRadius: 2 },
-  aiDivider:       { height: StyleSheet.hairlineWidth },
-  aiSecLabel:      { fontSize: 10, fontFamily: 'ProductSans-Bold', letterSpacing: 1.5 },
-  aiReason:        { fontSize: 14, fontFamily: 'ProductSans-Regular', lineHeight: 21 },
-  aiChip:          { paddingHorizontal: 12, paddingVertical: 6 },
-  aiChipText:      { fontSize: 13, fontFamily: 'ProductSans-Medium' },
-  aiActions:       { flexDirection: 'row', gap: 10 },
-  aiActionBtn:     { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 13 },
-  aiActionBtnOutline: {},
-  aiActionBtnFill: {},
-  aiActionBtnText: { fontSize: 14, fontFamily: 'ProductSans-Bold' },
-
-  // Chats
-  chatHeader:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 4, paddingBottom: 16 },
-  chatComposeBtn:  { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
-  chatSearch:      { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, height: 44 },
-  chatSearchInput: { flex: 1, fontSize: 15, fontFamily: 'ProductSans-Regular' },
-  chatSecLabel:    { fontSize: 10, fontFamily: 'ProductSans-Bold', letterSpacing: 1.5 },
-  matchRingWrap:   { position: 'relative' },
-  matchRing:       { width: 66, height: 66, borderRadius: 33, borderWidth: 2, padding: 2 },
-  matchAvatar:     { width: 58, height: 58, borderRadius: 29 },
-  matchDot:        { position: 'absolute', bottom: 0, right: 0, width: 18, height: 18, borderRadius: 9, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
-  matchDotInner:   { width: 10, height: 10, borderRadius: 5, backgroundColor: '#22c55e' },
-  matchName:       { fontSize: 12, fontFamily: 'ProductSans-Medium', textAlign: 'center' },
-  convGroup:       { overflow: 'hidden' },
-  convRow:         { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 13, paddingHorizontal: 14 },
-  convAvatarWrap:  { position: 'relative' },
-  convAvatar:      { width: 52, height: 52, borderRadius: 26 },
-  convOnlineDot:   { position: 'absolute', bottom: 1, right: 1, width: 13, height: 13, borderRadius: 7, borderWidth: 2 },
-  convTopRow:      { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  convName:        { fontSize: 15, fontFamily: 'ProductSans-Bold' },
-  convTime:        { fontSize: 12 },
-  convPreview:     { fontSize: 13 },
-  convDivider:     { height: StyleSheet.hairlineWidth, marginLeft: 78 },
-  unreadBadge:     { minWidth: 22, height: 22, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 },
-  unreadText:      { fontSize: 11, fontFamily: 'ProductSans-Black' },
+  // Chats — moved to ChatsPage.tsx
 
 });

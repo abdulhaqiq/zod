@@ -1,5 +1,6 @@
 import * as SecureStore from 'expo-secure-store';
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { Platform } from 'react-native';
 import { API_V1, registerAuthHandlers } from '@/constants/api';
 
 const ACCESS_KEY  = 'auth_token';
@@ -64,6 +65,21 @@ export interface UserProfile {
   work_scheduling_url: string | null;
   work_who_to_show_id: number | null;          // lookup_options id (category=work_who_to_show)
   work_priority_startup: boolean | null;
+
+  // Discover filter preferences
+  filter_age_min:         number | null;
+  filter_age_max:         number | null;
+  filter_max_distance_km: number | null;   // null = any
+  filter_verified_only:   boolean;
+  filter_star_signs:      number[] | null;
+  filter_interests:       number[] | null;
+  filter_languages:       number[] | null;
+  // Pro-only filters
+  filter_purpose:         number[] | null;
+  filter_looking_for:     number[] | null;
+  filter_education_level: number[] | null;
+  filter_family_plans:    number[] | null;
+  filter_have_kids:       number[] | null;
 
   is_verified: boolean;
   is_onboarded: boolean;
@@ -194,6 +210,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return _doRefresh(refresh);
   };
 
+  async function _registerPushToken(accessToken: string) {
+    try {
+      const Notifications = await import('expo-notifications');
+      // Request permissions (iOS requires explicit grant)
+      const { status: existingStatus } = await Notifications.getPermissionsAsync();
+      let finalStatus = existingStatus;
+      if (existingStatus !== 'granted') {
+        const { status } = await Notifications.requestPermissionsAsync();
+        finalStatus = status;
+      }
+      if (finalStatus !== 'granted') return;
+
+      // Set notification channel for Android
+      if (Platform.OS === 'android') {
+        await Notifications.setNotificationChannelAsync('default', {
+          name: 'Default',
+          importance: Notifications.AndroidImportance.HIGH,
+          vibrationPattern: [0, 250, 250, 250],
+          lightColor: '#FF231F7C',
+        });
+      }
+
+      // Get Expo push token (works in Expo Go + EAS builds)
+      const tokenData = await Notifications.getExpoPushTokenAsync();
+      const pushToken = tokenData.data;
+
+      // Register with backend
+      await fetch(`${API_V1}/profile/me/push-token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ token: pushToken }),
+      });
+    } catch {
+      // Push token registration is non-critical — never block sign-in
+    }
+  }
+
   const signIn = async (accessToken: string, newRefresh: string, onboarded: boolean) => {
     await SecureStore.setItemAsync(ACCESS_KEY, accessToken);
     await SecureStore.setItemAsync(REFRESH_KEY, newRefresh);
@@ -203,6 +256,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Fetch fresh profile immediately after login
     const me = await _fetchProfile(accessToken);
     if (me) setProfile(me);
+    // Register push token in the background — non-blocking
+    _registerPushToken(accessToken);
   };
 
   const signOut = async () => {

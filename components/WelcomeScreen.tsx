@@ -27,9 +27,8 @@ export default function WelcomeScreen() {
   const { signIn } = useAuth();
   const [expanded, setExpanded] = useState(false);
 
-  // After a successful login (social / OTP) call this to unlock the app
-  const handleSignIn = async (token: string) => {
-    await signIn(token);
+  const handleSignIn = async (accessToken: string, refreshToken: string, isOnboarded: boolean) => {
+    await signIn(accessToken, refreshToken, isOnboarded);
     router.replace('/(tabs)' as any);
   };
 

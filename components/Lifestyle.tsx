@@ -1,5 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
+import type { ComponentProps } from 'react';
 import { useRouter } from 'expo-router';
+type IoniconsName = ComponentProps<typeof Ionicons>['name'];
+
 import { useState } from 'react';
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Button from '@/components/ui/Button';
@@ -11,7 +14,7 @@ type OptionId = string | null;
 interface Section<T extends string> {
   key: string;
   title: string;
-  icon: keyof typeof import('@expo/vector-icons/build/Ionicons').glyphMap;
+  icon: IoniconsName;
   options: { id: T; label: string; emoji: string }[];
   required?: boolean;
 }
