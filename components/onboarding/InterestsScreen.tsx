@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '@/context/AuthContext';
 import { useAppTheme } from '@/context/ThemeContext';
-import { LOOKUP } from '@/constants/lookupData';
+import { useLookupsCategory } from '@/hooks/useLookups';
 import { useProfileSave } from '@/hooks/useProfileSave';
 import OnboardingShell from './OnboardingShell';
 
@@ -13,6 +13,7 @@ export default function InterestsScreen() {
   const { colors } = useAppTheme();
   const { save, saving } = useProfileSave();
   const { profile } = useAuth();
+  const interests = useLookupsCategory('interests');
   const [selected, setSelected] = useState<number[]>(profile?.interests ?? []);
 
   const toggle = (id: number) =>
@@ -37,7 +38,7 @@ export default function InterestsScreen() {
     >
       <ScrollView showsVerticalScrollIndicator={false}>
         <View style={styles.grid}>
-          {LOOKUP.interests.map((item) => {
+          {interests.map((item) => {
             const active = selected.includes(item.id);
             return (
               <Pressable
@@ -51,7 +52,7 @@ export default function InterestsScreen() {
                   },
                 ]}
               >
-                <Text style={styles.chipEmoji}>{item.emoji}</Text>
+                {item.emoji ? <Text style={styles.chipEmoji}>{item.emoji}</Text> : null}
                 <Text style={[styles.chipText, { color: active ? colors.bg : colors.text }]}>{item.label}</Text>
               </Pressable>
             );

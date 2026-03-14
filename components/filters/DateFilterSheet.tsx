@@ -27,7 +27,8 @@ import { useRouter } from 'expo-router';
 import Squircle from '@/components/ui/Squircle';
 import { apiFetch, API_V1 } from '@/constants/api';
 import { useAuth } from '@/context/AuthContext';
-import { LOOKUP, RELATIONSHIP_TYPES } from '@/constants/lookupData';
+import { RELATIONSHIP_TYPES } from '@/constants/lookupData';
+import { useLookups, type LookupOption } from '@/hooks/useLookups';
 
 // ─── Range Slider ─────────────────────────────────────────────────────────────
 
@@ -157,6 +158,10 @@ export default function DateFilterSheet({ visible, onClose, onApply, colors, ins
   const isPro = profile?.subscription_tier === 'pro';
   const isFaceVerified = profile?.verification_status === 'verified' || profile?.is_verified === true;
 
+  // ── Live lookup data from API (same source as EditProfilePage) ─────────────
+  const { lookups } = useLookups();
+  const lo = (cat: string): LookupOption[] => lookups[cat] ?? [];
+
   const [activeTab,    setActiveTab]    = useState<'basic' | 'pro'>('basic');
   const [saving,       setSaving]       = useState(false);
 
@@ -168,6 +173,13 @@ export default function DateFilterSheet({ visible, onClose, onApply, colors, ins
   const [langs,        setLangs]        = useState<number[]>([]);
   const [signs,        setSigns]        = useState<number[]>([]);
   const [interests,    setInterests]    = useState<number[]>([]);
+  // Basic lifestyle filters
+  const [ethnicities,  setEthnicities]  = useState<number[]>([]);
+  const [exercise,     setExercise]     = useState<number[]>([]);
+  const [drinking,     setDrinking]     = useState<number[]>([]);
+  const [smoking,      setSmoking]      = useState<number[]>([]);
+  const [heightMin,    setHeightMin]    = useState(150);
+  const [heightMax,    setHeightMax]    = useState(200);
   // Pro filter state (IDs)
   const [lookingFor,   setLookingFor]   = useState<number[]>([]);
   const [education,    setEducation]    = useState<number[]>([]);
@@ -185,6 +197,12 @@ export default function DateFilterSheet({ visible, onClose, onApply, colors, ins
     setSigns(profile.filter_star_signs ?? []);
     setInterests(profile.filter_interests ?? []);
     setLangs(profile.filter_languages ?? []);
+    setEthnicities(profile.filter_ethnicities ?? []);
+    setExercise(profile.filter_exercise ?? []);
+    setDrinking(profile.filter_drinking ?? []);
+    setSmoking(profile.filter_smoking ?? []);
+    setHeightMin(profile.filter_height_min ?? 150);
+    setHeightMax(profile.filter_height_max ?? 200);
     setPurpose(profile.filter_purpose ?? []);
     setLookingFor(profile.filter_looking_for ?? []);
     setEducation(profile.filter_education_level ?? []);
@@ -197,7 +215,8 @@ export default function DateFilterSheet({ visible, onClose, onApply, colors, ins
 
   const reset = () => {
     setVerifiedOnly(false); setAgeMin(18); setAgeMax(45); setDistance(50);
-    setSigns([]); setInterests([]); setLangs([]);
+    setSigns([]); setInterests([]); setLangs([]); setEthnicities([]);
+    setExercise([]); setDrinking([]); setSmoking([]); setHeightMin(150); setHeightMax(200);
     setPurpose([]); setLookingFor([]); setEducation([]); setFamilyPlans([]); setHavingKids([]);
   };
 
@@ -213,6 +232,13 @@ export default function DateFilterSheet({ visible, onClose, onApply, colors, ins
         filter_star_signs:      signs.length     ? signs     : null,
         filter_interests:       interests.length ? interests : null,
         filter_languages:       langs.length     ? langs     : null,
+        // Lifestyle filters
+        filter_ethnicities:     ethnicities.length ? ethnicities : null,
+        filter_exercise:        exercise.length  ? exercise  : null,
+        filter_drinking:        drinking.length  ? drinking  : null,
+        filter_smoking:         smoking.length   ? smoking   : null,
+        filter_height_min:      heightMin !== 150 ? heightMin : null,
+        filter_height_max:      heightMax !== 200 ? heightMax : null,
         // Pro filters
         filter_purpose:         purpose.length     ? purpose     : null,
         filter_looking_for:     lookingFor.length  ? lookingFor  : null,
@@ -359,7 +385,7 @@ export default function DateFilterSheet({ visible, onClose, onApply, colors, ins
             <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
               <SecHead title="INTERESTS" />
               <View style={[styles.filterChipRow, { marginTop: 12 }]}>
-                {LOOKUP.interests.map(v => (
+                {lo('interests').map(v => (
                   <FilterChip key={v.id} emoji={v.emoji} label={v.label} selected={interests.includes(v.id)} onPress={() => toggle(interests, setInterests, v.id)} colors={colors} />
                 ))}
               </View>
@@ -369,7 +395,7 @@ export default function DateFilterSheet({ visible, onClose, onApply, colors, ins
             <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
               <SecHead title="STAR SIGN" />
               <View style={[styles.filterChipRow, { marginTop: 12 }]}>
-                {LOOKUP.star_sign.map(v => (
+                {lo('star_sign').map(v => (
                   <FilterChip key={v.id} emoji={v.emoji} label={v.label} selected={signs.includes(v.id)} onPress={() => toggle(signs, setSigns, v.id)} colors={colors} />
                 ))}
               </View>
@@ -379,8 +405,63 @@ export default function DateFilterSheet({ visible, onClose, onApply, colors, ins
             <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
               <SecHead title="LANGUAGE" />
               <View style={[styles.filterChipRow, { marginTop: 12 }]}>
-                {LOOKUP.language.map(v => (
+                {lo('language').map(v => (
                   <FilterChip key={v.id} emoji={v.emoji} label={v.label} selected={langs.includes(v.id)} onPress={() => toggle(langs, setLangs, v.id)} colors={colors} />
+                ))}
+              </View>
+            </Squircle>
+
+            {/* Height range */}
+            <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
+              <View style={styles.sliderLabelRow}>
+                <SecHead title="HEIGHT RANGE" />
+                <Text style={[styles.sliderValue, { color: colors.text }]}>{heightMin} – {heightMax} cm</Text>
+              </View>
+              <View style={[styles.sliderEdgeRow, { marginTop: 10 }]}>
+                <Text style={[styles.sliderEdge, { color: colors.textSecondary }]}>130</Text>
+                <View style={{ flex: 1 }}>
+                  <RangeSlider min={130} max={220} low={heightMin} high={heightMax} colors={colors} onLowChange={setHeightMin} onHighChange={setHeightMax} />
+                </View>
+                <Text style={[styles.sliderEdge, { color: colors.textSecondary }]}>220</Text>
+              </View>
+            </Squircle>
+
+            {/* Ethnicity */}
+            <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
+              <SecHead title="ETHNICITY" />
+              <View style={[styles.filterChipRow, { marginTop: 12 }]}>
+                {lo('ethnicity').map(v => (
+                  <FilterChip key={v.id} label={v.label} selected={ethnicities.includes(v.id)} onPress={() => toggle(ethnicities, setEthnicities, v.id)} colors={colors} />
+                ))}
+              </View>
+            </Squircle>
+
+            {/* Exercise */}
+            <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
+              <SecHead title="EXERCISE" />
+              <View style={[styles.filterChipRow, { marginTop: 12 }]}>
+                {lo('exercise').map(v => (
+                  <FilterChip key={v.id} emoji={v.emoji} label={v.label} selected={exercise.includes(v.id)} onPress={() => toggle(exercise, setExercise, v.id)} colors={colors} />
+                ))}
+              </View>
+            </Squircle>
+
+            {/* Drinking */}
+            <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
+              <SecHead title="DRINKING" />
+              <View style={[styles.filterChipRow, { marginTop: 12 }]}>
+                {lo('drinking').map(v => (
+                  <FilterChip key={v.id} emoji={v.emoji} label={v.label} selected={drinking.includes(v.id)} onPress={() => toggle(drinking, setDrinking, v.id)} colors={colors} />
+                ))}
+              </View>
+            </Squircle>
+
+            {/* Smoking */}
+            <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
+              <SecHead title="SMOKING" />
+              <View style={[styles.filterChipRow, { marginTop: 12 }]}>
+                {lo('smoking').map(v => (
+                  <FilterChip key={v.id} emoji={v.emoji} label={v.label} selected={smoking.includes(v.id)} onPress={() => toggle(smoking, setSmoking, v.id)} colors={colors} />
                 ))}
               </View>
             </Squircle>
@@ -419,7 +500,7 @@ export default function DateFilterSheet({ visible, onClose, onApply, colors, ins
             <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
               <SecHead title="LOOKING FOR" />
               <View style={[styles.filterChipRow, { marginTop: 12 }]}>
-                {LOOKUP.looking_for.map(v => (
+                {lo('looking_for').map(v => (
                   <FilterChip key={v.id} emoji={v.emoji} label={v.label} selected={lookingFor.includes(v.id)} onPress={() => toggle(lookingFor, setLookingFor, v.id)} colors={colors} />
                 ))}
               </View>
@@ -428,7 +509,7 @@ export default function DateFilterSheet({ visible, onClose, onApply, colors, ins
             <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
               <SecHead title="EDUCATION LEVEL" />
               <View style={[styles.filterChipRow, { marginTop: 12 }]}>
-                {LOOKUP.education_level.map(v => (
+                {lo('education_level').map(v => (
                   <FilterChip key={v.id} emoji={v.emoji} label={v.label} selected={education.includes(v.id)} onPress={() => toggle(education, setEducation, v.id)} colors={colors} />
                 ))}
               </View>
@@ -437,7 +518,7 @@ export default function DateFilterSheet({ visible, onClose, onApply, colors, ins
             <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
               <SecHead title="FAMILY PLANS" />
               <View style={[styles.filterChipRow, { marginTop: 12 }]}>
-                {LOOKUP.family_plans.map(v => (
+                {lo('family_plans').map(v => (
                   <FilterChip key={v.id} emoji={v.emoji} label={v.label} selected={familyPlans.includes(v.id)} onPress={() => toggle(familyPlans, setFamilyPlans, v.id)} colors={colors} />
                 ))}
               </View>
@@ -446,7 +527,7 @@ export default function DateFilterSheet({ visible, onClose, onApply, colors, ins
             <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
               <SecHead title="HAVE KIDS" />
               <View style={[styles.filterChipRow, { marginTop: 12 }]}>
-                {LOOKUP.have_kids.map(v => (
+                {lo('have_kids').map(v => (
                   <FilterChip key={v.id} emoji={v.emoji} label={v.label} selected={havingKids.includes(v.id)} onPress={() => toggle(havingKids, setHavingKids, v.id)} colors={colors} />
                 ))}
               </View>
@@ -497,10 +578,10 @@ export default function DateFilterSheet({ visible, onClose, onApply, colors, ins
 
             {[
               { title: 'RELATIONSHIP INTENT', items: RELATIONSHIP_TYPES.map(v => v.label) },
-              { title: 'LOOKING FOR',         items: LOOKUP.looking_for.map(v => v.label) },
-              { title: 'EDUCATION LEVEL',     items: LOOKUP.education_level.map(v => v.label) },
-              { title: 'FAMILY PLANS',        items: LOOKUP.family_plans.map(v => v.label) },
-              { title: 'HAVE KIDS',           items: LOOKUP.have_kids.map(v => v.label) },
+              { title: 'LOOKING FOR',         items: lo('looking_for').map(v => v.label) },
+              { title: 'EDUCATION LEVEL',     items: lo('education_level').map(v => v.label) },
+              { title: 'FAMILY PLANS',        items: lo('family_plans').map(v => v.label) },
+              { title: 'HAVE KIDS',           items: lo('have_kids').map(v => v.label) },
             ].map(sec => (
               <Squircle key={sec.title} style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
                 <View style={styles.proFeatureRow}>

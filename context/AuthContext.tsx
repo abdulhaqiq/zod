@@ -1,7 +1,7 @@
 import * as SecureStore from 'expo-secure-store';
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { Platform } from 'react-native';
-import { API_V1, registerAuthHandlers } from '@/constants/api';
+import { API_V1, WS_V1, registerAuthHandlers } from '@/constants/api';
 
 const ACCESS_KEY  = 'auth_token';
 const REFRESH_KEY = 'refresh_token';
@@ -37,6 +37,10 @@ export interface UserProfile {
   have_kids_id: number | null;       // lookup_options id (category=have_kids)
   star_sign_id: number | null;       // lookup_options id (category=star_sign)
   religion_id: number | null;        // lookup_options id (category=religion)
+  ethnicity_id: number | null;       // lookup_options id (category=ethnicity)
+
+  mood_emoji: string | null;
+  mood_text: string | null;
 
   voice_prompts: Array<{ topic: string; url: string; duration_sec: number }> | null;
   work_experience: Array<{ job_title: string; company: string; start_year: string; end_year: string; current: boolean }> | null;
@@ -80,6 +84,12 @@ export interface UserProfile {
   filter_education_level: number[] | null;
   filter_family_plans:    number[] | null;
   filter_have_kids:       number[] | null;
+  filter_ethnicities:     number[] | null;
+  filter_exercise:        number[] | null;
+  filter_drinking:        number[] | null;
+  filter_smoking:         number[] | null;
+  filter_height_min:      number | null;
+  filter_height_max:      number | null;
 
   is_verified: boolean;
   is_onboarded: boolean;
@@ -92,12 +102,14 @@ interface AuthContextValue {
   refreshToken: string | null;
   isOnboarded: boolean;
   isLoading: boolean;
+  isNetworkError: boolean;
   profile: UserProfile | null;
   signIn: (accessToken: string, refreshToken: string, isOnboarded: boolean) => Promise<void>;
   signOut: () => Promise<void>;
   setOnboarded: () => Promise<void>;
   updateProfile: (patch: Partial<UserProfile>) => void;
   tryRefresh: () => Promise<string | null>;
+  retryBootstrap: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue>({
@@ -105,12 +117,14 @@ const AuthContext = createContext<AuthContextValue>({
   refreshToken: null,
   isOnboarded: false,
   isLoading: true,
+  isNetworkError: false,
   profile: null,
   signIn: async () => {},
   signOut: async () => {},
   setOnboarded: async () => {},
   updateProfile: () => {},
   tryRefresh: async () => null,
+  retryBootstrap: () => {},
 });
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -118,25 +132,68 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [refreshToken, setRefresh]      = useState<string | null>(null);
   const [isOnboarded, setIsOnboarded]   = useState(false);
   const [isLoading, setIsLoading]       = useState(true);
+  const [isNetworkError, setIsNetworkError] = useState(false);
   const [profile, setProfile]           = useState<UserProfile | null>(null);
+  const [bootstrapTick, setBootstrapTick] = useState(0);
 
   const refreshTokenRef = useRef<string | null>(null);
   refreshTokenRef.current = refreshToken;
 
-  async function _fetchProfile(accessToken: string): Promise<UserProfile | null> {
+  // ── Global presence WebSocket — keeps user "online" in notify_manager ────────
+  const presenceWsRef = useRef<WebSocket | null>(null);
+  const presenceRetryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (!token) {
+      presenceWsRef.current?.close();
+      presenceWsRef.current = null;
+      return;
+    }
+
+    let disposed = false;
+
+    function connectPresence(t: string) {
+      if (disposed) return;
+      const ws = new WebSocket(`${WS_V1}/ws/notify?token=${t}`);
+      presenceWsRef.current = ws;
+
+      ws.onclose = () => {
+        presenceWsRef.current = null;
+        if (!disposed) {
+          presenceRetryRef.current = setTimeout(() => connectPresence(t), 5000);
+        }
+      };
+
+      ws.onerror = () => ws.close();
+    }
+
+    connectPresence(token);
+
+    return () => {
+      disposed = true;
+      if (presenceRetryRef.current) clearTimeout(presenceRetryRef.current);
+      presenceWsRef.current?.close();
+      presenceWsRef.current = null;
+    };
+  }, [token]);
+
+  async function _fetchProfile(accessToken: string): Promise<UserProfile | null | 'network_error'> {
     try {
       const res = await fetch(`${API_V1}/profile/me`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       if (res.ok) return res.json() as Promise<UserProfile>;
+      // 401/403 = bad token; any other HTTP error is not a network error
       return null;
     } catch {
-      return null;
+      // fetch() itself threw — network unreachable / DNS failure
+      return 'network_error';
     }
   }
 
   useEffect(() => {
     async function bootstrap() {
+      setIsNetworkError(false);
       const [access, refresh] = await Promise.all([
         SecureStore.getItemAsync(ACCESS_KEY),
         SecureStore.getItemAsync(REFRESH_KEY),
@@ -147,27 +204,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      let activeToken = access; // tracks whichever token is currently valid
+      let activeToken = access;
       let me = await _fetchProfile(access);
+
+      if (me === 'network_error') {
+        // Network unreachable — keep the session intact, show no-connection screen
+        setToken(access);
+        setRefresh(refresh ?? null);
+        setIsNetworkError(true);
+        setIsLoading(false);
+        return;
+      }
 
       if (!me && refresh) {
         // Access token expired — try a refresh
         const newAccess = await _doRefresh(refresh);
         if (newAccess) {
-          activeToken = newAccess; // use the refreshed token going forward
-          me = await _fetchProfile(newAccess);
+          activeToken = newAccess;
+          const retried = await _fetchProfile(newAccess);
+          if (retried === 'network_error') {
+            setToken(newAccess);
+            setRefresh(refresh);
+            setIsNetworkError(true);
+            setIsLoading(false);
+            return;
+          }
+          me = retried;
         }
       }
 
-      if (me) {
-        // Always set the correct (possibly refreshed) token — never overwrite
-        // with the old expired one
+      if (me && me !== 'network_error') {
         setToken(activeToken);
         setRefresh(refresh ?? null);
         setProfile(me);
         setIsOnboarded(me.is_onboarded);
       } else {
-        // Token unusable — clear session
+        // Token genuinely unusable (401 etc) — clear session
         await _clearSession();
       }
 
@@ -175,7 +247,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     bootstrap();
-  }, []);
+  }, [bootstrapTick]);
 
   async function _clearSession() {
     await SecureStore.deleteItemAsync(ACCESS_KEY);
@@ -266,6 +338,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setRefresh(null);
     setIsOnboarded(false);
     setProfile(null);
+    setIsNetworkError(false);
   };
 
   const setOnboarded = async () => {
@@ -278,14 +351,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (patch.is_onboarded !== undefined) setIsOnboarded(patch.is_onboarded);
   };
 
+  const retryBootstrap = () => {
+    setIsLoading(true);
+    setIsNetworkError(false);
+    setBootstrapTick(t => t + 1);
+  };
+
   useEffect(() => {
     registerAuthHandlers(tryRefresh, signOut);
   }, [refreshToken]);
 
   return (
     <AuthContext.Provider value={{
-      token, refreshToken, isOnboarded, isLoading, profile,
-      signIn, signOut, setOnboarded, updateProfile, tryRefresh,
+      token, refreshToken, isOnboarded, isLoading, isNetworkError, profile,
+      signIn, signOut, setOnboarded, updateProfile, tryRefresh, retryBootstrap,
     }}>
       {children}
     </AuthContext.Provider>

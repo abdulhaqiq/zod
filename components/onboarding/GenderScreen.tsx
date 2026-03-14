@@ -4,23 +4,21 @@ import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Squircle from '@/components/ui/Squircle';
-import { LOOKUP } from '@/constants/lookupData';
 import { useAuth } from '@/context/AuthContext';
 import { useAppTheme } from '@/context/ThemeContext';
+import { useLookupsCategory } from '@/hooks/useLookups';
 import { useProfileSave } from '@/hooks/useProfileSave';
 import OnboardingShell from './OnboardingShell';
 
 const { width: W } = Dimensions.get('window');
 const CARD_W = (W - 48 - 14) / 2; // 48 = horizontal padding, 14 = gap
 
-// Only Male / Female
-const GENDERS = LOOKUP.gender;
-
 export default function GenderScreen() {
   const router = useRouter();
   const { colors } = useAppTheme();
   const { save, saving } = useProfileSave();
   const { profile } = useAuth();
+  const genders = useLookupsCategory('gender');
 
   const [selectedId, setSelectedId] = useState<number | null>(profile?.gender_id ?? null);
 
@@ -40,7 +38,7 @@ export default function GenderScreen() {
       loading={saving}
     >
       <View style={styles.row}>
-        {GENDERS.map(({ id, emoji, label }) => {
+        {genders.map(({ id, emoji, label }) => {
           const active = selectedId === id;
           return (
             <Pressable key={id} onPress={() => setSelectedId(id)}>
@@ -52,9 +50,8 @@ export default function GenderScreen() {
                 strokeColor={colors.border}
                 strokeWidth={active ? 0 : 1.5}
               >
-                {/* Content wrapper — needed because SVG is absolutely positioned */}
                 <View style={styles.cardContent}>
-                  <Text style={[styles.emoji, { color: active ? '#ffffff' : colors.text }]}>{emoji}</Text>
+                  {emoji ? <Text style={[styles.emoji, { color: active ? '#ffffff' : colors.text }]}>{emoji}</Text> : null}
                   <Text style={[styles.label, { color: active ? '#ffffff' : colors.text }]}>
                     {label}
                   </Text>

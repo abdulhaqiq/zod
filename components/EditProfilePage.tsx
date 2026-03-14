@@ -20,21 +20,18 @@ import {
 import ScreenHeader from '@/components/ui/ScreenHeader';
 import Squircle from '@/components/ui/Squircle';
 import { apiFetch, API_V1 } from '@/constants/api';
-import { getLookupLabel, LOOKUP } from '@/constants/lookupData';
+import { getLookupLabel } from '@/constants/lookupData';
 import { useAuth } from '@/context/AuthContext';
 import { useAppTheme } from '@/context/ThemeContext';
 import type { AppColors } from '@/constants/appColors';
+import { useLookups } from '@/hooks/useLookups';
 
 const { width: W } = Dimensions.get('window');
 const GRID_PADDING = 12;
 const GRID_GAP = 8;
 const SLOT_SIZE = (W - 32 - GRID_PADDING * 2 - GRID_GAP * 2) / 3;
 
-// ─── Chip data (from shared LOOKUP — IDs match DB lookup_options rows) ────────
-
-const INTERESTS: ChipOption[] = LOOKUP.interests.map(r => ({ value: String(r.id), emoji: r.emoji, label: r.label }));
-const CAUSES: ChipOption[]    = LOOKUP.causes.map(r => ({ value: String(r.id), emoji: r.emoji, label: r.label }));
-const QUALITIES: ChipOption[] = LOOKUP.values_list.map(r => ({ value: String(r.id), emoji: r.emoji, label: r.label }));
+// ─── Chip data is now loaded from the API via useLookups() inside the component ─
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -328,6 +325,14 @@ export default function EditProfilePage() {
   const router = useRouter();
   const { colors } = useAppTheme();
   const { profile, token, updateProfile } = useAuth();
+
+  // ── Live lookup options from API ──────────────────────────────────────────
+  const { lookups } = useLookups();
+  const toChips = (cat: string): ChipOption[] =>
+    (lookups[cat] ?? []).map(r => ({ value: String(r.id), emoji: r.emoji, label: r.label }));
+  const INTERESTS = toChips('interests');
+  const CAUSES    = toChips('causes');
+  const QUALITIES = toChips('values_list');
 
   // ── Email inline edit ─────────────────────────────────────────────────────
   const [editingEmail, setEditingEmail] = useState(false);

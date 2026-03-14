@@ -4,20 +4,22 @@ import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '@/context/AuthContext';
 import { useAppTheme } from '@/context/ThemeContext';
-import { LOOKUP } from '@/constants/lookupData';
+import { useLookupsCategory } from '@/hooks/useLookups';
 import { useProfileSave } from '@/hooks/useProfileSave';
 import OnboardingShell from './OnboardingShell';
-
-// Personal values only (first 16 items, excluding life goals)
-const ALL_VALUES = LOOKUP.values_list.slice(0, 16);
 
 export default function ValuesScreen() {
   const router = useRouter();
   const { colors } = useAppTheme();
   const { save, saving } = useProfileSave();
   const { profile } = useAuth();
-  const valueIds = ALL_VALUES.map(v => v.id);
-  const existingValues = (profile?.values_list ?? []).filter(id => valueIds.includes(id));
+  const allValues = useLookupsCategory('values_list');
+  // Personal values only (items without a life-goal emoji prefix; the first 16 by convention)
+  const personalValues = allValues.filter(v => !v.emoji);
+  const goalValues = allValues.filter(v => !!v.emoji);
+  const personalIds = personalValues.map(v => v.id);
+  const goalIds = goalValues.map(v => v.id);
+  const existingValues = (profile?.values_list ?? []).filter(id => personalIds.includes(id));
   const [selected, setSelected] = useState<number[]>(existingValues);
 
   const toggle = (id: number) =>
@@ -27,9 +29,7 @@ export default function ValuesScreen() {
 
   const handleContinue = async () => {
     if (selected.length === 0) return;
-    // Merge with existing values_list — keep life goals (ids >= 267), replace personal values
     const existing = profile?.values_list ?? [];
-    const goalIds = LOOKUP.values_list.slice(16).map(v => v.id);
     const mergedGoals = existing.filter(id => goalIds.includes(id));
     const ok = await save({ values_list: [...selected, ...mergedGoals] });
     if (ok) router.push('/prompts');
@@ -45,7 +45,7 @@ export default function ValuesScreen() {
       loading={saving}
     >
       <View style={styles.grid}>
-        {ALL_VALUES.map((item) => {
+        {personalValues.map((item) => {
           const active = selected.includes(item.id);
           return (
             <Pressable

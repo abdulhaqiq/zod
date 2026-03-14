@@ -19,12 +19,14 @@ import { useAppTheme } from '@/context/ThemeContext';
 const { width: W } = Dimensions.get('window');
 const LIKED_CARD_W  = Math.floor((W - 44) / 2);
 const LIKED_PHOTO_H = Math.floor(LIKED_CARD_W * 4 / 3);
-const FREE_VISIBLE  = 2;
+// Always show first 2 unblurred, rest blurred
+const VISIBLE_COUNT = 2;
 
 interface Profile {
   id: string; name: string; age: number; verified: boolean; premium: boolean;
   location: string; distance: string; about: string;
   images: string[];
+  is_super_like?: boolean;
   details: { height: string; drinks: string; smokes: string; gender: string; wantsKids: string; sign: string; politics: string; religion: string; work: string; education: string };
   lookingFor: string;
   interests: { emoji: string; label: string }[];
@@ -32,13 +34,8 @@ interface Profile {
   languages: string[];
 }
 
-// A confirmed match (liked back) — stores when the match happened
 interface RecentMatch {
-  id: string;
-  name: string;
-  age: number;
-  image: string;
-  matchedAt: number; // timestamp ms
+  id: string; name: string; age: number; image: string; matchedAt: number;
 }
 
 function LikedCardSkeleton() {
@@ -57,8 +54,7 @@ function LikedCardSkeleton() {
 }
 
 function format24h(matchedAt: number): string {
-  const diffMs   = Date.now() - matchedAt;
-  const remaining = Math.max(0, 24 * 60 * 60 * 1000 - diffMs);
+  const remaining = Math.max(0, 24 * 60 * 60 * 1000 - (Date.now() - matchedAt));
   if (remaining === 0) return 'Expired';
   const hh = Math.floor(remaining / (60 * 60 * 1000));
   const mm = Math.floor((remaining % (60 * 60 * 1000)) / (60 * 1000));
@@ -66,26 +62,23 @@ function format24h(matchedAt: number): string {
 }
 
 export default function LikedYouPage({ insets, token }: { insets: any; token: string | null }) {
-  const router   = useRouter();
+  const router     = useRouter();
   const { colors } = useAppTheme();
 
-  const [likedProfiles, setLikedProfiles] = useState<Profile[]>([]);
-  const [loading,       setLoading]       = useState(true);
-  const [removed,       setRemoved]       = useState<string[]>([]);   // disliked or liked-back
-  const [recentMatches, setRecentMatches] = useState<RecentMatch[]>([]);
+  const [likedProfiles,  setLikedProfiles]  = useState<Profile[]>([]);
+  const [loading,        setLoading]        = useState(true);
+  const [recentMatches,  setRecentMatches]  = useState<RecentMatch[]>([]);
   const [matchedProfile, setMatchedProfile] = useState<MatchedProfile | null>(null);
-  const [isPro,         setIsPro]         = useState(false);
 
-  const [, setTick] = useState(0); // force re-render every minute for countdown
+  const [, setTick] = useState(0);
   const wsRef = useRef<WebSocket | null>(null);
 
-  // Tick every 60s to refresh countdown timers
   useEffect(() => {
     const t = setInterval(() => setTick(n => n + 1), 60_000);
     return () => clearInterval(t);
   }, []);
 
-  // Initial load
+  // Load from API on mount
   useEffect(() => {
     if (!token) return;
     setLoading(true);
@@ -95,7 +88,7 @@ export default function LikedYouPage({ insets, token }: { insets: any; token: st
       .finally(() => setLoading(false));
   }, [token]);
 
-  // WebSocket — real-time liked_you / match events
+  // WebSocket — real-time new likes / matches
   useEffect(() => {
     if (!token) return;
     const ws = new WebSocket(`${WS_V1}/ws/notify?token=${token}`);
@@ -104,16 +97,9 @@ export default function LikedYouPage({ insets, token }: { insets: any; token: st
       try {
         const msg = JSON.parse(e.data);
         if (msg.type === 'liked_you' && msg.profile) {
-          setLikedProfiles(prev => {
-            if (prev.some(p => p.id === msg.profile.id)) return prev;
-            return [msg.profile, ...prev];
-          });
+          setLikedProfiles(prev => prev.some(p => p.id === msg.profile.id) ? prev : [msg.profile, ...prev]);
         } else if (msg.type === 'match' && msg.profile) {
-          // WS-initiated match (the other person liked us first via feed, we liked back)
-          setMatchedProfile({
-            id: msg.profile.id, name: msg.profile.name,
-            age: msg.profile.age, image: msg.profile.images?.[0] ?? '',
-          });
+          setMatchedProfile({ id: msg.profile.id, name: msg.profile.name, age: msg.profile.age, image: msg.profile.images?.[0] ?? '', interests: msg.profile.interests, prompts: msg.profile.prompts });
         }
       } catch { /* ignore */ }
     };
@@ -121,30 +107,28 @@ export default function LikedYouPage({ insets, token }: { insets: any; token: st
     return () => { ws.close(); wsRef.current = null; };
   }, [token]);
 
-  const visible = likedProfiles.filter(p => !removed.includes(p.id));
-  const count   = visible.length;
+  // Remove a profile from the list (after like or dislike)
+  const removeProfile = (id: string) => setLikedProfiles(prev => prev.filter(p => p.id !== id));
 
-  // ── Like back ────────────────────────────────────────────────────────────────
+  // Like back → swipe right → if match show overlay + add to matches row
   const handleLike = async (p: Profile) => {
+    removeProfile(p.id);
     if (!token) return;
-    setRemoved(prev => [...prev, p.id]);   // optimistically remove from grid
     try {
-      const res = await apiFetch<{ match: boolean; match_id?: string }>(
+      const res = await apiFetch<{ match: boolean }>(
         '/discover/swipe',
         { method: 'POST', token, body: JSON.stringify({ swiped_id: p.id, direction: 'right', mode: 'date' }) },
       );
       if (res.match) {
-        // It's a mutual match — show celebration overlay
-        const mp: MatchedProfile = { id: p.id, name: p.name, age: p.age, image: p.images[0] ?? '' };
-        setMatchedProfile(mp);
+        setMatchedProfile({ id: p.id, name: p.name, age: p.age, image: p.images[0] ?? '', interests: p.interests, prompts: p.prompts });
         setRecentMatches(prev => [{ id: p.id, name: p.name, age: p.age, image: p.images[0] ?? '', matchedAt: Date.now() }, ...prev]);
       }
-    } catch { /* ignore — swipe recorded locally */ }
+    } catch { /* swipe recorded locally */ }
   };
 
-  // ── Dislike ──────────────────────────────────────────────────────────────────
+  // Dislike → swipe left → remove from list
   const handleDislike = async (id: string) => {
-    setRemoved(prev => [...prev, id]);     // immediately remove from grid
+    removeProfile(id);
     if (!token) return;
     try {
       await apiFetch('/discover/swipe', {
@@ -154,6 +138,8 @@ export default function LikedYouPage({ insets, token }: { insets: any; token: st
     } catch { /* ignore */ }
   };
 
+  const count = likedProfiles.length;
+
   return (
     <View style={{ flex: 1 }}>
       <ScrollView
@@ -161,40 +147,28 @@ export default function LikedYouPage({ insets, token }: { insets: any; token: st
         contentContainerStyle={{ paddingBottom: insets.bottom + 90 }}
         showsVerticalScrollIndicator={false}
       >
-        {/* Header */}
+        {/* Header — no Pro/Free toggle */}
         <View style={styles.header}>
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.pageTitle, { color: colors.text }]}>Liked You</Text>
-            <Text style={[styles.pageSub, { color: colors.textSecondary }]}>{count} people already like you</Text>
-          </View>
-          <Pressable onPress={() => setIsPro(v => !v)} style={({ pressed }) => [pressed && { opacity: 0.7 }]}>
-            <Squircle style={styles.proBtn} cornerRadius={20} cornerSmoothing={1}
-              fillColor={isPro ? colors.text : colors.surface2}
-              strokeColor={colors.border} strokeWidth={StyleSheet.hairlineWidth}>
-              <Ionicons name="star" size={13} color={isPro ? colors.bg : colors.text} />
-              <Text style={[styles.proBtnText, { color: isPro ? colors.bg : colors.text }]}>{isPro ? 'Pro' : 'Free'}</Text>
-            </Squircle>
-          </Pressable>
+          <Text style={[styles.pageTitle, { color: colors.text }]}>Liked You</Text>
+          <Text style={[styles.pageSub, { color: colors.textSecondary }]}>{count} {count === 1 ? 'person' : 'people'} already like you</Text>
         </View>
 
-        {/* Upgrade banner */}
-        {!isPro && (
-          <Pressable onPress={() => router.push('/subscription')} style={({ pressed }) => [pressed && { opacity: 0.85 }]}>
-            <Squircle style={styles.upgradeBanner} cornerRadius={20} cornerSmoothing={1}
-              fillColor={colors.surface} strokeColor={colors.border} strokeWidth={StyleSheet.hairlineWidth}>
-              <Squircle style={styles.upgradeIcon} cornerRadius={14} cornerSmoothing={1} fillColor={colors.surface2}>
-                <Ionicons name="lock-closed" size={18} color={colors.text} />
-              </Squircle>
-              <View style={{ flex: 1, gap: 2 }}>
-                <Text style={[styles.upgradeTitle, { color: colors.text }]}>See everyone who liked you</Text>
-                <Text style={[styles.upgradeSub, { color: colors.textSecondary }]}>Upgrade to Zod Pro to unlock all profiles</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />
+        {/* Upgrade banner — always shown (non-Pro users see blurred cards) */}
+        <Pressable onPress={() => router.push('/subscription')} style={({ pressed }) => [pressed && { opacity: 0.85 }]}>
+          <Squircle style={styles.upgradeBanner} cornerRadius={20} cornerSmoothing={1}
+            fillColor={colors.surface} strokeColor={colors.border} strokeWidth={StyleSheet.hairlineWidth}>
+            <Squircle style={styles.upgradeIcon} cornerRadius={14} cornerSmoothing={1} fillColor={colors.surface2}>
+              <Ionicons name="lock-closed" size={18} color={colors.text} />
             </Squircle>
-          </Pressable>
-        )}
+            <View style={{ flex: 1, gap: 2 }}>
+              <Text style={[styles.upgradeTitle, { color: colors.text }]}>See everyone who liked you</Text>
+              <Text style={[styles.upgradeSub, { color: colors.textSecondary }]}>Upgrade to Zod Pro to unlock all profiles</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />
+          </Squircle>
+        </Pressable>
 
-        {/* Recent matches row — circular avatars with 24h countdown */}
+        {/* Matches row — circular avatars with 24h countdown */}
         {recentMatches.length > 0 && (
           <View style={{ paddingHorizontal: 16, marginBottom: 16 }}>
             <Text style={[styles.matchesRowLabel, { color: colors.textSecondary }]}>MATCHES</Text>
@@ -221,15 +195,15 @@ export default function LikedYouPage({ insets, token }: { insets: any; token: st
           </View>
         )}
 
-        {/* Cards grid */}
+        {/* Cards grid — first VISIBLE_COUNT are clear, rest are blurred */}
         <View style={styles.grid}>
           {loading ? (
             <>
               <LikedCardSkeleton /><LikedCardSkeleton />
               <LikedCardSkeleton /><LikedCardSkeleton />
             </>
-          ) : visible.map((p, i) => {
-            const isBlurred = !isPro && i >= FREE_VISIBLE;
+          ) : likedProfiles.map((p, i) => {
+            const isBlurred = i >= VISIBLE_COUNT;
             return (
               <View key={p.id} style={[styles.cardWrap, { width: LIKED_CARD_W }]}>
                 <Squircle style={styles.card} cornerRadius={24} cornerSmoothing={1}
@@ -237,29 +211,26 @@ export default function LikedYouPage({ insets, token }: { insets: any; token: st
                   <View style={styles.photoWrap}>
                     <ExpoImage
                       source={{ uri: p.images[0] }}
-                      style={[styles.photo, isBlurred && styles.photoBlurred]}
+                      style={styles.photo}
                       contentFit="cover"
-                      blurRadius={isBlurred ? 18 : 0}
+                      blurRadius={isBlurred ? 20 : 0}
                     />
+                    {/* Gradient + name/distance overlay — only on unblurred cards */}
                     {!isBlurred && (
                       <LinearGradient colors={['transparent', 'rgba(0,0,0,0.72)']} style={styles.photoGrad}>
                         <Text style={styles.photoName}>{p.name}, {p.age}</Text>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                          {p.distance ? (
+                          {(p.distance || p.location) && (
                             <>
                               <Ionicons name="location-outline" size={10} color="rgba(255,255,255,0.7)" />
-                              <Text style={styles.photoDist}>{p.distance}</Text>
+                              <Text style={styles.photoDist}>{p.distance || p.location}</Text>
                             </>
-                          ) : p.location ? (
-                            <>
-                              <Ionicons name="location-outline" size={10} color="rgba(255,255,255,0.7)" />
-                              <Text style={styles.photoDist}>{p.location}</Text>
-                            </>
-                          ) : null}
+                          )}
                           {p.verified && <Ionicons name="checkmark-circle" size={11} color="#fff" />}
                         </View>
                       </LinearGradient>
                     )}
+                    {/* Blurred lock overlay */}
                     {isBlurred && (
                       <Pressable
                         style={[StyleSheet.absoluteFill, styles.lockOverlay]}
@@ -271,13 +242,15 @@ export default function LikedYouPage({ insets, token }: { insets: any; token: st
                         <Text style={styles.lockText}>Upgrade{'\n'}to see</Text>
                       </Pressable>
                     )}
+                    {/* Heart / Super Like badge — only on unblurred */}
                     {!isBlurred && (
-                      <View style={[styles.heartBadge, { backgroundColor: colors.text }]}>
-                        <Ionicons name="heart" size={11} color={colors.bg} />
+                      <View style={[styles.heartBadge, p.is_super_like ? styles.superBadge : { backgroundColor: colors.text }]}>
+                        <Ionicons name={p.is_super_like ? 'star' : 'heart'} size={11} color="#fff" />
                       </View>
                     )}
                   </View>
 
+                  {/* Actions — only on unblurred cards */}
                   {!isBlurred && (
                     <View style={styles.infoRow}>
                       {p.interests[0] && (
@@ -287,23 +260,13 @@ export default function LikedYouPage({ insets, token }: { insets: any; token: st
                         </Squircle>
                       )}
                       <View style={styles.actions}>
-                        {/* Dislike — calls API + removes from list */}
-                        <Pressable
-                          onPress={() => handleDislike(p.id)}
-                          style={({ pressed }) => [pressed && { opacity: 0.65 }]}
-                          hitSlop={6}
-                        >
+                        <Pressable onPress={() => handleDislike(p.id)} style={({ pressed }) => [pressed && { opacity: 0.65 }]} hitSlop={6}>
                           <Squircle style={styles.passBtn} cornerRadius={50} cornerSmoothing={1}
                             fillColor={colors.surface2} strokeColor={colors.border} strokeWidth={StyleSheet.hairlineWidth}>
                             <Ionicons name="close" size={18} color={colors.text} />
                           </Squircle>
                         </Pressable>
-                        {/* Like back — calls API → if match, opens chat */}
-                        <Pressable
-                          onPress={() => handleLike(p)}
-                          style={({ pressed }) => [pressed && { opacity: 0.65 }, { flex: 1 }]}
-                          hitSlop={6}
-                        >
+                        <Pressable onPress={() => handleLike(p)} style={({ pressed }) => [pressed && { opacity: 0.65 }, { flex: 1 }]} hitSlop={6}>
                           <Squircle style={styles.likeBtn} cornerRadius={50} cornerSmoothing={1} fillColor={colors.text}>
                             <Ionicons name="heart" size={15} color={colors.bg} />
                             <Text style={[styles.likeBtnText, { color: colors.bg }]}>Like back</Text>
@@ -319,7 +282,7 @@ export default function LikedYouPage({ insets, token }: { insets: any; token: st
         </View>
 
         {/* Empty state */}
-        {!loading && visible.length === 0 && recentMatches.length === 0 && (
+        {!loading && likedProfiles.length === 0 && recentMatches.length === 0 && (
           <View style={styles.emptyWrap}>
             <Squircle style={styles.emptyIcon} cornerRadius={28} cornerSmoothing={1} fillColor={colors.surface}>
               <Ionicons name="heart-outline" size={32} color={colors.textTertiary} />
@@ -347,11 +310,9 @@ export default function LikedYouPage({ insets, token }: { insets: any; token: st
 }
 
 const styles = StyleSheet.create({
-  header:             { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 4, paddingBottom: 16 },
+  header:             { paddingHorizontal: 16, paddingTop: 4, paddingBottom: 16 },
   pageTitle:          { fontSize: 24, fontFamily: 'ProductSans-Black' },
-  pageSub:            { fontSize: 13, fontFamily: 'ProductSans-Regular', marginTop: 2, marginBottom: 16 },
-  proBtn:             { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 7 },
-  proBtnText:         { fontSize: 12, fontFamily: 'ProductSans-Bold' },
+  pageSub:            { fontSize: 13, fontFamily: 'ProductSans-Regular', marginTop: 2, marginBottom: 4 },
 
   upgradeBanner:      { flexDirection: 'row', alignItems: 'center', gap: 12, marginHorizontal: 16, marginBottom: 16, paddingHorizontal: 14, paddingVertical: 14 },
   upgradeIcon:        { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
@@ -370,11 +331,11 @@ const styles = StyleSheet.create({
   card:               { width: '100%', overflow: 'hidden', borderRadius: 24 },
   photoWrap:          { width: LIKED_CARD_W, height: LIKED_PHOTO_H, position: 'relative' },
   photo:              { width: LIKED_CARD_W, height: LIKED_PHOTO_H },
-  photoBlurred:       { opacity: 0.6 },
   photoGrad:          { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 10, gap: 2 },
   photoName:          { fontSize: 14, fontFamily: 'ProductSans-Black', color: '#fff' },
   photoDist:          { fontSize: 10, fontFamily: 'ProductSans-Regular', color: 'rgba(255,255,255,0.75)' },
   heartBadge:         { position: 'absolute', top: 10, right: 10, width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
+  superBadge:         { backgroundColor: '#3B82F6' },
   lockOverlay:        { alignItems: 'center', justifyContent: 'center', gap: 8 },
   lockIcon:           { width: 42, height: 42, alignItems: 'center', justifyContent: 'center' },
   lockText:           { fontSize: 12, fontFamily: 'ProductSans-Bold', color: '#fff', textAlign: 'center' },

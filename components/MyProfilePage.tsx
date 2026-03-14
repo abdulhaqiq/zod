@@ -9,6 +9,7 @@ import {
   StyleSheet,
   Switch,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
@@ -184,7 +185,7 @@ function SettingRow({
 
 export default function MyProfilePage({ colors, insets }: { colors: AppColors; insets: any }) {
   const router = useRouter();
-  const { token, refreshToken, signOut, profile } = useAuth();
+  const { token, refreshToken, signOut, profile, updateProfile } = useAuth();
   const { isDark, toggle } = useAppTheme();
   const { save } = useProfileSave();
 
@@ -234,9 +235,38 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
   const [haveKidsId,       setHaveKidsId]       = useState(profile?.have_kids_id       ? String(profile.have_kids_id)       : '');
   const [starSignId,       setStarSignId]       = useState(profile?.star_sign_id       ? String(profile.star_sign_id)       : '');
   const [religionId,       setReligionId]       = useState(profile?.religion_id        ? String(profile.religion_id)        : '');
+  const [ethnicityId,      setEthnicityId]      = useState(profile?.ethnicity_id       ? String(profile.ethnicity_id)       : '');
   const [languageIds,      setLanguageIds]      = useState<string[]>((profile?.languages ?? []).map(String));
+  const [moodEmoji,        setMoodEmoji]        = useState(profile?.mood_emoji ?? '');
+  const [moodText,         setMoodText]         = useState(profile?.mood_text ?? '');
 
-  const [snooze, setSnooze] = useState(false);
+  // ── Snooze Mode — backed by is_active on the server ─────────────────────
+  // is_active=true  → profile visible   → snooze=false
+  // is_active=false → profile hidden    → snooze=true
+  const [snooze,        setSnoozeLocal]  = useState(profile?.is_active === false);
+  const [snoozeLoading, setSnoozeLoading] = useState(false);
+
+  // Keep in sync if profile reloads
+  useEffect(() => {
+    setSnoozeLocal(profile?.is_active === false);
+  }, [profile?.is_active]);
+
+  const handleSnoozeToggle = async (val: boolean) => {
+    if (snoozeLoading || !token) return;
+    setSnoozeLocal(val);        // optimistic
+    setSnoozeLoading(true);
+    try {
+      const res = await apiFetch<{ snoozed: boolean; is_active: boolean }>(
+        '/profile/me/snooze', { method: 'PATCH', token }
+      );
+      setSnoozeLocal(res.snoozed);
+      updateProfile({ is_active: res.is_active });
+    } catch {
+      setSnoozeLocal(!val);     // revert on error
+    } finally {
+      setSnoozeLoading(false);
+    }
+  };
 
   // ── Profile completeness score ────────────────────────────────────────────
   const profileFields: { label: string; filled: boolean; tip: string }[] = [
@@ -250,6 +280,7 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
     { label: 'Family Plans',  filled: !!familyPlansId,                       tip: 'Set your family plans' },
     { label: 'Star Sign',     filled: !!starSignId,                          tip: 'Add your star sign' },
     { label: 'Religion',      filled: !!religionId,                          tip: 'Add your religion' },
+    { label: 'Ethnicity',     filled: !!ethnicityId,                         tip: 'Add your ethnicity' },
     { label: 'Languages',     filled: languageIds.length > 0,                tip: 'Add languages you speak' },
     { label: 'Interests',     filled: (profile?.interests?.length ?? 0) >= 3, tip: 'Pick at least 3 interests' },
     { label: 'Work/Education', filled: !!(profile?.company || profile?.school), tip: 'Add your work or education' },
@@ -272,7 +303,10 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
     setHaveKidsId(profile.have_kids_id             ? String(profile.have_kids_id)       : '');
     setStarSignId(profile.star_sign_id             ? String(profile.star_sign_id)       : '');
     setReligionId(profile.religion_id              ? String(profile.religion_id)        : '');
+    setEthnicityId(profile.ethnicity_id            ? String(profile.ethnicity_id)       : '');
     setLanguageIds((profile.languages ?? []).map(String));
+    setMoodEmoji(profile.mood_emoji ?? '');
+    setMoodText(profile.mood_text ?? '');
   }, [profile?.id]);
 
   // ── Save helpers ─────────────────────────────────────────────────────────
@@ -517,6 +551,40 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
               onDone: ([v]) => { setReligionId(v); saveField({ religion_id: Number(v) }); },
             })} colors={colors} />
 
+          <EditRow icon="people-outline" label="Ethnicity" value={getLookupLabel('ethnicity', ethnicityId ? Number(ethnicityId) : null) || '—'}
+            onPress={() => setChipPicker({
+              title: 'Ethnicity', options: opts('ethnicity'), single: true,
+              selected: ethnicityId ? [ethnicityId] : [],
+              onDone: ([v]) => { setEthnicityId(v); saveField({ ethnicity_id: Number(v) }); },
+            })} colors={colors} />
+
+          {/* ── Mood Status ── */}
+          <View style={[styles.moodRow, { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, paddingTop: 12 }]}>
+            <Ionicons name="happy-outline" size={18} color={colors.textSecondary} style={{ marginRight: 10 }} />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.moodLabel, { color: colors.textSecondary }]}>Mood Status</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <TextInput
+                  value={moodEmoji}
+                  onChangeText={setMoodEmoji}
+                  placeholder="😊"
+                  placeholderTextColor={colors.textTertiary}
+                  maxLength={2}
+                  style={[styles.moodEmojiInput, { color: colors.text, borderColor: colors.border }]}
+                />
+                <TextInput
+                  value={moodText}
+                  onChangeText={setMoodText}
+                  onEndEditing={() => saveField({ mood_emoji: moodEmoji || null, mood_text: moodText || null })}
+                  placeholder="What's your vibe today?"
+                  placeholderTextColor={colors.textTertiary}
+                  maxLength={60}
+                  style={[styles.moodTextInput, { color: colors.text, borderColor: colors.border, flex: 1 }]}
+                />
+              </View>
+            </View>
+          </View>
+
           <EditRow icon="language-outline" label="Languages"
             value={getLookupLabels('language', languageIds.map(Number)).join(', ') || '—'}
             onPress={() => setChipPicker({
@@ -551,8 +619,10 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
           />
           <SettingRow
             icon="moon-outline" label="Snooze Mode"
-            subtitle="Pause your profile visibility"
-            colors={colors} toggle toggleVal={snooze} onToggle={setSnooze}
+            subtitle={snooze ? 'Your profile is hidden from others' : 'Pause your profile visibility'}
+            colors={colors} toggle toggleVal={snooze}
+            onToggle={handleSnoozeToggle}
+            locked={snoozeLoading}
           />
           <SettingRow
             icon="eye-off-outline" label="Incognito Mode"
@@ -667,6 +737,11 @@ const styles = StyleSheet.create({
   section:           { paddingHorizontal: 16, marginTop: 22, gap: 6 },
   sectionLabel:      { fontSize: 12, fontFamily: 'ProductSans-Bold', letterSpacing: 1.5, marginLeft: 2, marginBottom: 2 },
   voiceSubtitle:     { fontSize: 12, fontFamily: 'ProductSans-Regular', marginBottom: 4, marginLeft: 2 },
+
+  moodRow:       { flexDirection: 'row', alignItems: 'flex-start', paddingHorizontal: 16, paddingVertical: 12 },
+  moodLabel:     { fontSize: 11, fontFamily: 'ProductSans-Bold', letterSpacing: 0.8, marginBottom: 6 },
+  moodEmojiInput: { width: 42, height: 36, borderWidth: 1, borderRadius: 10, textAlign: 'center', fontSize: 18, paddingHorizontal: 4 },
+  moodTextInput:  { height: 36, borderWidth: 1, borderRadius: 10, paddingHorizontal: 10, fontSize: 14, fontFamily: 'ProductSans-Regular' },
 
   group:             { overflow: 'hidden' },
 

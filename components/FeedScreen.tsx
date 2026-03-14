@@ -2,11 +2,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import SliderRN from '@react-native-community/slider';
 import { useRouter } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useImperativeHandle, useRef, useState, forwardRef } from 'react';
 import {
   Alert,
   Animated,
   Dimensions,
+  Easing,
   FlatList,
   Image,
   Modal,
@@ -157,11 +158,14 @@ interface Profile {
   id: string; name: string; age: number; verified: boolean; premium: boolean;
   location: string; distance: string; about: string;
   images: string[];
-  details: { height: string; drinks: string; smokes: string; gender: string; wantsKids: string; sign: string; politics: string; religion: string; work: string; education: string };
+  details: { height: string; drinks: string; smokes: string; gender: string; wantsKids: string; sign: string; politics: string; religion: string; ethnicity: string; work: string; education: string };
   lookingFor: string;
   interests: { emoji: string; label: string }[];
   prompts: { question: string; answer: string }[];
   languages: string[];
+  last_active_at?: string;
+  has_voice?: boolean;
+  mood?: { emoji: string; text: string } | null;
 }
 
 // ─── Data ─────────────────────────────────────────────────────────────────────
@@ -190,29 +194,144 @@ interface WorkProfile {
 // WorkProfile type kept here only for WorkMatchedPage stub in FeedScreen
 const WORK_MATCHED: WorkProfile[] = [];  // replaced by server-side matches (pending)
 
+// ─── Super Like Button ────────────────────────────────────────────────────────
+
+const SuperLikeBtn = ({ onPress }: { onPress: () => void }) => {
+  const scale    = useRef(new Animated.Value(1)).current;
+  const ring     = useRef(new Animated.Value(0)).current;
+  const ringOpacity = useRef(new Animated.Value(0)).current;
+  const spin     = useRef(new Animated.Value(0)).current;
+  const glow     = useRef(new Animated.Value(0)).current;
+
+  const fire = () => {
+    // Reset
+    ring.setValue(0);
+    ringOpacity.setValue(1);
+    spin.setValue(0);
+    glow.setValue(0);
+
+    Animated.parallel([
+      // Pop scale
+      Animated.sequence([
+        Animated.spring(scale, { toValue: 1.45, useNativeDriver: true, speed: 40, bounciness: 18 }),
+        Animated.spring(scale, { toValue: 1,    useNativeDriver: true, speed: 28, bounciness: 6 }),
+      ]),
+      // Ring burst outward + fade
+      Animated.parallel([
+        Animated.timing(ring,        { toValue: 1, duration: 520, useNativeDriver: true, easing: Easing.out(Easing.cubic) }),
+        Animated.timing(ringOpacity, { toValue: 0, duration: 520, useNativeDriver: true, easing: Easing.out(Easing.quad) }),
+      ]),
+      // Star spin
+      Animated.timing(spin, { toValue: 1, duration: 440, useNativeDriver: true, easing: Easing.out(Easing.back(1.2)) }),
+      // Glow pulse
+      Animated.sequence([
+        Animated.timing(glow, { toValue: 1, duration: 200, useNativeDriver: true }),
+        Animated.timing(glow, { toValue: 0, duration: 300, useNativeDriver: true }),
+      ]),
+    ]).start();
+
+    onPress();
+  };
+
+  const ringScale = ring.interpolate({ inputRange: [0, 1], outputRange: [1, 2.6] });
+  const rotate    = spin.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '72deg'] });
+  const glowOpacity = glow.interpolate({ inputRange: [0, 1], outputRange: [0, 0.55] });
+
+  return (
+    <Pressable onPress={fire} style={{ alignItems: 'center', justifyContent: 'center', width: 56, height: 56 }}>
+      {/* Burst ring */}
+      <Animated.View
+        pointerEvents="none"
+        style={{
+          position: 'absolute',
+          width: 56, height: 56, borderRadius: 28,
+          borderWidth: 2.5, borderColor: '#FFE066',
+          transform: [{ scale: ringScale }],
+          opacity: ringOpacity,
+        }}
+      />
+      {/* Glow halo */}
+      <Animated.View
+        pointerEvents="none"
+        style={{
+          position: 'absolute',
+          width: 56, height: 56, borderRadius: 28,
+          backgroundColor: '#FFE066',
+          opacity: glowOpacity,
+        }}
+      />
+      {/* Button circle */}
+      <Animated.View
+        style={[
+          styles.cardActionBtn,
+          styles.cardActionSuper,
+          { transform: [{ scale }] },
+        ]}
+      >
+        <Animated.View style={{ transform: [{ rotate }] }}>
+          <Ionicons name="star" size={22} color="#FFE066" />
+        </Animated.View>
+      </Animated.View>
+    </Pressable>
+  );
+}
+
 // ─── Profile Card (scrollable + swipeable) ────────────────────────────────────
 
-function ProfileCard({ profile, onSwipedLeft, onSwipedRight, colors }: {
+export interface ProfileCardHandle {
+  swipeLeft: () => void;
+  swipeRight: () => void;
+  swipeUp: () => void;
+}
+
+const ProfileCard = forwardRef<ProfileCardHandle, {
   profile: Profile;
   onSwipedLeft: () => void;
   onSwipedRight: () => void;
+  onSuperLike: () => void;
   colors: any;
-}) {
+}>(function ProfileCard({ profile, onSwipedLeft, onSwipedRight, onSuperLike, colors }, ref) {
   const position = useRef(new Animated.ValueXY()).current;
+  const superStampAnim = useRef(new Animated.Value(0)).current;
 
   const onSwipedLeftRef  = useRef(onSwipedLeft);
   const onSwipedRightRef = useRef(onSwipedRight);
-  useEffect(() => { onSwipedLeftRef.current = onSwipedLeft; onSwipedRightRef.current = onSwipedRight; }, [onSwipedLeft, onSwipedRight]);
+  const onSuperLikeRef   = useRef(onSuperLike);
+  useEffect(() => {
+    onSwipedLeftRef.current  = onSwipedLeft;
+    onSwipedRightRef.current = onSwipedRight;
+    onSuperLikeRef.current   = onSuperLike;
+  }, [onSwipedLeft, onSwipedRight, onSuperLike]);
 
   const resetCard = () => {
     Animated.spring(position, { toValue: { x: 0, y: 0 }, useNativeDriver: true, friction: 6, tension: 40 }).start();
   };
 
+  const swipeRight = () => {
+    Animated.timing(position, { toValue: { x: W + 200, y: 0 }, duration: 220, useNativeDriver: true })
+      .start(() => onSwipedRightRef.current());
+  };
+
+  const swipeLeft = () => {
+    Animated.timing(position, { toValue: { x: -(W + 200), y: 0 }, duration: 220, useNativeDriver: true })
+      .start(() => onSwipedLeftRef.current());
+  };
+
+  const swipeUp = () => {
+    superStampAnim.setValue(0);
+    Animated.sequence([
+      Animated.timing(superStampAnim, { toValue: 1, duration: 180, useNativeDriver: true }),
+      Animated.delay(650),
+      Animated.timing(superStampAnim, { toValue: 0, duration: 200, useNativeDriver: true }),
+    ]).start(() => onSuperLikeRef.current());
+  };
+
+  useImperativeHandle(ref, () => ({ swipeLeft, swipeRight, swipeUp }));
+
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder:        () => false,
       onStartShouldSetPanResponderCapture: () => false,
-      // Intercept in capture phase when clearly horizontal — beats ScrollView
       onMoveShouldSetPanResponderCapture: (_, g) => {
         const ax = Math.abs(g.dx);
         const ay = Math.abs(g.dy);
@@ -262,10 +381,12 @@ function ProfileCard({ profile, onSwipedLeft, onSwipedRight, colors }: {
     { icon: 'star-outline'        as const, label: 'Star sign',  value: profile.details.sign      },
     { icon: 'flag-outline'        as const, label: 'Politics',   value: profile.details.politics  },
     { icon: 'globe-outline'       as const, label: 'Religion',   value: profile.details.religion  },
+    { icon: 'people-outline'      as const, label: 'Ethnicity',  value: profile.details.ethnicity },
   ];
 
-  const likeOpacityAnim = position.x.interpolate({ inputRange: [0, SWIPE_THRESHOLD], outputRange: [0, 1], extrapolate: 'clamp' });
-  const nopeOpacityAnim = position.x.interpolate({ inputRange: [-SWIPE_THRESHOLD, 0], outputRange: [1, 0], extrapolate: 'clamp' });
+  const likeOpacityAnim  = position.x.interpolate({ inputRange: [0, SWIPE_THRESHOLD], outputRange: [0, 1], extrapolate: 'clamp' });
+  const nopeOpacityAnim  = position.x.interpolate({ inputRange: [-SWIPE_THRESHOLD, 0], outputRange: [1, 0], extrapolate: 'clamp' });
+  const superOpacityAnim = superStampAnim;
 
   return (
     <Animated.View style={[styles.card, cardStyle]} {...panResponder.panHandlers}>
@@ -274,6 +395,10 @@ function ProfileCard({ profile, onSwipedLeft, onSwipedRight, colors }: {
       </Animated.View>
       <Animated.View style={[styles.nopeStamp, { opacity: nopeOpacityAnim }]} pointerEvents="none">
         <Text style={styles.nopeStampText}>NOPE</Text>
+      </Animated.View>
+      <Animated.View style={[styles.superStamp, { opacity: superOpacityAnim, transform: [{ scale: superStampAnim.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0.7, 1.08, 1] }) }] }]} pointerEvents="none">
+        <Ionicons name="star" size={22} color="#3B82F6" />
+        <Text style={styles.superStampText}>SUPER LIKE</Text>
       </Animated.View>
 
       <ScrollView
@@ -292,24 +417,51 @@ function ProfileCard({ profile, onSwipedLeft, onSwipedRight, colors }: {
             style={[StyleSheet.absoluteFill]}
             pointerEvents="none"
           />
-          <View style={styles.photoInfo} pointerEvents="none">
-        {profile.premium && (
-          <View style={styles.premiumBadge}>
-                <Ionicons name="star" size={10} color="#FFD60A" />
-            <Text style={styles.premiumText}>PREMIUM</Text>
-          </View>
-        )}
-        <View style={styles.nameRow}>
-              <Text style={styles.photoName}>{profile.name}, {profile.age}</Text>
-              {profile.verified && <Ionicons name="checkmark-circle" size={20} color="#4FC3F7" style={{ marginLeft: 6 }} />}
-        </View>
-        <View style={styles.locationRow}>
-              <Ionicons name="location" size={12} color="rgba(255,255,255,0.7)" />
-              <Text style={styles.locationText}>{profile.location} · {profile.distance}</Text>
+          {/* Active now dot */}
+          {profile.last_active_at && (Date.now() - new Date(profile.last_active_at).getTime()) < 30 * 60 * 1000 && (
+            <View style={styles.activeDot} pointerEvents="none">
+              <View style={styles.activeDotInner} />
+              <Text style={styles.activeDotText}>Active now</Text>
             </View>
-            <View style={styles.scrollHint}>
-              <Ionicons name="chevron-down" size={13} color="rgba(255,255,255,0.6)" />
-              <Text style={styles.scrollHintText}>Scroll to see more</Text>
+          )}
+          {/* Voice intro badge */}
+          {profile.has_voice && (
+            <View style={styles.voiceBadge} pointerEvents="none">
+              <Ionicons name="mic" size={12} color="#fff" />
+            </View>
+          )}
+          <View style={styles.photoInfo}>
+            {/* Left: name / location / mood */}
+            <View style={{ flex: 1 }} pointerEvents="none">
+              {profile.premium && (
+                <View style={styles.premiumBadge}>
+                  <Ionicons name="star" size={10} color="#FFD60A" />
+                  <Text style={styles.premiumText}>PREMIUM</Text>
+                </View>
+              )}
+              <View style={styles.nameRow}>
+                <Text style={styles.photoName}>{profile.name}, {profile.age}</Text>
+                {profile.verified && <Ionicons name="checkmark-circle" size={20} color="#4FC3F7" style={{ marginLeft: 6 }} />}
+              </View>
+              <View style={styles.locationRow}>
+                <Ionicons name="location" size={12} color="rgba(255,255,255,0.7)" />
+                <Text style={styles.locationText}>{profile.location} · {profile.distance}</Text>
+              </View>
+              {profile.mood?.text && (
+                <View style={styles.moodPill}>
+                  {profile.mood.emoji ? <Text style={styles.moodEmoji}>{profile.mood.emoji}</Text> : null}
+                  <Text style={styles.moodText} numberOfLines={1}>{profile.mood.text}</Text>
+                </View>
+              )}
+              <View style={styles.scrollHint}>
+                <Ionicons name="chevron-down" size={13} color="rgba(255,255,255,0.6)" />
+                <Text style={styles.scrollHintText}>Scroll to see more</Text>
+              </View>
+            </View>
+
+            {/* Right: super like button */}
+            <View style={styles.cardActionCol}>
+              <SuperLikeBtn onPress={swipeUp} />
             </View>
           </View>
         </View>
@@ -463,9 +615,7 @@ function ProfileCard({ profile, onSwipedLeft, onSwipedRight, colors }: {
       </ScrollView>
     </Animated.View>
   );
-}
-
-// ─── Empty State ──────────────────────────────────────────────────────────────
+});
 
 function EmptyState({ onReset, colors }: { onReset: () => void; colors: any }) {
   return (
@@ -830,6 +980,7 @@ export default function FeedScreen() {
   const [hasMore,        setHasMore]      = useState(true);
   const [activeTab,      setActiveTab]    = useState('people');
   const [filterOpen,     setFilterOpen]   = useState(false);
+  const cardRef = useRef<ProfileCardHandle>(null);
   const [exploreOpen,    setExploreOpen]  = useState(false);
   const [appMode]                         = useState<AppMode>('date');
   const [likedYouCount,  setLikedYouCount] = useState(0);
@@ -923,6 +1074,16 @@ export default function FeedScreen() {
     removeTop();
   };
 
+  const handleSuperLike = (profileId: string) => {
+    if (!token) return;
+    apiFetch('/discover/swipe', {
+      token,
+      method: 'POST',
+      body: JSON.stringify({ swiped_id: profileId, direction: 'super', mode: 'date' }),
+    }).catch(() => {});
+    removeTop();
+  };
+
   // Reset activeTab to 'people' when mode changes to avoid stale tab
   useEffect(() => { setActiveTab('people'); }, [appMode]);
 
@@ -961,15 +1122,18 @@ export default function FeedScreen() {
             ) : (
               <ProfileCard
                 key={profiles[0].id}
+                ref={cardRef}
                 profile={profiles[0]}
                 onSwipedLeft={() => handleSwipeLeft(profiles[0].id)}
                 onSwipedRight={() => handleSwipeRight(profiles[0].id)}
+                onSuperLike={() => handleSuperLike(profiles[0].id)}
                 colors={colors}
               />
             )
           )}
         </View>
       )}
+
 
       {/* Date mode tabs */}
       {appMode === 'date' && activeTab === 'likeyou'  && <View style={{ flex: 1 }}><LikedYouPage insets={insets} token={token} /></View>}
@@ -1059,13 +1223,13 @@ const styles = StyleSheet.create({
   logoMode:      { fontFamily: 'PageSerif', fontSize: 20, letterSpacing: -0.3 },
 
   // Card stack
-  cardStack: { flex: 1, width: '100%', alignItems: 'center', justifyContent: 'center' },
+  cardStack: { flex: 1, width: '100%', alignItems: 'center', justifyContent: 'center', minHeight: 0 },
   card:      { position: 'absolute', width: CARD_W, height: CARD_H, borderRadius: 28, overflow: 'hidden', backgroundColor: '#111' },
 
   // Photo section
   photoContainer: { width: CARD_W, height: PHOTO_H },
   photo:          { width: CARD_W, height: PHOTO_H },
-  photoInfo:      { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 18, gap: 4 },
+  photoInfo:      { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 18, gap: 4, flexDirection: 'row', alignItems: 'flex-end' },
   premiumBadge:   { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 2 },
   premiumText:    { color: '#FFD60A', fontSize: 10, fontFamily: 'ProductSans-Bold', letterSpacing: 1 },
   nameRow:        { flexDirection: 'row', alignItems: 'center' },
@@ -1075,11 +1239,36 @@ const styles = StyleSheet.create({
   scrollHint:     { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
   scrollHintText: { fontSize: 11, fontFamily: 'ProductSans-Regular', color: 'rgba(255,255,255,0.55)' },
 
+  // Active now + voice badges
+  activeDot:      { position: 'absolute', top: 14, left: 14, flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: 'rgba(0,0,0,0.5)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 20 },
+  activeDotInner: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#34D399' },
+  activeDotText:  { fontSize: 11, fontFamily: 'ProductSans-Bold', color: '#fff' },
+  voiceBadge:     { position: 'absolute', top: 14, right: 14, width: 30, height: 30, borderRadius: 15, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center' },
+
+  // Mood pill
+  moodPill:  { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(255,255,255,0.18)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, marginTop: 6, alignSelf: 'flex-start' },
+  moodEmoji: { fontSize: 13 },
+  moodText:  { fontSize: 12, fontFamily: 'ProductSans-Medium', color: '#fff', maxWidth: 160 },
+
   // LIKE / NOPE stamps
   likeStamp:     { position: 'absolute', top: 52, left: 24, zIndex: 20, borderWidth: 4, borderColor: '#00E676', borderRadius: 10, paddingHorizontal: 16, paddingVertical: 8, transform: [{ rotate: '-22deg' }], backgroundColor: 'rgba(0,230,118,0.08)' },
   likeStampText: { color: '#00E676', fontSize: 32, fontFamily: 'ProductSans-Black', letterSpacing: 3 },
   nopeStamp:     { position: 'absolute', top: 52, right: 24, zIndex: 20, borderWidth: 4, borderColor: '#FF3B30', borderRadius: 10, paddingHorizontal: 16, paddingVertical: 8, transform: [{ rotate: '22deg' }], backgroundColor: 'rgba(255,59,48,0.08)' },
   nopeStampText: { color: '#FF3B30', fontSize: 32, fontFamily: 'ProductSans-Black', letterSpacing: 3 },
+  superStamp:    { position: 'absolute', top: '35%', alignSelf: 'center', left: 0, right: 0, alignItems: 'center', zIndex: 20, borderWidth: 3, borderColor: '#3B82F6', borderRadius: 10, paddingHorizontal: 16, paddingVertical: 8, marginHorizontal: 80, flexDirection: 'row', gap: 8, justifyContent: 'center', backgroundColor: 'rgba(59,130,246,0.1)' },
+  superStampText: { color: '#3B82F6', fontSize: 28, fontFamily: 'ProductSans-Black', letterSpacing: 3 },
+
+  // Action buttons
+  actionRow:   { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 20, paddingVertical: 14, paddingBottom: 8 },
+  actionBtn:   { width: 58, height: 58, borderRadius: 29, alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 6 },
+  actionNope:  { backgroundColor: '#fff', borderWidth: 2, borderColor: '#FF3B30' },
+  actionSuper: { width: 52, height: 52, borderRadius: 26, backgroundColor: '#fff', borderWidth: 2, borderColor: '#3B82F6' },
+  actionLike:  { backgroundColor: '#fff', borderWidth: 2, borderColor: '#FF2D55' },
+  cardActionCol:   { flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', gap: 10, paddingBottom: 2, paddingLeft: 10 },
+  cardActionBtn:   { width: 50, height: 50, borderRadius: 25, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.45)', borderWidth: 1.5 },
+  cardActionNope:  { borderColor: '#FF3B30' },
+  cardActionSuper: { borderColor: '#FFE066', backgroundColor: 'rgba(255,224,102,0.12)' },
+  cardActionLike:  { borderColor: '#FF2D55' },
 
   // Detail sections
   detailsSection: { paddingHorizontal: 16, paddingTop: 18 },

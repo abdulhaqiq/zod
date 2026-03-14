@@ -197,6 +197,21 @@ export const LOOKUP: Record<string, LookupItem[]> = {
     { id: 51, emoji: '🌐',  label: 'Other' },
   ],
 
+  ethnicity: [
+    { id: 300, label: 'Arab' },
+    { id: 301, label: 'Black / African' },
+    { id: 302, label: 'East Asian' },
+    { id: 303, label: 'Hispanic / Latino' },
+    { id: 304, label: 'Indian / South Asian' },
+    { id: 305, label: 'Middle Eastern' },
+    { id: 306, label: 'Mixed / Multiracial' },
+    { id: 307, label: 'Native / Indigenous' },
+    { id: 308, label: 'Pacific Islander' },
+    { id: 309, label: 'Southeast Asian' },
+    { id: 310, label: 'White / Caucasian' },
+    { id: 311, label: 'Other' },
+  ],
+
   language: [
     { id: 52, emoji: '🇬🇧',  label: 'English' },
     { id: 53, emoji: '🇪🇸',  label: 'Spanish' },

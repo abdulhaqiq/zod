@@ -3,7 +3,7 @@ import { useFonts } from 'expo-font';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import 'react-native-reanimated';
 
 import AppSplashScreen from '@/components/AppSplashScreen';
@@ -43,9 +43,53 @@ function firstIncompleteStep(p: UserProfile): string {
 (Text as any).defaultProps = (Text as any).defaultProps ?? {};
 (Text as any).defaultProps.style = { fontFamily: 'ProductSans-Regular' };
 
+function NoConnectionScreen() {
+  const { retryBootstrap, isLoading } = useAuth();
+  const { isDark } = useAppTheme();
+  const colors = isDark ? darkColors : lightColors;
+
+  return (
+    <View style={[noConnStyles.root, { backgroundColor: colors.bg }]}>
+      <View style={noConnStyles.content}>
+        <Text style={noConnStyles.icon}>📡</Text>
+        <Text style={[noConnStyles.title, { color: colors.text }]}>
+          No Connection
+        </Text>
+        <Text style={[noConnStyles.subtitle, { color: colors.textSecondary }]}>
+          Unable to reach the server.{'\n'}Check your internet and try again.
+        </Text>
+        <Pressable
+          onPress={retryBootstrap}
+          disabled={isLoading}
+          style={({ pressed }) => [
+            noConnStyles.btn,
+            { backgroundColor: colors.text, opacity: pressed || isLoading ? 0.7 : 1 },
+          ]}
+        >
+          {isLoading
+            ? <ActivityIndicator color={colors.bg} size="small" />
+            : <Text style={[noConnStyles.btnText, { color: colors.bg }]}>Try Again</Text>
+          }
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+const noConnStyles = StyleSheet.create({
+  root:     { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  content:  { alignItems: 'center', gap: 16, paddingHorizontal: 40 },
+  icon:     { fontSize: 56 },
+  title:    { fontSize: 24, fontFamily: 'ProductSans-Black', textAlign: 'center' },
+  subtitle: { fontSize: 15, fontFamily: 'ProductSans-Regular', textAlign: 'center', lineHeight: 22 },
+  btn:      { marginTop: 8, paddingHorizontal: 36, paddingVertical: 14, borderRadius: 50, minWidth: 140, alignItems: 'center' },
+  btnText:  { fontSize: 16, fontFamily: 'ProductSans-Bold' },
+});
+
+
 function RootLayoutInner() {
   const { isDark, syncFromBackend, setApiFetch } = useAppTheme();
-  const { token, isLoading, isOnboarded, profile } = useAuth();
+  const { token, isLoading, isOnboarded, profile, isNetworkError } = useAuth();
   const router = useRouter();
   const segments = useSegments();
 
@@ -90,6 +134,12 @@ function RootLayoutInner() {
     // This means routing fires while the splash is still covering the screen,
     // so when the splash fades out the correct screen is already showing.
     if (!authReady) return;
+    // If there's a network error, routing is handled by the NoConnectionScreen —
+    // don't redirect the user anywhere.
+    if (isNetworkError) {
+      if (!routingDone) setTimeout(() => setRoutingDone(true), 0);
+      return;
+    }
 
     const currentScreen     = segments[0] as string | undefined;
     const isOnAuthScreen      = AUTH_SCREENS.includes(currentScreen ?? '');
@@ -131,9 +181,20 @@ function RootLayoutInner() {
       setTimeout(() => setRoutingDone(true), didNavigate ? 100 : 0);
     }
 
-  }, [authReady, isLoggedIn, isOnboarded, segments]);
+  }, [authReady, isLoggedIn, isOnboarded, isNetworkError, segments]);
 
   const bgColor = isDark ? darkColors.bg : lightColors.bg;
+
+  // Network failed during bootstrap — user has a session but can't reach server.
+  // Show a "No Connection" screen instead of logging them out or showing nothing.
+  if (isNetworkError && !isLoading) {
+    return (
+      <ThemeProvider value={isDark ? DarkTheme : DefaultTheme}>
+        <NoConnectionScreen />
+        <StatusBar style={isDark ? 'light' : 'dark'} />
+      </ThemeProvider>
+    );
+  }
 
   return (
     <ThemeProvider value={isDark ? DarkTheme : DefaultTheme}>

@@ -1,12 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Animated,
   Dimensions,
   Image,
   Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -26,6 +27,8 @@ export interface MatchedProfile {
   name: string;
   age: number;
   image: string;
+  interests?: { emoji: string; label: string }[];
+  prompts?: { question: string; answer: string }[];
 }
 
 interface Props {
@@ -38,9 +41,32 @@ export default function MatchScreen({ profile, onChat, onDismiss }: Props) {
   const insets = useSafeAreaInsets();
   const { profile: me } = useAuth();
   const myPhoto = me?.photos?.[0] ?? FALLBACK_AVATAR;
-  const opacity  = useRef(new Animated.Value(0)).current;
-  const scaleMe  = useRef(new Animated.Value(0.85)).current;
+  const opacity   = useRef(new Animated.Value(0)).current;
+  const scaleMe   = useRef(new Animated.Value(0.85)).current;
   const scaleThem = useRef(new Animated.Value(0.85)).current;
+
+  // Generate conversation starters from shared interests / prompts
+  const starters = useRef<string[]>([]).current;
+  if (starters.length === 0) {
+    const myInterests   = (me as any)?.interests ?? [];
+    const themInterests = profile.interests ?? [];
+    const shared = themInterests.filter((t: any) =>
+      myInterests.some((m: any) => m.label === t.label)
+    );
+    if (shared.length > 0) {
+      starters.push(`You both love ${shared[0].emoji} ${shared[0].label} — what got you into it?`);
+    }
+    if (profile.prompts && profile.prompts.length > 0) {
+      const p = profile.prompts[0];
+      starters.push(`"${p.question}" — I saw your answer and had to ask more 😄`);
+    }
+    starters.push(`Hey ${profile.name}! What's been making you smile lately? 😊`);
+    starters.push(`If we could only do one thing together this weekend, what would you pick?`);
+    // Keep only 3
+    starters.splice(3);
+  }
+
+  const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
 
   useEffect(() => {
     Animated.parallel([
@@ -111,6 +137,21 @@ export default function MatchScreen({ profile, onChat, onDismiss }: Props) {
 
       {/* ── Bottom actions ── */}
       <View style={[styles.bottom, { paddingBottom: insets.bottom + 24 }]}>
+
+        {/* Conversation starters */}
+        <Text style={styles.starterLabel}>Break the ice ✨</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.starterRow} contentContainerStyle={{ paddingHorizontal: 4 }}>
+          {starters.map((s, i) => (
+            <Pressable
+              key={i}
+              onPress={() => { setCopiedIdx(i); onChat(); }}
+              style={({ pressed }) => [styles.starterChip, pressed && { opacity: 0.78 }, copiedIdx === i && styles.starterChipActive]}
+            >
+              <Text style={styles.starterText} numberOfLines={2}>{s}</Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+
         {/* Start chatting */}
         <Pressable
           onPress={() => dismiss(onChat)}
@@ -280,5 +321,37 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: 'ProductSans-Medium',
     color: 'rgba(255,255,255,0.38)',
+  },
+
+  /* Conversation starters */
+  starterLabel: {
+    fontSize: 13,
+    fontFamily: 'ProductSans-Bold',
+    color: 'rgba(255,255,255,0.65)',
+    marginBottom: 8,
+    paddingHorizontal: 4,
+  },
+  starterRow: {
+    marginBottom: 14,
+  },
+  starterChip: {
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginRight: 10,
+    maxWidth: 220,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.15)',
+  },
+  starterChipActive: {
+    backgroundColor: 'rgba(255,100,100,0.3)',
+    borderColor: 'rgba(255,100,100,0.5)',
+  },
+  starterText: {
+    fontSize: 13,
+    fontFamily: 'ProductSans-Regular',
+    color: '#fff',
+    lineHeight: 18,
   },
 });

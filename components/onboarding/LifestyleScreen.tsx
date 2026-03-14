@@ -4,27 +4,28 @@ import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '@/context/AuthContext';
 import { useAppTheme } from '@/context/ThemeContext';
-import { LOOKUP, LookupItem } from '@/constants/lookupData';
+import { useLookups, type LookupOption } from '@/hooks/useLookups';
 import { useProfileSave } from '@/hooks/useProfileSave';
 import OnboardingShell from './OnboardingShell';
 
-const QUESTIONS: { key: string; label: string; options: LookupItem[] }[] = [
-  { key: 'drinking', label: 'Drinking', options: LOOKUP.drinking },
-  { key: 'smoking',  label: 'Smoking',  options: LOOKUP.smoking },
-  { key: 'exercise', label: 'Exercise', options: LOOKUP.exercise },
-  { key: 'diet',     label: 'Diet',     options: LOOKUP.diet },
-];
+const KEYS = ['drinking', 'smoking', 'exercise', 'diet'] as const;
+const LABELS: Record<string, string> = { drinking: 'Drinking', smoking: 'Smoking', exercise: 'Exercise', diet: 'Diet' };
 
 export default function LifestyleScreen() {
   const router = useRouter();
   const { colors } = useAppTheme();
   const { save, saving } = useProfileSave();
   const { profile } = useAuth();
+  const { lookups } = useLookups();
   const [answers, setAnswers] = useState<Record<string, number>>(
     (profile?.lifestyle as Record<string, number>) ?? {}
   );
 
-  const allAnswered = QUESTIONS.every((q) => answers[q.key] != null);
+  const questions: { key: string; label: string; options: LookupOption[] }[] = KEYS.map(k => ({
+    key: k, label: LABELS[k], options: lookups[k] ?? [],
+  }));
+
+  const allAnswered = questions.every((q) => q.options.length === 0 || answers[q.key] != null);
 
   const handleContinue = async () => {
     if (!allAnswered) return;
@@ -42,7 +43,7 @@ export default function LifestyleScreen() {
       loading={saving}
     >
       <ScrollView showsVerticalScrollIndicator={false} style={styles.scroll}>
-        {QUESTIONS.map((q) => (
+        {questions.map((q) => (
           <View key={q.key} style={styles.section}>
             <Text style={[styles.qLabel, { color: colors.textSecondary }]}>{q.label.toUpperCase()}</Text>
             <View style={styles.row}>

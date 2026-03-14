@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Image,
   Pressable,
@@ -11,7 +11,7 @@ import {
   View,
 } from 'react-native';
 import Squircle from '@/components/ui/Squircle';
-import { apiFetch } from '@/constants/api';
+import { apiFetch, WS_V1 } from '@/constants/api';
 import { useAuth } from '@/context/AuthContext';
 import { useAppTheme } from '@/context/ThemeContext';
 
@@ -62,6 +62,14 @@ export default function ChatsPage({ insets, token }: { insets: any; token: strin
   const [search, setSearch]   = useState('');
   const [convs,  setConvs]    = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(true);
+  const wsRef = useRef<WebSocket | null>(null);
+
+  function fetchConvs() {
+    if (!token) return;
+    apiFetch<{ conversations: Conversation[] }>('/chat/conversations', { token })
+      .then(r => setConvs(r.conversations))
+      .catch(() => {});
+  }
 
   useEffect(() => {
     if (!token) return;
@@ -70,6 +78,75 @@ export default function ChatsPage({ insets, token }: { insets: any; token: strin
       .then(r => setConvs(r.conversations))
       .catch(() => {})
       .finally(() => setLoading(false));
+  }, [token]);
+
+  // ── notify WebSocket: update list on new_message or presence ──────────────
+  useEffect(() => {
+    if (!token) return;
+    let disposed = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+    function connect() {
+      if (disposed) return;
+      const ws = new WebSocket(`${WS_V1}/ws/notify?token=${token}`);
+      wsRef.current = ws;
+
+      ws.onmessage = (e) => {
+        try {
+          const payload = JSON.parse(e.data);
+          if (payload.type === 'new_message') {
+            // Update last_message and bump to top for matching room
+            setConvs(prev => {
+              const idx = prev.findIndex(
+                c => c.room_id === payload.room_id || c.partner_id === payload.sender_id
+              );
+              if (idx === -1) {
+                // Unknown conversation — re-fetch to get it
+                fetchConvs();
+                return prev;
+              }
+              const updated = [...prev];
+              const conv = { ...updated[idx] };
+              conv.last_message = {
+                content: payload.content,
+                sender_id: payload.sender_id,
+                created_at: payload.created_at ?? new Date().toISOString(),
+              };
+              conv.unread_count = (conv.unread_count ?? 0) + 1;
+              updated.splice(idx, 1);
+              return [conv, ...updated];
+            });
+          } else if (payload.type === 'presence') {
+            setConvs(prev =>
+              prev.map(c =>
+                c.partner_id === payload.user_id
+                  ? { ...c, is_online: payload.online }
+                  : c
+              )
+            );
+          }
+        } catch {}
+      };
+
+      ws.onclose = () => {
+        if (!disposed) {
+          retryTimer = setTimeout(connect, 3000);
+        }
+      };
+
+      ws.onerror = () => {
+        ws.close();
+      };
+    }
+
+    connect();
+
+    return () => {
+      disposed = true;
+      if (retryTimer) clearTimeout(retryTimer);
+      wsRef.current?.close();
+      wsRef.current = null;
+    };
   }, [token]);
 
   const myId     = profile?.id ?? '';
@@ -255,7 +332,7 @@ const styles = StyleSheet.create({
   matchDotInner: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#22c55e' },
   matchName:     { fontSize: 12, fontFamily: 'ProductSans-Medium', textAlign: 'center' },
 
-  convGroup:     { overflow: 'hidden', minHeight: 120 },
+  convGroup:     { overflow: 'hidden' },
   convRow:       { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 13, paddingHorizontal: 14 },
   avatarWrap:    { position: 'relative' },
   avatar:        { width: 52, height: 52, borderRadius: 26 },

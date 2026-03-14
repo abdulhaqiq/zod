@@ -4,19 +4,21 @@ import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '@/context/AuthContext';
 import { useAppTheme } from '@/context/ThemeContext';
-import { LOOKUP } from '@/constants/lookupData';
+import { useLookupsCategory } from '@/hooks/useLookups';
 import { useProfileSave } from '@/hooks/useProfileSave';
 import OnboardingShell from './OnboardingShell';
-
-// Life goals are items 16-24 in values_list (indices 16+)
-const GOALS = LOOKUP.values_list.slice(16);
 
 export default function GoalsScreen() {
   const router = useRouter();
   const { colors } = useAppTheme();
   const { save, saving } = useProfileSave();
   const { profile } = useAuth();
-  const goalIds = GOALS.map(g => g.id);
+  const allValues = useLookupsCategory('values_list');
+  // Life goals are items with an emoji in values_list
+  const goals = allValues.filter(v => !!v.emoji);
+  const personalValues = allValues.filter(v => !v.emoji);
+  const goalIds = goals.map(g => g.id);
+  const personalIds = personalValues.map(v => v.id);
   const existingGoals = (profile?.values_list ?? []).filter(id => goalIds.includes(id));
   const [selected, setSelected] = useState<number[]>(existingGoals);
 
@@ -27,10 +29,8 @@ export default function GoalsScreen() {
 
   const handleContinue = async () => {
     if (selected.length === 0) return;
-    // Merge with existing values_list — keep personal values (ids < 267), replace life goals
     const existing = profile?.values_list ?? [];
-    const personalValueIds = LOOKUP.values_list.slice(0, 16).map(v => v.id);
-    const mergedPersonalValues = existing.filter(id => personalValueIds.includes(id));
+    const mergedPersonalValues = existing.filter(id => personalIds.includes(id));
     const ok = await save({ values_list: [...mergedPersonalValues, ...selected] });
     if (ok) router.push('/height');
   };
@@ -45,7 +45,7 @@ export default function GoalsScreen() {
       loading={saving}
     >
       <View style={styles.grid}>
-        {GOALS.map((g) => {
+        {goals.map((g) => {
           const active = selected.includes(g.id);
           return (
             <Pressable
