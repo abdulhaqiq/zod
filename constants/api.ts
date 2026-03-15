@@ -11,7 +11,7 @@ function getApiBaseUrl(): string {
     return `http://${host}:8000`;
   }
 
-  return 'http://localhost:8000';
+  return 'https://dev.zod.ailoo.co';
 }
 
 export const API_BASE = getApiBaseUrl();
