@@ -209,10 +209,21 @@ function BestPhotoRow({
   const [subtitle, setSubtitle] = useState(
     initialEnabled ? 'AI-selected · best photo is first' : 'Highlight your favourite shot'
   );
+  const mountedRef = useRef(true);
+
+  // Sync state when profile loads after initial render
+  useEffect(() => {
+    setEnabled(initialEnabled);
+    setSubtitle(initialEnabled ? 'AI-selected · best photo is first' : 'Highlight your favourite shot');
+  }, [initialEnabled]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   const handleToggle = async (val: boolean) => {
     if (!val) {
-      // Turning OFF — just persist the flag
       setEnabled(false);
       setSubtitle('Highlight your favourite shot');
       try {
@@ -234,20 +245,27 @@ function BestPhotoRow({
     setEnabled(true);
     setLoading(true);
     setSubtitle('Analysing photos…');
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 20_000); // 20s max
+
     try {
-      // POST reorders photos AND sets best_photo_enabled = true in DB
       const updated = await apiFetch<any>('/profile/me/best-photo', {
         method: 'POST',
         token: token ?? undefined,
+        signal: controller.signal,
       });
+      if (!mountedRef.current) return;
       const reordered: string[] = updated.photos ?? filled;
       onPhotosReordered(reordered);
       setSubtitle('AI-selected · best photo is first');
     } catch {
-      setSubtitle('Could not analyse photos — try again');
+      if (!mountedRef.current) return;
+      setSubtitle('Could not analyse — try again');
       setEnabled(false);
     } finally {
-      setLoading(false);
+      clearTimeout(timer);
+      if (mountedRef.current) setLoading(false);
     }
   };
 
@@ -257,10 +275,7 @@ function BestPhotoRow({
       { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
     ]}>
       <Squircle style={styles.editIconWrap} cornerRadius={10} cornerSmoothing={1} fillColor={colors.surface2}>
-        {loading
-          ? <ActivityIndicator size="small" color={colors.text} />
-          : <Ionicons name={enabled ? 'star' : 'star-outline'} size={16} color={enabled ? '#FFD60A' : colors.text} />
-        }
+        <Ionicons name={enabled ? 'star' : 'star-outline'} size={16} color={enabled ? '#FFD60A' : colors.text} />
       </Squircle>
       <View style={{ flex: 1, gap: 1 }}>
         <Text style={[styles.editLabel, { color: colors.text }]}>Best Photo</Text>
@@ -280,13 +295,16 @@ function BestPhotoRow({
 // ─── Chip Edit Row ────────────────────────────────────────────────────────────
 
 function ChipEditRow({
-  icon, label, selected, onPress, colors, last = false,
+  icon, label, selected, options = [], onPress, colors, last = false,
 }: {
-  icon: any; label: string; selected: string[]; onPress: () => void;
+  icon: any; label: string; selected: string[]; options?: ChipOption[]; onPress: () => void;
   colors: AppColors; last?: boolean;
 }) {
+  const resolveLabel = (id: string) =>
+    options.find(o => o.value === id)?.label ?? id;
+
   const preview = selected.length > 0
-    ? selected.slice(0, 3).join(' · ') + (selected.length > 3 ? ` +${selected.length - 3}` : '')
+    ? selected.slice(0, 3).map(resolveLabel).join(' · ') + (selected.length > 3 ? ` +${selected.length - 3}` : '')
     : undefined;
 
   return (
@@ -399,6 +417,7 @@ export default function EditProfilePage() {
   // ── Bio ──────────────────────────────────────────────────────────────────
   const [bio, setBio] = useState(profile?.bio ?? '');
   const MAX_BIO = 300;
+  const [bioHeight, setBioHeight] = useState(120);
 
   // ── Chip selections (stored as string ID keys matching ChipOption.value) ──
   const [interests, setInterests]   = useState<string[]>((profile?.interests ?? []).map(String));
@@ -536,6 +555,7 @@ export default function EditProfilePage() {
                 icon="heart-outline"
                 label="Interests"
                 selected={interests}
+                options={INTERESTS}
                 onPress={() => setShowInterests(true)}
                 colors={colors}
               />
@@ -543,6 +563,7 @@ export default function EditProfilePage() {
                 icon="globe-outline"
                 label="Causes & Communities"
                 selected={causes}
+                options={CAUSES}
                 onPress={() => setShowCauses(true)}
                 colors={colors}
               />
@@ -550,6 +571,7 @@ export default function EditProfilePage() {
                 icon="diamond-outline"
                 label="Qualities I Value"
                 selected={qualities}
+                options={QUALITIES}
                 onPress={() => setShowQualities(true)}
                 colors={colors}
                 last
@@ -562,7 +584,7 @@ export default function EditProfilePage() {
             <SectionLabel title="BIO" colors={colors} />
             <View style={styles.bioWrap}>
               <Squircle
-                style={styles.bioBox}
+                style={[styles.bioBox, { height: bioHeight }]}
                 cornerRadius={18} cornerSmoothing={1}
                 fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1.5}
               >
@@ -574,6 +596,10 @@ export default function EditProfilePage() {
                   onChangeText={t => setBio(t.slice(0, MAX_BIO))}
                   multiline maxLength={MAX_BIO}
                   selectionColor={colors.text}
+                  onContentSizeChange={e => {
+                    const h = e.nativeEvent.contentSize.height;
+                    setBioHeight(Math.max(120, h + 28));
+                  }}
                 />
               </Squircle>
               <Text style={[styles.bioCount, { color: colors.textTertiary }]}>
@@ -601,6 +627,13 @@ export default function EditProfilePage() {
           <View style={styles.section}>
             <SectionLabel title="ACCOUNT" colors={colors} />
             <Group colors={colors}>
+              <EditRow
+                icon="call-outline"
+                label="Phone"
+                value={profile?.phone ?? undefined}
+                colors={colors}
+                locked
+              />
               {editingEmail ? (
                 <View style={[styles.editRow, { flexDirection: 'column', alignItems: 'stretch', gap: 8 }]}>
                   <Text style={[styles.editLabel, { color: colors.text }]}>Email address</Text>
@@ -793,7 +826,7 @@ const styles = StyleSheet.create({
   photoRemoveBg:  { width: 20, height: 20, borderRadius: 10, backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center' },
 
   bioWrap:        { gap: 6 },
-  bioBox:         { padding: 14, minHeight: 120 },
+  bioBox:         { padding: 14 },
   bioInput:       { fontSize: 15, fontFamily: 'ProductSans-Regular', lineHeight: 22, textAlignVertical: 'top' },
   bioCount:       { fontSize: 11, fontFamily: 'ProductSans-Regular', textAlign: 'right', marginRight: 4 },
 

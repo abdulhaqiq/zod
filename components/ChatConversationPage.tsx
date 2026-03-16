@@ -1,7 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
+import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
+
 import {
   ActivityIndicator,
   Alert,
@@ -22,6 +24,8 @@ import Squircle from '@/components/ui/Squircle';
 import { apiFetch, WS_V1 } from '@/constants/api';
 import { useAuth } from '@/context/AuthContext';
 import { useAppTheme } from '@/context/ThemeContext';
+import { GAME_MSG_TYPES, GameBubble } from '@/components/MiniGames';
+import type { GameMsg } from '@/components/MiniGames';
 
 const { width: W } = Dimensions.get('window');
 const CARD_W = W - 72;
@@ -43,6 +47,12 @@ interface Msg {
   isTod?: boolean;
   todMsgType?: 'tod_invite' | 'tod_accept' | 'tod_answer' | 'tod_next';
   todExtra?: Record<string, any>;
+  // Mini-games
+  isGame?: boolean;
+  gameMsgType?: string;
+  gameExtra?: Record<string, any>;
+  // Image messages
+  imageUrl?: string;
 }
 
 interface ApiMessage {
@@ -100,7 +110,8 @@ function _formatTime(isoStr: string): string {
   return new Date(isoStr).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-const AI_LINES = [
+// AI_LINES kept as fallback only — live data comes from backend
+const AI_LINES_FALLBACK = [
   `If travel were a language, we'd be fluent ✈️`,
   `I've been to 14 countries and none of them were as interesting as this conversation`,
   `Are you a great book? Because I can't stop thinking about your story 📚`,
@@ -110,6 +121,22 @@ const AI_LINES = [
   `Is your name Google Maps? Because you've got everything I've been searching for`,
   `They say the best adventures are unplanned — like meeting you 🛫`,
 ];
+
+interface PickupCategoryMeta {
+  category: string;
+  emoji: string;
+  color: string;
+  desc: string;
+  has_db_content: boolean;
+}
+
+interface PickupLineItem {
+  id: string;
+  category: string;
+  line: string;
+  emoji: string;
+  sort_order: number;
+}
 
 const nowTime = () => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
@@ -302,14 +329,14 @@ function Bubble({ msg, colors, onAnswer, answeredCards, myAvatar, partnerAvatar,
           backgroundColor: isMe ? 'rgba(0,0,0,0.06)' : colors.surface2,
           borderLeftColor: isMe ? 'rgba(0,0,0,0.25)' : '#7c3aed',
         }]}>
-          <Text style={[styles.answerContextText, { color: isMe ? 'rgba(0,0,0,0.5)' : colors.textSecondary }]} numberOfLines={2}>
+          <Text style={[styles.answerContextText, { color: isMe ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.55)' }]} numberOfLines={2}>
             {msg.answerTo}
           </Text>
         </View>
         <View style={styles.bubbleTextRow}>
           <Text style={[styles.bubbleText, { color: isMe ? BUBBLE_ME_TEXT : themText, flexShrink: 1 }]}>{msg.text}</Text>
           <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 1 }}>
-            <Text style={[styles.bubbleTimeInline, { color: isMe ? 'rgba(0,0,0,0.38)' : colors.textTertiary }]}>{msg.time}</Text>
+            <Text style={[styles.bubbleTimeInline, { color: isMe ? 'rgba(0,0,0,0.38)' : 'rgba(255,255,255,0.45)' }]}>{msg.time}</Text>
             {isMe && <MsgTicks status={msg.status} />}
           </View>
         </View>
@@ -392,17 +419,34 @@ function Bubble({ msg, colors, onAnswer, answeredCards, myAvatar, partnerAvatar,
       cornerRadius={22} cornerSmoothing={1}
       fillColor={isMe ? BUBBLE_ME_BG : colors.surface}
     >
-      <View style={styles.bubbleTextRow}>
-        <Text style={[styles.bubbleText, { color: isMe ? BUBBLE_ME_TEXT : themText, flexShrink: 1 }]}>
-          {msg.text}
-        </Text>
-        <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 1 }}>
-          <Text style={[styles.bubbleTimeInline, { color: isMe ? 'rgba(0,0,0,0.38)' : colors.textTertiary }]}>
-            {msg.time}
-          </Text>
-          {isMe && <MsgTicks status={msg.status} />}
+      {msg.imageUrl ? (
+        <View style={{ gap: 6 }}>
+          <Image
+            source={{ uri: msg.imageUrl }}
+            style={{ width: W * 0.55, height: W * 0.55, borderRadius: 12 }}
+            contentFit="cover"
+          />
+          {msg.text ? (
+            <Text style={[styles.bubbleText, { color: isMe ? BUBBLE_ME_TEXT : themText }]}>{msg.text}</Text>
+          ) : null}
+          <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 1, alignSelf: 'flex-end' }}>
+            <Text style={[styles.bubbleTimeInline, { color: isMe ? 'rgba(0,0,0,0.38)' : 'rgba(255,255,255,0.45)' }]}>{msg.time}</Text>
+            {isMe && <MsgTicks status={msg.status} />}
+          </View>
         </View>
-      </View>
+      ) : (
+        <View style={styles.bubbleTextRow}>
+          <Text style={[styles.bubbleText, { color: isMe ? BUBBLE_ME_TEXT : themText, flexShrink: 1 }]}>
+            {msg.text}
+          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 1 }}>
+            <Text style={[styles.bubbleTimeInline, { color: isMe ? 'rgba(0,0,0,0.38)' : 'rgba(255,255,255,0.45)' }]}>
+              {msg.time}
+            </Text>
+            {isMe && <MsgTicks status={msg.status} />}
+          </View>
+        </View>
+      )}
     </Squircle>
   );
 
@@ -417,28 +461,100 @@ function Bubble({ msg, colors, onAnswer, answeredCards, myAvatar, partnerAvatar,
 
 // ─── AI Pickup Lines Panel ────────────────────────────────────────────────────
 
-function AiPanel({ colors, matchName, onSelect, onClose }: {
+function AiPanel({ colors, matchName, onSelect, onClose, token }: {
   colors: any; matchName: string;
   onSelect: (t: string) => void; onClose: () => void;
+  token?: string;
 }) {
-  const slideY = useRef(new Animated.Value(400)).current;
+  const slideY = useRef(new Animated.Value(600)).current;
+
+  const [mode,           setMode]           = useState<'browse' | 'ai'>('browse');
+  const [categories,     setCategories]     = useState<PickupCategoryMeta[]>([]);
+  const [activeCategory, setActiveCategory] = useState<string>('Classic');
+  const [lines,          setLines]          = useState<PickupLineItem[]>([]);
+  const [loadingCats,    setLoadingCats]    = useState(true);
+  const [loadingLines,   setLoadingLines]   = useState(false);
+  const [aiLines,        setAiLines]        = useState<string[]>([]);
+  const [aiLoading,      setAiLoading]      = useState(false);
+  const [customPrompt,   setCustomPrompt]   = useState('');
+  const [aiCategory,     setAiCategory]     = useState<string>('Classic');
 
   useEffect(() => {
     Animated.spring(slideY, { toValue: 0, useNativeDriver: true, damping: 22, stiffness: 260 }).start();
   }, []);
 
+  // Load categories
+  useEffect(() => {
+    if (!token) {
+      setLoadingCats(false);
+      return;
+    }
+    apiFetch<PickupCategoryMeta[]>('/pickup-lines/categories', { token })
+      .then(cats => {
+        setCategories(cats);
+        if (cats.length > 0) setActiveCategory(cats[0].category);
+      })
+      .catch(() => {})
+      .finally(() => setLoadingCats(false));
+  }, [token]);
+
+  // Load lines when category changes
+  useEffect(() => {
+    if (!token) {
+      const fallback: PickupLineItem[] = AI_LINES_FALLBACK.map((l, i) => ({
+        id: `fallback-${i}`, category: 'Classic', line: l, emoji: '✨', sort_order: i,
+      }));
+      setLines(fallback);
+      return;
+    }
+    setLoadingLines(true);
+    apiFetch<PickupLineItem[]>(`/pickup-lines?category=${encodeURIComponent(activeCategory)}`, { token })
+      .then(setLines)
+      .catch(() => {})
+      .finally(() => setLoadingLines(false));
+  }, [activeCategory, token]);
+
   const dismiss = (cb?: () => void) =>
-    Animated.timing(slideY, { toValue: 400, duration: 200, useNativeDriver: true }).start(cb);
+    Animated.timing(slideY, { toValue: 600, duration: 200, useNativeDriver: true }).start(cb);
+
+  const generateAiLines = async () => {
+    setAiLoading(true);
+    setAiLines([]);
+    try {
+      if (!token) throw new Error('no token');
+      const res = await apiFetch<{ lines: string[] }>('/pickup-lines/generate', {
+        token,
+        method: 'POST',
+        body: JSON.stringify({
+          category: aiCategory,
+          custom_prompt: customPrompt.trim(),
+          match_name: matchName,
+        }),
+      });
+      setAiLines(res.lines);
+    } catch {
+      setAiLines(AI_LINES_FALLBACK.slice(0, 5));
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const activeCatMeta = categories.find(c => c.category === activeCategory);
+  const activeCatColor = activeCatMeta?.color ?? '#7c3aed';
+  const aiCatMeta = categories.find(c => c.category === aiCategory);
+  const aiCatColor = aiCatMeta?.color ?? '#7c3aed';
 
   return (
     <Pressable style={StyleSheet.absoluteFill} onPress={() => dismiss(onClose)}>
       <Animated.View style={[
         styles.panel,
-        { backgroundColor: colors.surface, borderTopColor: colors.border },
+        { backgroundColor: colors.surface, borderTopColor: colors.border, maxHeight: '90%' },
         { transform: [{ translateY: slideY }] },
       ]}>
         <Pressable>
           <View style={[styles.panelHandle, { backgroundColor: colors.border }]} />
+
+          {/* Header */}
           <View style={styles.panelHeader}>
             <Squircle style={styles.panelIcon} cornerRadius={12} cornerSmoothing={1} fillColor="#7c3aed">
               <Ionicons name="sparkles" size={15} color="#fff" />
@@ -456,24 +572,218 @@ function AiPanel({ colors, matchName, onSelect, onClose }: {
             </Pressable>
           </View>
 
-          <View style={styles.aiLinesList}>
-            {AI_LINES.map((line, i) => (
-              <Pressable key={i} onPress={() => dismiss(() => onSelect(line))}
-                style={({ pressed }) => [pressed && { opacity: 0.7 }]}>
+          {/* Mode toggle */}
+          <View style={[styles.aiModeToggle, { backgroundColor: colors.surface2 }]}>
+            <Pressable
+              style={[styles.aiModeBtn, mode === 'browse' && { backgroundColor: colors.surface }]}
+              onPress={() => setMode('browse')}
+            >
+              <Ionicons name="list" size={13} color={mode === 'browse' ? activeCatColor : colors.textSecondary} />
+              <Text style={[styles.aiModeBtnText, { color: mode === 'browse' ? colors.text : colors.textSecondary }]}>
+                Browse
+              </Text>
+            </Pressable>
+            <Pressable
+              style={[styles.aiModeBtn, mode === 'ai' && { backgroundColor: '#1e1b4b' }]}
+              onPress={() => setMode('ai')}
+            >
+              <Ionicons name="sparkles" size={13} color={mode === 'ai' ? '#a5b4fc' : colors.textSecondary} />
+              <Text style={[styles.aiModeBtnText, { color: mode === 'ai' ? '#a5b4fc' : colors.textSecondary }]}>
+                AI Generate
+              </Text>
+            </Pressable>
+          </View>
+
+          {/* ── Browse mode ── */}
+          {mode === 'browse' && (
+            <>
+              {/* Category pills */}
+              {loadingCats ? (
+                <View style={{ alignItems: 'center', paddingVertical: 12 }}>
+                  <ActivityIndicator size="small" color="#7c3aed" />
+                </View>
+              ) : (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.aiCategoryScroll}
+                >
+                  {categories.map(cat => (
+                    <Pressable
+                      key={cat.category}
+                      onPress={() => setActiveCategory(cat.category)}
+                      style={({ pressed }) => [pressed && { opacity: 0.7 }]}
+                    >
+                      <Squircle
+                        style={styles.aiCategoryPill}
+                        cornerRadius={20} cornerSmoothing={1}
+                        fillColor={activeCategory === cat.category ? cat.color + '22' : colors.surface2}
+                        strokeColor={activeCategory === cat.category ? cat.color : 'transparent'}
+                        strokeWidth={1.5}
+                      >
+                        <Text style={{ fontSize: 14 }}>{cat.emoji}</Text>
+                        <Text style={[
+                          styles.aiCategoryPillText,
+                          { color: activeCategory === cat.category ? cat.color : colors.textSecondary },
+                        ]}>
+                          {cat.category}
+                        </Text>
+                      </Squircle>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              )}
+
+              {/* Lines list */}
+              <ScrollView
+                style={{ maxHeight: 360 }}
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={styles.aiLinesList}
+              >
+                {loadingLines ? (
+                  <View style={{ alignItems: 'center', paddingVertical: 40 }}>
+                    <ActivityIndicator size="large" color={activeCatColor} />
+                  </View>
+                ) : lines.map((item, i) => (
+                  <Pressable key={item.id} onPress={() => dismiss(() => onSelect(item.line))}
+                    style={({ pressed }) => [pressed && { opacity: 0.7 }]}>
+                    <Squircle
+                      style={styles.aiLineItem}
+                      cornerRadius={16} cornerSmoothing={1}
+                      fillColor={colors.surface2} strokeColor={colors.border}
+                      strokeWidth={StyleSheet.hairlineWidth}
+                    >
+                      <Text style={{ fontSize: 18, width: 28 }}>{item.emoji}</Text>
+                      <Text style={[styles.aiLineText, { color: colors.text }]}>{item.line}</Text>
+                      <Squircle
+                        style={styles.aiLineUse} cornerRadius={13} cornerSmoothing={1}
+                        fillColor={activeCatColor + '22'}
+                      >
+                        <Ionicons name="arrow-up" size={12} color={activeCatColor} />
+                      </Squircle>
+                    </Squircle>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            </>
+          )}
+
+          {/* ── AI Generate mode ── */}
+          {mode === 'ai' && (
+            <ScrollView
+              style={{ maxHeight: 480 }}
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32, gap: 14 }}
+            >
+              {/* Category selector */}
+              <View style={{ gap: 8 }}>
+                <Text style={[styles.aiGenLabel, { color: colors.textSecondary }]}>CATEGORY</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                  {(categories.length > 0 ? categories : [
+                    { category: 'Classic', emoji: '✨', color: '#6366f1' },
+                    { category: 'Cheesy', emoji: '🧀', color: '#f59e0b' },
+                    { category: 'Romantic', emoji: '💕', color: '#ec4899' },
+                    { category: 'Funny', emoji: '😂', color: '#f97316' },
+                    { category: 'Deep', emoji: '🌊', color: '#7c3aed' },
+                    { category: 'Smooth', emoji: '😏', color: '#ef4444' },
+                  ] as any[]).map((cat: any) => (
+                    <Pressable
+                      key={cat.category}
+                      onPress={() => setAiCategory(cat.category)}
+                      style={({ pressed }) => [pressed && { opacity: 0.7 }]}
+                    >
+                      <Squircle
+                        style={styles.aiCategoryPill}
+                        cornerRadius={20} cornerSmoothing={1}
+                        fillColor={aiCategory === cat.category ? cat.color + '22' : colors.surface2}
+                        strokeColor={aiCategory === cat.category ? cat.color : 'transparent'}
+                        strokeWidth={1.5}
+                      >
+                        <Text style={{ fontSize: 14 }}>{cat.emoji}</Text>
+                        <Text style={[
+                          styles.aiCategoryPillText,
+                          { color: aiCategory === cat.category ? cat.color : colors.textSecondary },
+                        ]}>
+                          {cat.category}
+                        </Text>
+                      </Squircle>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              </View>
+
+              {/* Custom prompt (optional) */}
+              <View style={{ gap: 8 }}>
+                <Text style={[styles.aiGenLabel, { color: colors.textSecondary }]}>CUSTOM HINT (OPTIONAL)</Text>
                 <Squircle
-                  style={styles.aiLineItem}
+                  style={{ paddingHorizontal: 14, paddingVertical: 12 }}
                   cornerRadius={16} cornerSmoothing={1}
                   fillColor={colors.surface2} strokeColor={colors.border}
                   strokeWidth={StyleSheet.hairlineWidth}
                 >
-                  <Text style={[styles.aiLineText, { color: colors.text }]}>{line}</Text>
-                  <View style={[styles.aiLineUse, { backgroundColor: colors.surface }]}>
-                    <Ionicons name="arrow-up" size={12} color={colors.textSecondary} />
-                  </View>
+                  <TextInput
+                    style={[styles.aiGenInput, { color: colors.text }]}
+                    placeholder="e.g. she loves hiking and astronomy…"
+                    placeholderTextColor={colors.placeholder}
+                    value={customPrompt}
+                    onChangeText={setCustomPrompt}
+                    multiline
+                    maxLength={200}
+                    selectionColor="#7c3aed"
+                  />
+                </Squircle>
+              </View>
+
+              {/* Generate button */}
+              <Pressable
+                onPress={generateAiLines}
+                disabled={aiLoading}
+                style={({ pressed }) => [pressed && { opacity: 0.8 }]}
+              >
+                <Squircle
+                  style={styles.aiGenBtn}
+                  cornerRadius={16} cornerSmoothing={1}
+                  fillColor="#7c3aed"
+                >
+                  {aiLoading ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <>
+                      <Ionicons name="sparkles" size={16} color="#fff" />
+                      <Text style={styles.aiGenBtnText}>Generate Lines</Text>
+                    </>
+                  )}
                 </Squircle>
               </Pressable>
-            ))}
-          </View>
+
+              {/* AI Generated lines */}
+              {aiLines.length > 0 && (
+                <View style={{ gap: 8 }}>
+                  <Text style={[styles.aiGenLabel, { color: colors.textSecondary }]}>GENERATED LINES</Text>
+                  {aiLines.map((line, i) => (
+                    <Pressable key={i} onPress={() => dismiss(() => onSelect(line))}
+                      style={({ pressed }) => [pressed && { opacity: 0.7 }]}>
+                      <Squircle
+                        style={styles.aiLineItem}
+                        cornerRadius={16} cornerSmoothing={1}
+                        fillColor={colors.surface2} strokeColor={colors.border}
+                        strokeWidth={StyleSheet.hairlineWidth}
+                      >
+                        <Text style={{ fontSize: 18, width: 28 }}>✨</Text>
+                        <Text style={[styles.aiLineText, { color: colors.text }]}>{line}</Text>
+                        <Squircle
+                          style={styles.aiLineUse} cornerRadius={13} cornerSmoothing={1}
+                          fillColor={aiCatColor + '22'}
+                        >
+                          <Ionicons name="arrow-up" size={12} color={aiCatColor} />
+                        </Squircle>
+                      </Squircle>
+                    </Pressable>
+                  ))}
+                </View>
+              )}
+            </ScrollView>
+          )}
         </Pressable>
       </Animated.View>
     </Pressable>
@@ -1525,7 +1835,7 @@ export default function ChatConversationPage() {
   const insets  = useSafeAreaInsets();
   const { colors } = useAppTheme();
   const { token, profile } = useAuth();
-  const params  = useLocalSearchParams<{ partnerId?: string; name?: string; image?: string; online?: string }>();
+  const params  = useLocalSearchParams<{ partnerId?: string; name?: string; image?: string; online?: string; pendingGame?: string }>();
 
   const partnerId = params.partnerId ?? '';
   const name      = params.name   ?? 'Match';
@@ -1540,6 +1850,7 @@ export default function ChatConversationPage() {
   const [answeringCard, setAnsweringCard] = useState<string | null>(null);
   const [isPartnerTyping, setIsPartnerTyping] = useState(false);
   const [loadingHistory,  setLoadingHistory]  = useState(true);
+  const [headerHeight,  setHeaderHeight]  = useState(0);
   const [isOnline, setIsOnline] = useState(online);
 
   // ── Truth or Dare game state ──────────────────────────────────────────────
@@ -1547,6 +1858,17 @@ export default function ChatConversationPage() {
   const [showTodPicker,  setShowTodPicker]  = useState(false);
   // todAnswerMsg: the turn message the receiver is answering
   const [todAnswerMsg,   setTodAnswerMsg]   = useState<Msg | null>(null);
+
+  // ── Mini-games state ──────────────────────────────────────────────────────
+  const [showGames, setShowGames] = useState(false);
+  const pendingGameRef = useRef<string | null>(null);
+
+  // Store pendingGame param in ref so the effect after handleGameSend can read it
+  useEffect(() => {
+    if (params.pendingGame) {
+      pendingGameRef.current = params.pendingGame;
+    }
+  }, [params.pendingGame]);
   const scrollRef       = useRef<ScrollView>(null);
   const wsRef           = useRef<WebSocket | null>(null);
   const safeSendRef     = useRef<((raw: string) => void) | null>(null);
@@ -1559,10 +1881,12 @@ export default function ChatConversationPage() {
 
   // ── Convert API message to local Msg ──────────────────────────────────────
   const apiMsgToMsg = useCallback((m: ApiMessage): Msg => {
-    const isTodMsg = m.msg_type?.startsWith('tod_');
+    const isTodMsg  = m.msg_type?.startsWith('tod_');
+    const isGameMsg = GAME_MSG_TYPES.has(m.msg_type);
+    const isImage   = m.msg_type === 'image';
     return {
       id:      m.id,
-      text:    m.content,
+      text:    isImage ? '' : m.content,
       from:    m.sender_id === myId ? 'me' : 'them',
       time:    _formatTime(m.created_at),
       isCard:  m.msg_type === 'card',
@@ -1571,7 +1895,11 @@ export default function ChatConversationPage() {
       status:  m.sender_id === myId ? (m.is_read ? 'read' : 'delivered') : undefined,
       isTod:    isTodMsg,
       todMsgType: isTodMsg ? (m.msg_type as Msg['todMsgType']) : undefined,
-      todExtra:   (m.metadata as Record<string, any>) ?? undefined,
+      todExtra:   isTodMsg ? ((m.metadata as Record<string, any>) ?? undefined) : undefined,
+      isGame:     isGameMsg,
+      gameMsgType: isGameMsg ? m.msg_type : undefined,
+      gameExtra:   isGameMsg ? ((m.metadata as Record<string, any>) ?? undefined) : undefined,
+      imageUrl:   isImage ? (m.metadata?.imageUrl ?? m.content) : undefined,
     };
   }, [myId]);
 
@@ -1649,6 +1977,16 @@ export default function ChatConversationPage() {
           setMessages(prev =>
             prev.map(m => m.from === 'me' && m.status !== 'read' ? { ...m, status: 'read' } : m)
           );
+        } else if (payload.type === 'game_response') {
+          // Receiver answered a game bubble — update the original bubble in-place
+          const { ref_msg_id, extra: responseExtra } = payload;
+          if (ref_msg_id) {
+            setMessages(prev => prev.map(m =>
+              m.id === ref_msg_id
+                ? { ...m, gameExtra: { ...m.gameExtra, ...(responseExtra ?? {}) } }
+                : m
+            ));
+          }
         } else if (payload.type === 'typing') {
           setIsPartnerTyping(Boolean(payload.is_typing));
           if (payload.is_typing) setTimeout(() => setIsPartnerTyping(false), 3000);
@@ -1786,6 +2124,71 @@ export default function ChatConversationPage() {
     }
   };
 
+  const handlePhotoSend = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission needed', 'Please allow photo library access to send images.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      quality: 0.85,
+    });
+    if (result.canceled || !result.assets?.[0]) return;
+
+    const asset = result.assets[0];
+    const optimisticId = `opt-img-${Date.now()}`;
+    const optimistic: Msg = {
+      id: optimisticId,
+      text: '',
+      from: 'me',
+      time: nowTime(),
+      imageUrl: asset.uri,
+      status: 'sending',
+    };
+    setMessages(prev => [...prev, optimistic]);
+    setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 80);
+
+    try {
+      if (!token) throw new Error('no token');
+      const formData = new FormData();
+      formData.append('file', {
+        uri: asset.uri,
+        type: asset.mimeType ?? 'image/jpeg',
+        name: asset.fileName ?? `chat-${Date.now()}.jpg`,
+      } as any);
+      formData.append('purpose', 'chat');
+
+      const uploadRes = await fetch(`${(await import('@/constants/api')).API_V1}/upload/photo`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+      const uploadData = await uploadRes.json();
+      const cdnUrl: string = uploadData?.url ?? asset.uri;
+
+      // Send the CDN URL as a message (image msg_type)
+      const msgPayload = JSON.stringify({
+        type: 'message',
+        content: cdnUrl,
+        msg_type: 'image',
+        metadata: { imageUrl: cdnUrl },
+      });
+      if (safeSendRef.current) {
+        safeSendRef.current(msgPayload);
+      }
+      setMessages(prev => prev.map(x =>
+        x.id === optimisticId ? { ...x, imageUrl: cdnUrl, status: 'sent' } : x
+      ));
+    } catch {
+      // Keep the local URI as a fallback so user still sees the image
+      setMessages(prev => prev.map(x =>
+        x.id === optimisticId ? { ...x, status: 'sent' } : x
+      ));
+    }
+  };
+
   // ── Truth or Dare game helpers ────────────────────────────────────────────
 
   const sendTodMessage = (wsType: string, content: string, extra: Record<string, any>) => {
@@ -1855,6 +2258,74 @@ export default function ChatConversationPage() {
     setTodAnswerMsg(null);
   };
 
+  // ── Mini-game send handler ──────────────────────────────────────────────────
+  const handleGameSend = (gameMsgType: string, content: string, extra: Record<string, any>) => {
+    if (!safeSendRef.current) return;
+    const optimisticId = `opt-game-${Date.now()}`;
+    const newMsg: Msg = {
+      id: optimisticId,
+      text: content,
+      from: 'me',
+      time: _formatTime(new Date().toISOString()),
+      status: 'sending',
+      isGame: true,
+      gameMsgType,
+      gameExtra: { ...extra, sender_id: myId },
+    };
+    pendingOptIdRef.current = optimisticId;
+    setMessages(prev => [...prev, newMsg]);
+    setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 60);
+    const payload = JSON.stringify({
+      type: gameMsgType,
+      content,
+      extra: { ...extra, sender_id: myId },
+      receiver_id: partnerId,
+    });
+    safeSendRef.current(payload);
+  };
+
+  // ── Mini-game respond handler (receiver tapping in a bubble) ───────────────
+  const handleGameRespond = (originalMsg: Msg, newExtra: Record<string, any>) => {
+    if (!originalMsg.gameMsgType) return;
+    // For local-only state updates (quiz stepping), just update in-place
+    if ((newExtra as any)._localOnly) {
+      const { _localOnly, ...cleanExtra } = newExtra as any;
+      setMessages(prev => prev.map(m => m.id === originalMsg.id
+        ? { ...m, gameExtra: { ...m.gameExtra, ...cleanExtra } }
+        : m
+      ));
+      return;
+    }
+    // Update the original bubble in-place locally (receiver sees it immediately)
+    const cleanExtra = { ...newExtra };
+    setMessages(prev => prev.map(m => m.id === originalMsg.id
+      ? { ...m, gameExtra: { ...m.gameExtra, ...cleanExtra } }
+      : m
+    ));
+    // Send a lightweight game_response WS event so the sender's bubble also updates
+    if (safeSendRef.current) {
+      safeSendRef.current(JSON.stringify({
+        type: 'game_response',
+        ref_msg_id: originalMsg.id,
+        game_type: originalMsg.gameMsgType,
+        extra: { ...cleanExtra, sender_id: myId },
+        receiver_id: partnerId,
+      }));
+    }
+  };
+
+  // ── Fire pending game from MiniGamesPage navigation ───────────────────────
+  useEffect(() => {
+    const raw = pendingGameRef.current;
+    if (!raw) return;
+    pendingGameRef.current = null;
+    try {
+      const { msgType, content, extra } = JSON.parse(raw);
+      handleGameSend(msgType, content, extra);
+      router.setParams({ pendingGame: undefined });
+    } catch (_) {}
+  }, [params.pendingGame]);
+
 
   useEffect(() => {
     if (!loadingHistory) {
@@ -1869,7 +2340,9 @@ export default function ChatConversationPage() {
       <View style={[
         styles.header,
         { paddingTop: insets.top + 8, borderBottomColor: colors.border, backgroundColor: colors.bg },
-      ]}>
+      ]}
+        onLayout={e => setHeaderHeight(e.nativeEvent.layout.height)}
+      >
         <Pressable onPress={() => router.back()} hitSlop={10}
           style={({ pressed }) => [pressed && { opacity: 0.6 }]}>
           <Ionicons name="chevron-back" size={26} color={colors.text} />
@@ -1915,7 +2388,7 @@ export default function ChatConversationPage() {
       </View>
 
       {/* ── Messages ── */}
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={Platform.OS === 'ios' ? headerHeight : 0}>
         <ScrollView
           ref={scrollRef}
           style={{ flex: 1 }}
@@ -1942,6 +2415,28 @@ export default function ChatConversationPage() {
             const isLastInGroup = !nextMsg || nextMsg.from !== msg.from;
             const myAvatar    = profile?.photos?.[0] ?? undefined;
             const partnerAvatar = image || undefined;
+
+            // Mini-games bubble
+            if (msg.isGame && msg.gameMsgType) {
+              return (
+                <GameBubble
+                  key={msg.id}
+                  msg={msg as unknown as GameMsg}
+                  colors={colors}
+                  myId={myId}
+                  partnerId={partnerId}
+                  partnerName={name}
+                  messages={messages.filter(m => m.isGame) as unknown as GameMsg[]}
+                  myAvatar={myAvatar}
+                  partnerAvatar={partnerAvatar}
+                  isLastInGroup={isLastInGroup}
+                  onRespond={(updatedMsg) => handleGameRespond(
+                    msg,
+                    updatedMsg.gameExtra ?? {},
+                  )}
+                />
+              );
+            }
 
             if (msg.isTod) {
               return (
@@ -2012,17 +2507,42 @@ export default function ChatConversationPage() {
           )}
 
           <View style={styles.inputRow}>
-            {/* Question cards button */}
+            {/* Games button (full-screen hub) */}
             <Pressable
-              onPress={() => { Keyboard.dismiss(); setShowCards(true); setShowAi(false); setAnsweringCard(null); }}
+              onPress={() => {
+                Keyboard.dismiss();
+                router.push({
+                  pathname: '/mini-games',
+                  params: {
+                    partnerId,
+                    partnerName: name,
+                    roomId: partnerId,
+                    partnerImage: image,
+                  },
+                });
+              }}
               hitSlop={8}
               style={({ pressed }) => [pressed && { opacity: 0.6 }]}
             >
               <Squircle
                 style={styles.inputSideBtn} cornerRadius={14} cornerSmoothing={1}
-                fillColor={showCards ? colors.text : colors.surface2}
+                fillColor={colors.surface2}
               >
-                <Ionicons name="layers" size={20} color={showCards ? colors.bg : colors.text} />
+                <Ionicons name="game-controller" size={18} color={colors.text} />
+              </Squircle>
+            </Pressable>
+
+            {/* Photo upload button */}
+            <Pressable
+              onPress={handlePhotoSend}
+              hitSlop={8}
+              style={({ pressed }) => [pressed && { opacity: 0.6 }]}
+            >
+              <Squircle
+                style={styles.inputSideBtn} cornerRadius={14} cornerSmoothing={1}
+                fillColor={colors.surface2}
+              >
+                <Ionicons name="image-outline" size={18} color={colors.text} />
               </Squircle>
             </Pressable>
 
@@ -2085,6 +2605,7 @@ export default function ChatConversationPage() {
           matchName={name}
           onSelect={line => { setText(line); setShowAi(false); }}
           onClose={() => setShowAi(false)}
+          token={token ?? undefined}
         />
       )}
 
@@ -2212,7 +2733,19 @@ const styles = StyleSheet.create({
   aiLinesList: { paddingHorizontal: 14, paddingBottom: 28, gap: 7 },
   aiLineItem:  { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 13 },
   aiLineText:  { flex: 1, fontSize: 14, fontFamily: 'ProductSans-Regular', lineHeight: 20 },
-  aiLineUse:   { width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
+  aiLineUse:   { width: 26, height: 26, alignItems: 'center', justifyContent: 'center' },
+
+  // AI Panel redesigned
+  aiModeToggle:       { flexDirection: 'row', marginHorizontal: 16, marginBottom: 12, borderRadius: 14, padding: 3, gap: 3 },
+  aiModeBtn:          { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: 9, borderRadius: 11 },
+  aiModeBtnText:      { fontSize: 13, fontFamily: 'ProductSans-Bold' },
+  aiCategoryScroll:   { paddingHorizontal: 16, paddingBottom: 10, gap: 8, flexDirection: 'row' },
+  aiCategoryPill:     { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 7 },
+  aiCategoryPillText: { fontSize: 12, fontFamily: 'ProductSans-Bold' },
+  aiGenLabel:         { fontSize: 10, fontFamily: 'ProductSans-Bold', letterSpacing: 1 },
+  aiGenInput:         { fontSize: 14, fontFamily: 'ProductSans-Regular', lineHeight: 20, minHeight: 60 },
+  aiGenBtn:           { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 16 },
+  aiGenBtnText:       { fontSize: 15, fontFamily: 'ProductSans-Black', color: '#fff' },
 
   // Insight panel
   insightSummaryBox:    { padding: 14 },

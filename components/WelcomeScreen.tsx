@@ -1,7 +1,10 @@
+import * as AppleAuthentication from 'expo-apple-authentication';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import {
+  ActivityIndicator,
+  Alert,
   Pressable,
   StyleSheet,
   Text,
@@ -11,7 +14,14 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
 
+import { apiFetch, authedFetch } from '@/constants/api';
 import { useAuth } from '@/context/AuthContext';
+
+interface TokenResponse {
+  access_token: string;
+  refresh_token: string;
+  expires_in: number;
+}
 
 const Logo = () => (
   <Svg width={120} height={56} viewBox="0 0 741 347" fill="none">
@@ -26,10 +36,53 @@ export default function WelcomeScreen() {
   const router = useRouter();
   const { signIn } = useAuth();
   const [expanded, setExpanded] = useState(false);
+  const [appleLoading, setAppleLoading] = useState(false);
 
-  const handleSignIn = async (accessToken: string, refreshToken: string, isOnboarded: boolean) => {
-    await signIn(accessToken, refreshToken, isOnboarded);
-    router.replace('/(tabs)' as any);
+  const handleAppleSignIn = async () => {
+    try {
+      setAppleLoading(true);
+
+      const credential = await AppleAuthentication.signInAsync({
+        requestedScopes: [
+          AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+          AppleAuthentication.AppleAuthenticationScope.EMAIL,
+        ],
+      });
+
+      const { identityToken, fullName } = credential;
+
+      if (!identityToken) {
+        Alert.alert('Sign In Failed', 'No identity token returned from Apple.');
+        return;
+      }
+
+      // Build display name from Apple's name components (only sent on first sign-in)
+      const appleFullName = [fullName?.givenName, fullName?.familyName]
+        .filter(Boolean)
+        .join(' ') || undefined;
+
+      const data = await apiFetch<TokenResponse>('/auth/apple', {
+        method: 'POST',
+        body: JSON.stringify({
+          identity_token: identityToken,
+          full_name: appleFullName,
+        }),
+      });
+
+      // Fetch profile to check onboarding status before triggering the auth guard
+      const me = await authedFetch<{ is_onboarded: boolean }>(
+        '/profile/me',
+        data.access_token,
+      );
+
+      await signIn(data.access_token, data.refresh_token, me.is_onboarded);
+    } catch (err: any) {
+      // User cancelled the Apple dialog — don't show an error
+      if (err?.code === 'ERR_REQUEST_CANCELED') return;
+      Alert.alert('Sign In Failed', err.message ?? 'Please try again.');
+    } finally {
+      setAppleLoading(false);
+    }
   };
 
   return (
@@ -59,14 +112,21 @@ export default function WelcomeScreen() {
           <View style={styles.bottom}>
             {expanded ? (
               <View style={styles.authButtons}>
-                <TouchableOpacity style={styles.btnApple}>
-                  <Text style={styles.btnAppleText}>  Continue with Apple</Text>
+                {/* Sign in with Apple */}
+                <TouchableOpacity
+                  style={styles.btnApple}
+                  onPress={handleAppleSignIn}
+                  disabled={appleLoading}
+                  activeOpacity={0.85}
+                >
+                  {appleLoading ? (
+                    <ActivityIndicator color="#000" />
+                  ) : (
+                    <Text style={styles.btnAppleText}>  Continue with Apple</Text>
+                  )}
                 </TouchableOpacity>
 
-                <TouchableOpacity style={styles.btnFacebook}>
-                  <Text style={styles.btnFacebookText}>  Continue with Facebook</Text>
-                </TouchableOpacity>
-
+                {/* Phone number */}
                 <TouchableOpacity
                   style={styles.btnPhone}
                   onPress={() => router.push('/phone' as any)}
@@ -160,22 +220,13 @@ const styles = StyleSheet.create({
     borderRadius: 50,
     paddingVertical: 18,
     alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 56,
   },
   btnAppleText: {
     fontSize: 16,
     fontFamily: 'ProductSans-Bold',
     color: '#000',
-  },
-  btnFacebook: {
-    backgroundColor: '#1877F2',
-    borderRadius: 50,
-    paddingVertical: 18,
-    alignItems: 'center',
-  },
-  btnFacebookText: {
-    fontSize: 16,
-    fontFamily: 'ProductSans-Bold',
-    color: '#fff',
   },
   btnPhone: {
     backgroundColor: 'transparent',

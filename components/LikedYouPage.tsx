@@ -19,8 +19,6 @@ import { useAppTheme } from '@/context/ThemeContext';
 const { width: W } = Dimensions.get('window');
 const LIKED_CARD_W  = Math.floor((W - 44) / 2);
 const LIKED_PHOTO_H = Math.floor(LIKED_CARD_W * 4 / 3);
-// Always show first 2 unblurred, rest blurred
-const VISIBLE_COUNT = 2;
 
 interface Profile {
   id: string; name: string; age: number; verified: boolean; premium: boolean;
@@ -67,6 +65,7 @@ export default function LikedYouPage({ insets, token }: { insets: any; token: st
 
   const [likedProfiles,  setLikedProfiles]  = useState<Profile[]>([]);
   const [loading,        setLoading]        = useState(true);
+  const [isPro,          setIsPro]          = useState(false);
   const [recentMatches,  setRecentMatches]  = useState<RecentMatch[]>([]);
   const [matchedProfile, setMatchedProfile] = useState<MatchedProfile | null>(null);
 
@@ -82,8 +81,11 @@ export default function LikedYouPage({ insets, token }: { insets: any; token: st
   useEffect(() => {
     if (!token) return;
     setLoading(true);
-    apiFetch<{ profiles: Profile[]; total: number }>('/discover/liked-you', { token })
-      .then(res => setLikedProfiles(res.profiles))
+    apiFetch<{ profiles: Profile[]; total: number; is_pro: boolean }>('/discover/liked-you', { token })
+      .then(res => {
+        setLikedProfiles(res.profiles);
+        setIsPro(res.is_pro ?? false);
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [token]);
@@ -147,26 +149,30 @@ export default function LikedYouPage({ insets, token }: { insets: any; token: st
         contentContainerStyle={{ paddingBottom: insets.bottom + 90 }}
         showsVerticalScrollIndicator={false}
       >
-        {/* Header — no Pro/Free toggle */}
+        {/* Header */}
         <View style={styles.header}>
           <Text style={[styles.pageTitle, { color: colors.text }]}>Liked You</Text>
-          <Text style={[styles.pageSub, { color: colors.textSecondary }]}>{count} {count === 1 ? 'person' : 'people'} already like you</Text>
+          <Text style={[styles.pageSub, { color: colors.textSecondary }]}>
+            {count} {count === 1 ? 'person' : 'people'} already like you
+          </Text>
         </View>
 
-        {/* Upgrade banner — always shown (non-Pro users see blurred cards) */}
-        <Pressable onPress={() => router.push('/subscription')} style={({ pressed }) => [pressed && { opacity: 0.85 }]}>
-          <Squircle style={styles.upgradeBanner} cornerRadius={20} cornerSmoothing={1}
-            fillColor={colors.surface} strokeColor={colors.border} strokeWidth={StyleSheet.hairlineWidth}>
-            <Squircle style={styles.upgradeIcon} cornerRadius={14} cornerSmoothing={1} fillColor={colors.surface2}>
-              <Ionicons name="lock-closed" size={18} color={colors.text} />
+        {/* Upgrade banner — only for non-Pro users */}
+        {!isPro && (
+          <Pressable onPress={() => router.push('/subscription')} style={({ pressed }) => [pressed && { opacity: 0.85 }]}>
+            <Squircle style={styles.upgradeBanner} cornerRadius={20} cornerSmoothing={1}
+              fillColor={colors.surface} strokeColor={colors.border} strokeWidth={StyleSheet.hairlineWidth}>
+              <Squircle style={styles.upgradeIcon} cornerRadius={14} cornerSmoothing={1} fillColor={colors.surface2}>
+                <Ionicons name="lock-closed" size={18} color={colors.text} />
+              </Squircle>
+              <View style={{ flex: 1, gap: 2 }}>
+                <Text style={[styles.upgradeTitle, { color: colors.text }]}>See everyone who liked you</Text>
+                <Text style={[styles.upgradeSub, { color: colors.textSecondary }]}>Upgrade to Zod Pro to unlock all profiles</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />
             </Squircle>
-            <View style={{ flex: 1, gap: 2 }}>
-              <Text style={[styles.upgradeTitle, { color: colors.text }]}>See everyone who liked you</Text>
-              <Text style={[styles.upgradeSub, { color: colors.textSecondary }]}>Upgrade to Zod Pro to unlock all profiles</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />
-          </Squircle>
-        </Pressable>
+          </Pressable>
+        )}
 
         {/* Matches row — circular avatars with 24h countdown */}
         {recentMatches.length > 0 && (
@@ -195,7 +201,7 @@ export default function LikedYouPage({ insets, token }: { insets: any; token: st
           </View>
         )}
 
-        {/* Cards grid — first VISIBLE_COUNT are clear, rest are blurred */}
+        {/* Cards grid — all blurred for free users, all visible for Pro */}
         <View style={styles.grid}>
           {loading ? (
             <>
@@ -203,7 +209,7 @@ export default function LikedYouPage({ insets, token }: { insets: any; token: st
               <LikedCardSkeleton /><LikedCardSkeleton />
             </>
           ) : likedProfiles.map((p, i) => {
-            const isBlurred = i >= VISIBLE_COUNT;
+            const isBlurred = !isPro;
             return (
               <View key={p.id} style={[styles.cardWrap, { width: LIKED_CARD_W }]}>
                 <Squircle style={styles.card} cornerRadius={24} cornerSmoothing={1}

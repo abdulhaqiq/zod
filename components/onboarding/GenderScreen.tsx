@@ -11,14 +11,17 @@ import { useProfileSave } from '@/hooks/useProfileSave';
 import OnboardingShell from './OnboardingShell';
 
 const { width: W } = Dimensions.get('window');
-const CARD_W = (W - 48 - 14) / 2; // 48 = horizontal padding, 14 = gap
+const CARD_W = (W - 48 - 14) / 2; // 2 cards with 1 gap of 14px
 
 export default function GenderScreen() {
   const router = useRouter();
   const { colors } = useAppTheme();
   const { save, saving } = useProfileSave();
   const { profile } = useAuth();
-  const genders = useLookupsCategory('gender');
+  // Only Man & Woman — zod is a straight dating app; backend also enforces this
+  const genders = useLookupsCategory('gender').filter(g =>
+    g.label === 'Man' || g.label === 'Woman'
+  );
 
   const [selectedId, setSelectedId] = useState<number | null>(profile?.gender_id ?? null);
 
@@ -32,7 +35,7 @@ export default function GenderScreen() {
     <OnboardingShell
       step={2}
       title="I identify as"
-      subtitle="This helps us personalise your experience."
+      subtitle="Select one to continue."
       onContinue={handleContinue}
       continueDisabled={!selectedId}
       loading={saving}
@@ -51,8 +54,8 @@ export default function GenderScreen() {
                 strokeWidth={active ? 0 : 1.5}
               >
                 <View style={styles.cardContent}>
-                  {emoji ? <Text style={[styles.emoji, { color: active ? '#ffffff' : colors.text }]}>{emoji}</Text> : null}
-                  <Text style={[styles.label, { color: active ? '#ffffff' : colors.text }]}>
+                  {emoji ? <Text style={[styles.emoji, { color: active ? colors.bg : colors.text }]}>{emoji}</Text> : null}
+                  <Text style={[styles.label, { color: active ? colors.bg : colors.text }]}>
                     {label}
                   </Text>
                 </View>
@@ -61,6 +64,10 @@ export default function GenderScreen() {
           );
         })}
       </View>
+
+      <Text style={[styles.note, { color: colors.textTertiary }]}>
+        zod is designed for man–woman connections. We respect everyone — this focus helps us create the best experience for our community.
+      </Text>
     </OnboardingShell>
   );
 }
@@ -84,5 +91,13 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 17,
     fontFamily: 'ProductSans-Bold',
+  },
+  note: {
+    fontSize: 12,
+    fontFamily: 'ProductSans-Regular',
+    textAlign: 'center',
+    lineHeight: 18,
+    marginTop: 24,
+    paddingHorizontal: 8,
   },
 });

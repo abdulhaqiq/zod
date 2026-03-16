@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text } from 'react-native';
 import { useAuth } from '@/context/AuthContext';
 import { useAppTheme } from '@/context/ThemeContext';
-import { RELATIONSHIP_TYPES } from '@/constants/lookupData';
+import { useLookupsCategory } from '@/hooks/useLookups';
 import { useProfileSave } from '@/hooks/useProfileSave';
 import OnboardingShell from './OnboardingShell';
 
@@ -13,6 +13,7 @@ export default function PurposeScreen() {
   const { colors } = useAppTheme();
   const { save, saving } = useProfileSave();
   const { profile } = useAuth();
+  const options = useLookupsCategory('looking_for');
 
   const [selected, setSelected] = useState<number[]>(
     Array.isArray(profile?.purpose) ? profile.purpose : []
@@ -34,7 +35,7 @@ export default function PurposeScreen() {
     <OnboardingShell
       step={3}
       title="What are you looking for?"
-      subtitle="Be honest — it helps find the right match. Pick all that apply."
+      subtitle={`${selected.length} selected`}
       onContinue={handleContinue}
       continueDisabled={selected.length === 0}
       loading={saving}
@@ -43,7 +44,7 @@ export default function PurposeScreen() {
         contentContainerStyle={styles.chips}
         showsVerticalScrollIndicator={false}
       >
-        {RELATIONSHIP_TYPES.map((opt) => {
+        {options.map((opt) => {
           const active = selected.includes(opt.id);
           return (
             <Pressable
@@ -58,7 +59,7 @@ export default function PurposeScreen() {
               ]}
             >
               <Text style={[styles.chipText, { color: active ? colors.bg : colors.text }]}>
-                {opt.label}
+                {opt.emoji ? `${opt.emoji} ` : ''}{opt.label}
               </Text>
             </Pressable>
           );

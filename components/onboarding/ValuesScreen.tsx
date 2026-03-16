@@ -22,9 +22,11 @@ export default function ValuesScreen() {
   const existingValues = (profile?.values_list ?? []).filter(id => personalIds.includes(id));
   const [selected, setSelected] = useState<number[]>(existingValues);
 
+  const MAX = 3;
+
   const toggle = (id: number) =>
     setSelected((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : prev.length < 5 ? [...prev, id] : prev,
+      prev.includes(id) ? prev.filter((x) => x !== id) : prev.length < MAX ? [...prev, id] : prev,
     );
 
   const handleContinue = async () => {
@@ -39,7 +41,7 @@ export default function ValuesScreen() {
     <OnboardingShell
       step={8}
       title="What do you value most?"
-      subtitle={`Pick up to 5. ${selected.length}/5 selected.`}
+      subtitle={`${selected.length} / ${MAX} selected`}
       onContinue={handleContinue}
       continueDisabled={selected.length === 0}
       loading={saving}

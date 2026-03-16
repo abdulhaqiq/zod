@@ -18,6 +18,12 @@ export type LookupMap = Record<string, LookupOption[]>;
 let _cache: LookupMap | null = null;
 let _inflight: Promise<LookupMap> | null = null;
 
+/** Force a fresh fetch on next use (call after DB-side changes). */
+export function bustLookupsCache() {
+  _cache = null;
+  _inflight = null;
+}
+
 export async function fetchLookups(): Promise<LookupMap> {
   if (_cache) return _cache;
   if (_inflight) return _inflight;

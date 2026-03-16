@@ -16,9 +16,11 @@ export default function InterestsScreen() {
   const interests = useLookupsCategory('interests');
   const [selected, setSelected] = useState<number[]>(profile?.interests ?? []);
 
+  const MAX = 5;
+
   const toggle = (id: number) =>
     setSelected((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : prev.length < 5 ? [...prev, id] : prev,
+      prev.includes(id) ? prev.filter((x) => x !== id) : prev.length < MAX ? [...prev, id] : prev,
     );
 
   const handleContinue = async () => {
@@ -31,7 +33,7 @@ export default function InterestsScreen() {
     <OnboardingShell
       step={6}
       title="What are you into?"
-      subtitle={`Pick up to 5 interests. ${selected.length}/5 selected.`}
+      subtitle={`${selected.length} / ${MAX} selected`}
       onContinue={handleContinue}
       continueDisabled={selected.length === 0}
       loading={saving}

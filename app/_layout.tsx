@@ -26,17 +26,21 @@ const ONBOARDING_SCREENS = [
 
 const MIN_PHOTOS = 3;
 
+// Goal IDs start at 267 (items with emoji in values_list).
+// Personal values (251-266) have no emoji and are saved at a later step.
+const GOAL_ID_MIN = 267;
+
 function firstIncompleteStep(p: UserProfile): string {
-  if (!p.full_name || !p.date_of_birth)      return '/profile';
-  if (!p.gender_id)                           return '/gender';
-  if (!p.purpose?.length)                     return '/purpose';
-  if (!p.height_cm)                          return '/height';
-  if (!p.interests?.length)                  return '/interests';
-  if (!p.lifestyle)                          return '/lifestyle';
-  if (!p.values_list?.length)                return '/values';
-  if (!p.bio)                                return '/prompts';
-  if ((p.photos?.length ?? 0) < MIN_PHOTOS)  return '/photos';
-  // All steps done but not yet marked onboarded — stay on photos
+  if (!p.full_name || !p.date_of_birth)                           return '/profile';
+  if (!p.gender_id)                                               return '/gender';
+  if (!p.purpose?.length)                                         return '/purpose';
+  if (!p.values_list?.some(id => id >= GOAL_ID_MIN))             return '/goals';
+  if (!p.height_cm)                                              return '/height';
+  if (!p.interests?.length)                                      return '/interests';
+  if (!p.lifestyle)                                              return '/lifestyle';
+  if (!p.values_list?.some(id => id < GOAL_ID_MIN))             return '/values';
+  if (!p.bio)                                                    return '/prompts';
+  if ((p.photos?.length ?? 0) < MIN_PHOTOS)                     return '/photos';
   return '/photos';
 }
 
@@ -185,55 +189,49 @@ function RootLayoutInner() {
 
   const bgColor = isDark ? darkColors.bg : lightColors.bg;
 
-  // Network failed during bootstrap — user has a session but can't reach server.
-  // Show a "No Connection" screen instead of logging them out or showing nothing.
-  if (isNetworkError && !isLoading) {
-    return (
-      <ThemeProvider value={isDark ? DarkTheme : DefaultTheme}>
-        <NoConnectionScreen />
-        <StatusBar style={isDark ? 'light' : 'dark'} />
-      </ThemeProvider>
-    );
-  }
-
   return (
     <ThemeProvider value={isDark ? DarkTheme : DefaultTheme}>
       <View style={{ flex: 1, backgroundColor: bgColor }}>
-        <Stack>
-          <Stack.Screen name="welcome"         options={{ headerShown: false }} />
-          <Stack.Screen name="(tabs)"          options={{ headerShown: false }} />
-          <Stack.Screen name="phone"           options={{ headerShown: false }} />
-          <Stack.Screen name="otp"             options={{ headerShown: false }} />
-          <Stack.Screen name="passkey"         options={{ headerShown: false }} />
-          <Stack.Screen name="profile"         options={{ headerShown: false }} />
-          <Stack.Screen name="gender"          options={{ headerShown: false }} />
-          <Stack.Screen name="purpose"         options={{ headerShown: false }} />
-          <Stack.Screen name="goals"           options={{ headerShown: false }} />
-          <Stack.Screen name="height"          options={{ headerShown: false }} />
-          <Stack.Screen name="interests"       options={{ headerShown: false }} />
-          <Stack.Screen name="lifestyle"       options={{ headerShown: false }} />
-          <Stack.Screen name="values"          options={{ headerShown: false }} />
-          <Stack.Screen name="prompts"         options={{ headerShown: false }} />
-          <Stack.Screen name="photos"          options={{ headerShown: false }} />
-          <Stack.Screen name="feed"            options={{ headerShown: false }} />
-          <Stack.Screen name="profile-view"    options={{ headerShown: false, presentation: 'card' }} />
-          <Stack.Screen name="edit-profile"    options={{ headerShown: false }} />
-          <Stack.Screen name="verification"    options={{ headerShown: false }} />
-          <Stack.Screen name="work-experience" options={{ headerShown: false }} />
-          <Stack.Screen name="education"       options={{ headerShown: false }} />
-          <Stack.Screen name="location-search" options={{ headerShown: false }} />
-          <Stack.Screen name="subscription"    options={{ headerShown: false, presentation: 'fullScreenModal' }} />
-          <Stack.Screen name="chat"            options={{ headerShown: false }} />
-          <Stack.Screen name="notifications"   options={{ headerShown: false }} />
-          <Stack.Screen name="security"        options={{ headerShown: false }} />
-          <Stack.Screen name="legal"           options={{ headerShown: false }} />
-          <Stack.Screen name="get-help"        options={{ headerShown: false }} />
-          <Stack.Screen name="purchases"              options={{ headerShown: false }} />
-          <Stack.Screen name="admin-verifications"  options={{ headerShown: false }} />
-          <Stack.Screen name="zod-work"             options={{ headerShown: false }} />
-          <Stack.Screen name="work-edit-profile"    options={{ headerShown: false }} />
-          <Stack.Screen name="modal"                options={{ presentation: 'modal', title: 'Modal' }} />
-        </Stack>
+
+        {/* Only render the Stack when there's no network error */}
+        {!isNetworkError && (
+          <Stack>
+            <Stack.Screen name="welcome"         options={{ headerShown: false }} />
+            <Stack.Screen name="(tabs)"          options={{ headerShown: false }} />
+            <Stack.Screen name="phone"           options={{ headerShown: false }} />
+            <Stack.Screen name="otp"             options={{ headerShown: false }} />
+            <Stack.Screen name="passkey"         options={{ headerShown: false }} />
+            <Stack.Screen name="profile"         options={{ headerShown: false }} />
+            <Stack.Screen name="gender"          options={{ headerShown: false }} />
+            <Stack.Screen name="purpose"         options={{ headerShown: false }} />
+            <Stack.Screen name="goals"           options={{ headerShown: false }} />
+            <Stack.Screen name="height"          options={{ headerShown: false }} />
+            <Stack.Screen name="interests"       options={{ headerShown: false }} />
+            <Stack.Screen name="lifestyle"       options={{ headerShown: false }} />
+            <Stack.Screen name="values"          options={{ headerShown: false }} />
+            <Stack.Screen name="prompts"         options={{ headerShown: false }} />
+            <Stack.Screen name="photos"          options={{ headerShown: false }} />
+            <Stack.Screen name="feed"            options={{ headerShown: false }} />
+            <Stack.Screen name="profile-view"    options={{ headerShown: false, presentation: 'card' }} />
+            <Stack.Screen name="edit-profile"    options={{ headerShown: false }} />
+            <Stack.Screen name="verification"    options={{ headerShown: false }} />
+            <Stack.Screen name="work-experience" options={{ headerShown: false }} />
+            <Stack.Screen name="education"       options={{ headerShown: false }} />
+            <Stack.Screen name="location-search" options={{ headerShown: false }} />
+            <Stack.Screen name="subscription"    options={{ headerShown: false, presentation: 'fullScreenModal' }} />
+            <Stack.Screen name="chat"            options={{ headerShown: false }} />
+            <Stack.Screen name="mini-games"     options={{ headerShown: false }} />
+            <Stack.Screen name="notifications"   options={{ headerShown: false }} />
+            <Stack.Screen name="security"        options={{ headerShown: false }} />
+            <Stack.Screen name="legal"           options={{ headerShown: false }} />
+            <Stack.Screen name="get-help"        options={{ headerShown: false }} />
+            <Stack.Screen name="purchases"              options={{ headerShown: false }} />
+            <Stack.Screen name="admin-verifications"  options={{ headerShown: false }} />
+            <Stack.Screen name="zod-work"             options={{ headerShown: false }} />
+            <Stack.Screen name="work-edit-profile"    options={{ headerShown: false }} />
+            <Stack.Screen name="modal"                options={{ presentation: 'modal', title: 'Modal' }} />
+          </Stack>
+        )}
 
         <StatusBar style={isDark ? 'light' : 'dark'} />
 
@@ -241,6 +239,13 @@ function RootLayoutInner() {
             Fades out only after the correct screen is already in the stack. */}
         {!splashDone && (
           <AppSplashScreen ready={routingDone} onFinish={() => setSplashDone(true)} />
+        )}
+
+        {/* No connection overlay — shown on top after splash fades out */}
+        {isNetworkError && !isLoading && splashDone && (
+          <View style={StyleSheet.absoluteFill}>
+            <NoConnectionScreen />
+          </View>
         )}
 
         {/* Instant black cover for post-splash auth redirects (e.g. logout).

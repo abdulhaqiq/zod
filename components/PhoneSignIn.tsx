@@ -81,7 +81,7 @@ export default function PhoneSignIn() {
     });
     return () => { cancelled = true; };
   }, []);
-  const [phone, setPhone] = useState('(914) 888-0196');
+  const [phone, setPhone] = useState('');
   const [touched, setTouched] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [loading, setLoading] = useState(false);

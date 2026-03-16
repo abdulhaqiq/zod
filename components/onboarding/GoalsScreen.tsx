@@ -22,9 +22,11 @@ export default function GoalsScreen() {
   const existingGoals = (profile?.values_list ?? []).filter(id => goalIds.includes(id));
   const [selected, setSelected] = useState<number[]>(existingGoals);
 
+  const MAX = 5;
+
   const toggle = (id: number) =>
     setSelected((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : prev.length < 5 ? [...prev, id] : prev,
+      prev.includes(id) ? prev.filter((x) => x !== id) : prev.length < MAX ? [...prev, id] : prev,
     );
 
   const handleContinue = async () => {
@@ -39,10 +41,11 @@ export default function GoalsScreen() {
     <OnboardingShell
       step={4}
       title="What are your life goals?"
-      subtitle="Pick up to 5 that matter most to you."
+      subtitle={`${selected.length} / ${MAX} selected`}
       onContinue={handleContinue}
       continueDisabled={selected.length === 0}
       loading={saving}
+      scrollable
     >
       <View style={styles.grid}>
         {goals.map((g) => {

@@ -13,6 +13,8 @@ const REFRESH_KEY = 'refresh_token';
 export interface UserProfile {
   id: string;
   phone: string | null;
+  email: string | null;
+  apple_id: string | null;
   full_name: string | null;
   date_of_birth: string | null;      // YYYY-MM-DD
   gender_id: number | null;          // lookup_options id (category=gender)
@@ -179,14 +181,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   async function _fetchProfile(accessToken: string): Promise<UserProfile | null | 'network_error'> {
     try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 8000); // 8s timeout
       const res = await fetch(`${API_V1}/profile/me`, {
         headers: { Authorization: `Bearer ${accessToken}` },
+        signal: controller.signal,
       });
+      clearTimeout(timeout);
       if (res.ok) return res.json() as Promise<UserProfile>;
       // 401/403 = bad token; any other HTTP error is not a network error
       return null;
     } catch {
-      // fetch() itself threw — network unreachable / DNS failure
+      // fetch() threw — network unreachable, DNS failure, or timeout
       return 'network_error';
     }
   }
@@ -218,7 +224,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (!me && refresh) {
         // Access token expired — try a refresh
-        const newAccess = await _doRefresh(refresh);
+        let newAccess: string | null = null;
+        try {
+          newAccess = await _doRefresh(refresh);
+        } catch {
+          // Network error while refreshing — keep session alive, show no-connection
+          setToken(access);
+          setRefresh(refresh);
+          setIsNetworkError(true);
+          setIsLoading(false);
+          return;
+        }
         if (newAccess) {
           activeToken = newAccess;
           const retried = await _fetchProfile(newAccess);
@@ -255,25 +271,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   async function _doRefresh(refresh: string): Promise<string | null> {
+    let res: Response;
     try {
-      const res = await fetch(`${API_V1}/auth/refresh`, {
+      res = await fetch(`${API_V1}/auth/refresh`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ refresh_token: refresh }),
       });
-      if (!res.ok) return null;
-      // Backend rotates on every refresh — BOTH tokens must be saved
-      const data: { access_token: string; refresh_token: string } = await res.json();
-      const newAccess  = data.access_token;
-      const newRefresh = data.refresh_token;
-      await SecureStore.setItemAsync(ACCESS_KEY,  newAccess);
-      await SecureStore.setItemAsync(REFRESH_KEY, newRefresh);
-      setToken(newAccess);
-      setRefresh(newRefresh);
-      return newAccess;
     } catch {
-      return null;
+      // Network unreachable — throw so callers can distinguish from a genuine
+      // auth failure (where the refresh token is actually invalid / expired).
+      throw new Error('NETWORK_ERROR');
     }
+    if (!res.ok) return null; // Refresh token genuinely rejected by server
+    // Backend rotates on every refresh — BOTH tokens must be saved
+    const data: { access_token: string; refresh_token: string } = await res.json();
+    const newAccess  = data.access_token;
+    const newRefresh = data.refresh_token;
+    await SecureStore.setItemAsync(ACCESS_KEY,  newAccess);
+    await SecureStore.setItemAsync(REFRESH_KEY, newRefresh);
+    setToken(newAccess);
+    setRefresh(newRefresh);
+    return newAccess;
   }
 
   const tryRefresh = async (): Promise<string | null> => {

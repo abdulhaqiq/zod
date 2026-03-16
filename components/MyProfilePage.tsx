@@ -3,7 +3,9 @@ import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -80,6 +82,173 @@ async function fetchAllLookups(): Promise<LookupMap> {
   }
 }
 
+// ─── Mood emoji categories ────────────────────────────────────────────────────
+
+const MOOD_CATEGORIES: { label: string; icon: string; emojis: string[] }[] = [
+  {
+    label: 'Feelings',
+    icon: '😊',
+    emojis: ['😀','😄','😁','😆','😅','😂','🤣','😊','😇','🥰','😍','🤩','😘','😗','😎','🤗','🤭','🫣','🤔','😏','😌','😴','🥱','😤','😭','😢','🥹','😳','🫠','🤯','🥳','🤪','😜','😝','🤑','🤠','👻'],
+  },
+  {
+    label: 'Activities',
+    icon: '🎯',
+    emojis: ['🏃','🧘','🏋️','🚴','🎮','🎧','🎵','🎶','📚','💻','🎨','✍️','📸','🎬','🎤','🎸','🎯','🏆','⚽','🏀','🎾','🏊','🧗','🤿','✈️','🌊','🏕️','🌙','☀️','🔥','⚡','❄️'],
+  },
+  {
+    label: 'Food & Drink',
+    icon: '☕',
+    emojis: ['☕','🍵','🧃','🍺','🍷','🍸','🥂','🧉','🍕','🍣','🍜','🌮','🍔','🥗','🍩','🍰','🍫','🍓','🍉','🥑','🌶️','🥐','🧇','🍿'],
+  },
+  {
+    label: 'Hearts',
+    icon: '❤️',
+    emojis: ['❤️','🧡','💛','💚','💙','💜','🖤','🤍','🤎','💕','💞','💖','💘','💝','💗','💓','💟','❣️','💔','🫶','💌','🫀'],
+  },
+  {
+    label: 'Nature',
+    icon: '🌸',
+    emojis: ['🌸','🌺','🌻','🌹','🌷','🌼','💐','🍀','🌿','🌱','🌴','🌵','🍄','🌈','⛅','🌤️','🌙','⭐','🌟','✨','☃️','🌊','🌋','🏔️','🌅','🌆'],
+  },
+  {
+    label: 'Objects',
+    icon: '💡',
+    emojis: ['💡','💎','🔑','🎁','🎀','🎊','🎉','🪄','🔮','🧲','⚗️','🧪','📱','💬','📩','🗓️','🚀','🛸','🛺','⛵','🏡','🕍','🗽','🎡'],
+  },
+];
+
+// ─── MoodPickerModal ──────────────────────────────────────────────────────────
+
+function MoodPickerModal({
+  visible,
+  initialEmoji,
+  initialText,
+  colors,
+  onSave,
+  onClose,
+}: {
+  visible: boolean;
+  initialEmoji: string;
+  initialText: string;
+  colors: AppColors;
+  onSave: (emoji: string, text: string) => void;
+  onClose: () => void;
+}) {
+  const [emoji, setEmoji]           = useState(initialEmoji);
+  const [text,  setText]            = useState(initialText);
+  const [catIdx, setCatIdx]         = useState(0);
+
+  useEffect(() => {
+    if (visible) { setEmoji(initialEmoji); setText(initialText); setCatIdx(0); }
+  }, [visible]);
+
+  const cat = MOOD_CATEGORIES[catIdx];
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={moodStyles.backdrop} onPress={onClose} />
+      <View style={[moodStyles.sheet, { backgroundColor: colors.surface }]}>
+
+        {/* Handle */}
+        <View style={[moodStyles.handle, { backgroundColor: colors.border }]} />
+
+        {/* Header */}
+        <View style={moodStyles.header}>
+          <Text style={[moodStyles.title, { color: colors.text }]}>Mood Status</Text>
+          <Pressable onPress={onClose} hitSlop={12}>
+            <Ionicons name="close" size={22} color={colors.textSecondary} />
+          </Pressable>
+        </View>
+
+        {/* Preview + text input */}
+        <View style={[moodStyles.inputRow, { backgroundColor: colors.bg, borderColor: colors.border }]}>
+          <Text style={moodStyles.previewEmoji}>{emoji || '😊'}</Text>
+          <TextInput
+            style={[moodStyles.textInput, { color: colors.text }]}
+            value={text}
+            onChangeText={t => setText(t.slice(0, 60))}
+            placeholder="What's your vibe today?"
+            placeholderTextColor={colors.textTertiary}
+            maxLength={60}
+            returnKeyType="done"
+          />
+          {(emoji || text) ? (
+            <Pressable hitSlop={10} onPress={() => { setEmoji(''); setText(''); }}>
+              <Ionicons name="close-circle" size={18} color={colors.textTertiary} />
+            </Pressable>
+          ) : null}
+        </View>
+
+        {/* Category tabs */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={moodStyles.catScroll} contentContainerStyle={moodStyles.catContent}>
+          {MOOD_CATEGORIES.map((c, i) => (
+            <Pressable
+              key={c.label}
+              onPress={() => setCatIdx(i)}
+              style={[
+                moodStyles.catTab,
+                i === catIdx && { backgroundColor: colors.accent ?? '#6C47FF' },
+                { borderColor: colors.border },
+              ]}
+            >
+              <Text style={moodStyles.catIcon}>{c.icon}</Text>
+              <Text style={[moodStyles.catLabel, { color: i === catIdx ? '#fff' : colors.textSecondary }]}>{c.label}</Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+
+        {/* Emoji grid */}
+        <ScrollView style={moodStyles.gridScroll} showsVerticalScrollIndicator={false}>
+          <View style={moodStyles.grid}>
+            {cat.emojis.map(e => (
+              <Pressable
+                key={e}
+                onPress={() => setEmoji(e)}
+                style={[
+                  moodStyles.emojiCell,
+                  e === emoji && { backgroundColor: (colors.accent ?? '#6C47FF') + '33' },
+                ]}
+              >
+                <Text style={moodStyles.emojiGlyph}>{e}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </ScrollView>
+
+        {/* Save */}
+        <Pressable
+          style={[moodStyles.saveBtn, { backgroundColor: colors.accent ?? '#6C47FF' }]}
+          onPress={() => onSave(emoji, text)}
+        >
+          <Text style={moodStyles.saveTxt}>Save</Text>
+        </Pressable>
+      </View>
+    </Modal>
+  );
+}
+
+const moodStyles = StyleSheet.create({
+  backdrop:     { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.45)' },
+  sheet:        { position: 'absolute', bottom: 0, left: 0, right: 0, borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingBottom: 36 },
+  handle:       { width: 36, height: 4, borderRadius: 2, alignSelf: 'center', marginTop: 10, marginBottom: 4 },
+  header:       { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 12 },
+  title:        { fontSize: 17, fontFamily: 'ProductSans-Bold' },
+  inputRow:     { flexDirection: 'row', alignItems: 'center', marginHorizontal: 16, borderRadius: 14, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10, gap: 10, marginBottom: 14 },
+  previewEmoji: { fontSize: 26 },
+  textInput:    { flex: 1, fontSize: 15, fontFamily: 'ProductSans-Regular' },
+  catScroll:    { flexGrow: 0, marginBottom: 12 },
+  catContent:   { paddingHorizontal: 16, gap: 8 },
+  catTab:       { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1 },
+  catIcon:      { fontSize: 15 },
+  catLabel:     { fontSize: 12, fontFamily: 'ProductSans-Medium' },
+  gridScroll:   { maxHeight: 220, marginHorizontal: 16 },
+  grid:         { flexDirection: 'row', flexWrap: 'wrap', gap: 4 },
+  emojiCell:    { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 10 },
+  emojiGlyph:   { fontSize: 26 },
+  saveBtn:      { marginHorizontal: 16, marginTop: 16, borderRadius: 14, paddingVertical: 14, alignItems: 'center' },
+  saveTxt:      { fontSize: 16, fontFamily: 'ProductSans-Bold', color: '#fff' },
+});
+
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function StatCol({ label, value, colors }: { label: string; value: string; colors: AppColors }) {
@@ -137,12 +306,13 @@ function EditRow({
 
 function SettingRow({
   icon, label, subtitle, value, onPress, colors, danger = false,
-  toggle, toggleVal, onToggle, locked = false,
+  toggle, toggleVal, onToggle, locked = false, loading = false,
 }: {
   icon: any; label: string; subtitle?: string; value?: string; onPress?: () => void;
-  colors: AppColors; danger?: boolean; locked?: boolean;
+  colors: AppColors; danger?: boolean; locked?: boolean; loading?: boolean;
   toggle?: boolean; toggleVal?: boolean; onToggle?: (v: boolean) => void;
 }) {
+  const disabled = locked || loading;
   return (
     <Pressable
       onPress={locked ? () => onPress?.() : onPress}
@@ -150,7 +320,7 @@ function SettingRow({
         styles.settingRow,
         { borderBottomColor: colors.border },
         locked && { opacity: 0.55 },
-        pressed && !toggle && !locked && { opacity: 0.6 },
+        pressed && !toggle && !disabled && { opacity: 0.6 },
       ]}
     >
       <Squircle style={styles.settingIconWrap} cornerRadius={10} cornerSmoothing={1} fillColor={colors.surface2}>
@@ -165,7 +335,9 @@ function SettingRow({
         ) : null}
       </View>
       {value ? <Text style={[styles.settingValue, { color: colors.textSecondary }]}>{value}</Text> : null}
-      {locked ? (
+      {loading ? (
+        <ActivityIndicator size="small" color={colors.textSecondary} />
+      ) : locked ? (
         <Ionicons name="lock-closed" size={15} color={colors.textSecondary} />
       ) : toggle ? (
         <Switch
@@ -239,6 +411,7 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
   const [languageIds,      setLanguageIds]      = useState<string[]>((profile?.languages ?? []).map(String));
   const [moodEmoji,        setMoodEmoji]        = useState(profile?.mood_emoji ?? '');
   const [moodText,         setMoodText]         = useState(profile?.mood_text ?? '');
+  const [moodModalOpen,    setMoodModalOpen]    = useState(false);
 
   // ── Snooze Mode — backed by is_active on the server ─────────────────────
   // is_active=true  → profile visible   → snooze=false
@@ -559,31 +732,36 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
             })} colors={colors} />
 
           {/* ── Mood Status ── */}
-          <View style={[styles.moodRow, { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, paddingTop: 12 }]}>
+          <Pressable
+            onPress={() => setMoodModalOpen(true)}
+            style={[styles.moodRow, { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, paddingTop: 12 }]}
+          >
             <Ionicons name="happy-outline" size={18} color={colors.textSecondary} style={{ marginRight: 10 }} />
             <View style={{ flex: 1 }}>
               <Text style={[styles.moodLabel, { color: colors.textSecondary }]}>Mood Status</Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <TextInput
-                  value={moodEmoji}
-                  onChangeText={setMoodEmoji}
-                  placeholder="😊"
-                  placeholderTextColor={colors.textTertiary}
-                  maxLength={2}
-                  style={[styles.moodEmojiInput, { color: colors.text, borderColor: colors.border }]}
-                />
-                <TextInput
-                  value={moodText}
-                  onChangeText={setMoodText}
-                  onEndEditing={() => saveField({ mood_emoji: moodEmoji || null, mood_text: moodText || null })}
-                  placeholder="What's your vibe today?"
-                  placeholderTextColor={colors.textTertiary}
-                  maxLength={60}
-                  style={[styles.moodTextInput, { color: colors.text, borderColor: colors.border, flex: 1 }]}
-                />
+                {moodEmoji ? <Text style={{ fontSize: 18 }}>{moodEmoji}</Text> : null}
+                <Text style={[{ fontSize: 14, fontFamily: 'ProductSans-Regular' }, { color: moodText ? colors.text : colors.textTertiary }]}>
+                  {moodText || 'What\'s your vibe today?'}
+                </Text>
               </View>
             </View>
-          </View>
+            <Ionicons name="chevron-forward" size={16} color={colors.textTertiary} />
+          </Pressable>
+
+          <MoodPickerModal
+            visible={moodModalOpen}
+            initialEmoji={moodEmoji}
+            initialText={moodText}
+            colors={colors}
+            onSave={(e, t) => {
+              setMoodEmoji(e);
+              setMoodText(t);
+              setMoodModalOpen(false);
+              saveField({ mood_emoji: e || null, mood_text: t || null });
+            }}
+            onClose={() => setMoodModalOpen(false)}
+          />
 
           <EditRow icon="language-outline" label="Languages"
             value={getLookupLabels('language', languageIds.map(Number)).join(', ') || '—'}
@@ -622,7 +800,7 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
             subtitle={snooze ? 'Your profile is hidden from others' : 'Pause your profile visibility'}
             colors={colors} toggle toggleVal={snooze}
             onToggle={handleSnoozeToggle}
-            locked={snoozeLoading}
+            loading={snoozeLoading}
           />
           <SettingRow
             icon="eye-off-outline" label="Incognito Mode"
@@ -656,13 +834,6 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
           <SettingRow icon="document-text-outline" label="Legal Information" colors={colors} onPress={() => router.push('/legal')} />
           <SettingRow icon="help-circle-outline"   label="Get Help"          colors={colors} onPress={() => router.push('/get-help')} />
           <SettingRow icon="card-outline"          label="Purchases"         colors={colors} onPress={() => router.push('/purchases')} />
-          <SettingRow
-            icon="scan-outline"
-            label="Verification Records"
-            subtitle="Admin · All user scans"
-            colors={colors}
-            onPress={() => router.push('/admin-verifications')}
-          />
         </Group>
       </View>
 
@@ -738,10 +909,8 @@ const styles = StyleSheet.create({
   sectionLabel:      { fontSize: 12, fontFamily: 'ProductSans-Bold', letterSpacing: 1.5, marginLeft: 2, marginBottom: 2 },
   voiceSubtitle:     { fontSize: 12, fontFamily: 'ProductSans-Regular', marginBottom: 4, marginLeft: 2 },
 
-  moodRow:       { flexDirection: 'row', alignItems: 'flex-start', paddingHorizontal: 16, paddingVertical: 12 },
-  moodLabel:     { fontSize: 11, fontFamily: 'ProductSans-Bold', letterSpacing: 0.8, marginBottom: 6 },
-  moodEmojiInput: { width: 42, height: 36, borderWidth: 1, borderRadius: 10, textAlign: 'center', fontSize: 18, paddingHorizontal: 4 },
-  moodTextInput:  { height: 36, borderWidth: 1, borderRadius: 10, paddingHorizontal: 10, fontSize: 14, fontFamily: 'ProductSans-Regular' },
+  moodRow:       { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12 },
+  moodLabel:     { fontSize: 11, fontFamily: 'ProductSans-Bold', letterSpacing: 0.8, marginBottom: 4 },
 
   group:             { overflow: 'hidden' },
 

@@ -116,7 +116,7 @@ export default function PhotosScreen() {
     <OnboardingShell
       step={10}
       title="Add your photos"
-      subtitle={`Upload at least 3 photos. You can add up to ${MAX_PHOTOS}.`}
+      subtitle={`${photos.length} / ${MAX_PHOTOS} added`}
       onContinue={handleContinue}
       continueDisabled={photos.length < 3}
       loading={saving}

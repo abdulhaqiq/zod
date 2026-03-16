@@ -1,5 +1,7 @@
 import Constants from 'expo-constants';
 
+const LOCAL_DEV_IP = '172.20.10.2'; // your machine's LAN IP — update if it changes
+
 function getApiBaseUrl(): string {
   const debuggerHost =
     Constants.expoConfig?.hostUri ??
@@ -9,6 +11,10 @@ function getApiBaseUrl(): string {
   if (debuggerHost) {
     const host = debuggerHost.split(':')[0];
     return `http://${host}:8000`;
+  }
+
+  if (__DEV__) {
+    return `http://${LOCAL_DEV_IP}:8000`;
   }
 
   return 'https://dev.zod.ailoo.co';
@@ -59,11 +65,19 @@ export async function apiFetch<T = unknown>(
 
   // Auto-refresh on 401 and retry once
   if (res.status === 401 && _tryRefresh) {
-    const newToken = await _tryRefresh();
+    let newToken: string | null = null;
+    try {
+      newToken = await _tryRefresh();
+    } catch {
+      // _tryRefresh threw — this means the refresh endpoint was unreachable
+      // (network error), NOT that the session is invalid. Do NOT sign out;
+      // just surface a connectivity error to the caller.
+      throw new Error('No internet connection. Please try again.');
+    }
     if (newToken) {
       res = await doFetch(newToken);
     } else {
-      // Refresh failed — session is dead, sign out
+      // Refresh token was rejected by the server — session is genuinely expired
       await _signOut?.();
       throw new Error('Session expired. Please log in again.');
     }

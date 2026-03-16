@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import SliderRN from '@react-native-community/slider';
 import { useRouter } from 'expo-router';
@@ -1154,7 +1155,15 @@ export default function FeedScreen() {
           const active    = activeTab === item.id;
           const isProfile = item.id === 'profile';
           return (
-            <Pressable key={item.id} onPress={() => setActiveTab(item.id)} style={styles.navItem} hitSlop={8}>
+            <Pressable
+              key={item.id}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setActiveTab(item.id);
+              }}
+              style={styles.navItem}
+              hitSlop={8}
+            >
               <View style={styles.navIconWrap}>
                 {isProfile ? (
                   <View style={[styles.avatarWrap, active && { borderWidth: 2, borderColor: colors.text }]}>

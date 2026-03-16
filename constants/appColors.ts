@@ -7,9 +7,9 @@ export const darkColors = {
   borderFaint: '#1A1A1A',
   borderActive: '#ffffff',
   text: '#ffffff',
-  textSecondary: '#666666',
-  textTertiary: '#444444',
-  placeholder: '#3A3A3A',
+  textSecondary: '#A0A0A0',
+  textTertiary: '#686868',
+  placeholder: '#555555',
   error: '#FF3B30',
   errorBg: '#1A0800',
   errorBorder: '#FF3B30',
@@ -22,7 +22,7 @@ export const darkColors = {
   inputBorder: '#2A2A2A',
   divider: '#2A2A2A',
   resendIconBg: '#2A2A2A',
-  countdownText: '#555555',
+  countdownText: '#888888',
   checkmark: '#25D366',
 };
 

@@ -195,33 +195,37 @@ export default function ChatsPage({ insets, token }: { insets: any; token: strin
         </Squircle>
       </View>
 
-      {/* New Matches row */}
-      {!search && convs.length > 0 && (
+      {/* New Messages row — only show partners who sent unread messages */}
+      {!search && convs.filter(c => c.unread_count > 0 && c.last_message?.sender_id !== myId).length > 0 && (
         <View style={{ marginBottom: 24 }}>
           <Text style={[styles.sectionLabel, { color: colors.textSecondary, paddingHorizontal: 16, marginBottom: 14 }]}>
-            NEW MATCHES
+            NEW MESSAGES
           </Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingHorizontal: 16 }}>
-            {convs.map(m => (
+            {convs.filter(c => c.unread_count > 0 && c.last_message?.sender_id !== myId).map(m => (
               <Pressable
                 key={m.partner_id}
                 onPress={() => router.push({ pathname: '/chat', params: { partnerId: m.partner_id, name: m.partner_name, image: m.partner_image ?? '', online: m.is_online ? 'true' : 'false' } })}
                 style={({ pressed }) => [{ alignItems: 'center', gap: 7 }, pressed && { opacity: 0.75 }]}
               >
                 <View style={styles.matchRingWrap}>
-                  <View style={[styles.matchRing, { borderColor: colors.text }]}>
+                  <View style={[styles.matchRing, { borderColor: '#6366f1' }]}>
                     {m.partner_image
                       ? <Image source={{ uri: m.partner_image }} style={styles.matchAvatar} />
                       : <View style={[styles.matchAvatar, { backgroundColor: colors.surface2 }]} />
                     }
                   </View>
+                  {/* Unread badge */}
+                  <View style={{ position: 'absolute', top: 0, right: 0, backgroundColor: '#6366f1', borderRadius: 10, minWidth: 18, height: 18, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4, borderWidth: 2, borderColor: colors.bg }}>
+                    <Text style={{ color: '#fff', fontSize: 10, fontFamily: 'ProductSans-Bold' }}>{m.unread_count > 9 ? '9+' : m.unread_count}</Text>
+                  </View>
                   {m.is_online && (
-                    <View style={[styles.matchDot, { backgroundColor: colors.bg }]}>
+                    <View style={[styles.matchDot, { backgroundColor: colors.bg, bottom: 0, right: 0, top: undefined }]}>
                       <View style={styles.matchDotInner} />
                     </View>
                   )}
                 </View>
-                <Text style={[styles.matchName, { color: colors.text }]}>{m.partner_name}</Text>
+                <Text style={[styles.matchName, { color: colors.text }]} numberOfLines={1}>{m.partner_name}</Text>
               </Pressable>
             ))}
           </ScrollView>

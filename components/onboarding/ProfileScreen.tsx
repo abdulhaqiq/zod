@@ -1,4 +1,5 @@
 // Step 1 — Full name + email + date of birth
+import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useRouter } from 'expo-router';
 import { useRef, useState } from 'react';
@@ -40,8 +41,18 @@ function parseDob(iso: string | null | undefined): Date | null {
 export default function ProfileScreen() {
   const router = useRouter();
   const { colors, isDark } = useAppTheme();
-  const { save, saving } = useProfileSave();
+  const { save, saving, networkError, clearNetworkError } = useProfileSave();
+  const [emailNetworkError, setEmailNetworkError] = useState(false);
+
+  const anyNetworkError = networkError || emailNetworkError;
+  const clearAllNetworkErrors = () => {
+    clearNetworkError();
+    setEmailNetworkError(false);
+  };
   const { profile } = useAuth();
+
+  // Email is locked (pre-filled, non-editable) when it came from Apple Sign In
+  const emailFromApple = !!(profile?.apple_id && profile?.email);
 
   const [fullName, setFullName] = useState(profile?.full_name ?? '');
   const [email, setEmail] = useState(profile?.email ?? '');
@@ -82,8 +93,11 @@ export default function ProfileScreen() {
         if (!data.available) {
           setEmailError('This email is already in use.');
         }
-      } catch {
-        // Network error — allow user to continue, backend will catch duplicate
+      } catch (err: unknown) {
+        if (err instanceof TypeError || (err instanceof Error && err.message === 'Network request failed')) {
+          setEmailNetworkError(true);
+        }
+        // Non-network errors: silently allow continue; backend catches duplicates
       } finally {
         setCheckingEmail(false);
       }
@@ -92,11 +106,15 @@ export default function ProfileScreen() {
 
   const handleContinue = async () => {
     if (!isValid) return;
-    const ok = await save({
+    const fields: Record<string, unknown> = {
       full_name: fullName.trim(),
-      email: email.trim().toLowerCase(),
       date_of_birth: dob!.toISOString().split('T')[0],
-    });
+    };
+    // Only send email if it's user-entered — Apple-provided email is already on the account
+    if (!emailFromApple) {
+      fields.email = email.trim().toLowerCase();
+    }
+    const ok = await save(fields);
     if (ok) router.push('/gender');
   };
 
@@ -119,6 +137,8 @@ export default function ProfileScreen() {
       loading={saving}
       hideBack
       keyboardAvoiding
+      networkError={anyNetworkError}
+      onRetryNetwork={clearAllNetworkErrors}
     >
       {/* Full name input */}
       <Squircle
@@ -141,9 +161,9 @@ export default function ProfileScreen() {
         />
       </Squircle>
 
-      {/* Email input */}
+      {/* Email input — locked when it came from Apple Sign In */}
       <Squircle
-        style={[styles.inputBox, { marginBottom: emailError ? 6 : 28 }]}
+        style={[styles.inputBox, { marginBottom: emailError ? 6 : 28, opacity: emailFromApple ? 0.6 : 1 }]}
         cornerRadius={18}
         cornerSmoothing={1}
         fillColor={colors.surface}
@@ -155,18 +175,25 @@ export default function ProfileScreen() {
           placeholder="Email address"
           placeholderTextColor={colors.placeholder}
           value={email}
-          onChangeText={handleEmailChange}
+          onChangeText={emailFromApple ? undefined : handleEmailChange}
+          editable={!emailFromApple}
           keyboardType="email-address"
           autoCapitalize="none"
           autoCorrect={false}
           returnKeyType="done"
         />
-        {checkingEmail && (
+        {emailFromApple ? (
+          <Ionicons name="lock-closed" size={14} color={colors.textSecondary} style={{ marginRight: 2 }} />
+        ) : checkingEmail ? (
           <ActivityIndicator size="small" color={colors.textSecondary} style={{ marginRight: 4 }} />
-        )}
+        ) : null}
       </Squircle>
       {emailError ? (
         <Text style={[styles.errorText, { color: '#ef4444' }]}>{emailError}</Text>
+      ) : emailFromApple ? (
+        <Text style={[styles.errorText, { color: colors.textSecondary, marginBottom: 14 }]}>
+          Email set by Apple Sign In · cannot be changed
+        </Text>
       ) : null}
 
       {/* Date of birth trigger */}
