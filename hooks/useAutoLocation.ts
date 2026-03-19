@@ -6,14 +6,64 @@
  * - Gets current GPS coordinates
  * - Sends them to POST /location/update (backend does Google Maps reverse geocode)
  * - Updates AuthContext profile with returned city / address / country
+ *
+ * Skipped when travel_mode_enabled — the manually set city persists until
+ * the user explicitly changes or disables it.
  */
 import * as Location from 'expo-location';
 import { useEffect, useRef } from 'react';
 import { apiFetch } from '@/constants/api';
 import { useAuth } from '@/context/AuthContext';
 
+/**
+ * Standalone helper: get real GPS and push to /location/update.
+ * Call this explicitly when travel mode is turned off so real location
+ * is restored immediately.
+ */
+export async function restoreRealLocation(
+  token: string,
+  updateProfile: (patch: any) => void,
+) {
+  try {
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== 'granted') return;
+
+    const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+    const { latitude, longitude } = loc.coords;
+
+    let fallbackCity: string | null = null;
+    let fallbackAddress: string | null = null;
+    let fallbackCountry: string | null = null;
+    try {
+      const [geo] = await Location.reverseGeocodeAsync({ latitude, longitude });
+      if (geo) {
+        fallbackCity    = geo.city ?? geo.subregion ?? geo.region ?? null;
+        fallbackCountry = geo.country ?? null;
+        const parts = [geo.streetNumber, geo.street, geo.city, geo.region, geo.country].filter(Boolean);
+        fallbackAddress = parts.join(', ') || null;
+      }
+    } catch { /* ignore */ }
+
+    const data = await apiFetch<{
+      city: string | null; address: string | null; country: string | null;
+    }>('/location/update', {
+      method: 'POST', token,
+      body: JSON.stringify({ latitude, longitude, city: fallbackCity, address: fallbackAddress, country: fallbackCountry }),
+    });
+
+    updateProfile({
+      city:      data.city,
+      address:   data.address,
+      country:   data.country,
+      travel_mode_enabled: false,
+      travel_city:    null,
+      travel_country: null,
+    });
+  } catch { /* non-fatal */ }
+}
+
 export function useAutoLocation() {
-  const { token, updateProfile } = useAuth();
+  const { token, profile, updateProfile } = useAuth();
   const ran = useRef(false);
 
   useEffect(() => {
@@ -22,56 +72,10 @@ export function useAutoLocation() {
 
     const run = async () => {
       try {
-        // ── Request permission ─────────────────────────────────────────────
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status !== 'granted') return;
+        // Travel city is preserved until the user explicitly changes or disables it
+        if (profile?.travel_mode_enabled) return;
 
-        // ── Get coordinates ────────────────────────────────────────────────
-        const loc = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
-        });
-        const { latitude, longitude } = loc.coords;
-
-        // ── Device fallback geocode (used if backend has no Google key) ────
-        let fallbackCity: string | null = null;
-        let fallbackAddress: string | null = null;
-        let fallbackCountry: string | null = null;
-        try {
-          const [geo] = await Location.reverseGeocodeAsync({ latitude, longitude });
-          if (geo) {
-            fallbackCity    = geo.city ?? geo.subregion ?? geo.region ?? null;
-            fallbackCountry = geo.country ?? null;
-            const parts = [geo.streetNumber, geo.street, geo.city, geo.region, geo.country].filter(Boolean);
-            fallbackAddress = parts.join(', ') || null;
-          }
-        } catch { /* ignore */ }
-
-        // ── POST to backend ────────────────────────────────────────────────
-        const data = await apiFetch<{
-          latitude: number;
-          longitude: number;
-          city: string | null;
-          address: string | null;
-          country: string | null;
-        }>('/location/update', {
-          method: 'POST',
-          token,
-          body: JSON.stringify({
-            latitude,
-            longitude,
-            city:    fallbackCity,
-            address: fallbackAddress,
-            country: fallbackCountry,
-          }),
-        });
-
-        updateProfile({
-          latitude:  data.latitude,
-          longitude: data.longitude,
-          city:      data.city,
-          address:   data.address,
-          country:   data.country,
-        });
+        await restoreRealLocation(token, updateProfile);
       } catch {
         // Non-fatal — location is best-effort
       }

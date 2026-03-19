@@ -10,6 +10,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import Constants from 'expo-constants';
 import Purchases, {
   LOG_LEVEL,
   type PurchasesOffering,
@@ -18,6 +19,9 @@ import Purchases, {
 import { apiFetch } from '@/constants/api';
 import { RC_ENTITLEMENT, RC_OFFERING } from '@/constants/iap';
 import { useAuth } from '@/context/AuthContext';
+
+/** True when running inside the Expo Go sandbox — native modules unavailable */
+const IS_EXPO_GO = Constants.appOwnership === 'expo';
 
 export type SubscriptionStatus = {
   isPro: boolean;
@@ -42,17 +46,22 @@ export function useSubscription() {
     configuredToken.current = token;
 
     const init = async () => {
-      try {
-        const { sdk_key } = await apiFetch<{ sdk_key: string }>(
-          '/subscription/config',
-          { token },
-        );
-        Purchases.setLogLevel(LOG_LEVEL.WARN);
-        Purchases.configure({ apiKey: sdk_key });
-        loadOffering();
-        fetchStatus();
-      } catch (e: any) {
-        setError(e?.message ?? 'RevenueCat init failed');
+      // Fetch subscription status from backend first — this works in all
+      // environments including Expo Go where the native RC SDK is unavailable.
+      fetchStatus();
+
+      // Skip native RC SDK entirely in Expo Go — no native store available
+      if (!IS_EXPO_GO) {
+        try {
+          const { sdk_key } = await apiFetch<{ sdk_key: string }>(
+            '/subscription/config',
+            { token },
+          );
+          Purchases.setLogLevel(LOG_LEVEL.WARN);
+          Purchases.configure({ apiKey: sdk_key });
+          // Load store offerings for purchase UI (only available in native builds)
+          loadOffering();
+        } catch { /* silent — status is already loaded from backend above */ }
       }
     };
 
@@ -81,8 +90,10 @@ export function useSubscription() {
         { token },
       );
       setStatus({ isPro: data.is_pro, tier: data.tier, expiresAt: data.expires_at });
+      // Keep the cached profile in sync so isPro checks everywhere are accurate
+      updateProfile({ subscription_tier: data.tier });
     } catch { /* ignore */ }
-  }, [token]);
+  }, [token, updateProfile]);
 
   // ── Purchase a package ────────────────────────────────────────────────────
 
@@ -109,8 +120,28 @@ export function useSubscription() {
       }
       return false;
     } catch (e: any) {
-      if (!e.userCancelled) {
-        setError(e?.message ?? 'Purchase failed');
+      if (e.userCancelled) return false;
+
+      // Map RevenueCat / StoreKit error codes to friendly messages
+      const msg: string = e?.message ?? e?.localizedDescription ?? '';
+      const code: number = e?.code ?? e?.underlyingErrorCode ?? -1;
+
+      if (
+        msg.toLowerCase().includes('invalid offer') ||
+        msg.toLowerCase().includes('invalid product') ||
+        code === 3 /* PRODUCT_NOT_AVAILABLE */ ||
+        code === 6 /* INVALID_APPLE_SUBSCRIPTION_KEY */
+      ) {
+        setError(
+          'This product is not available in the App Store right now. ' +
+          'Please check back later or contact support.',
+        );
+      } else if (msg.toLowerCase().includes('network') || code === 10) {
+        setError('No internet connection. Please check your network and try again.');
+      } else if (msg.toLowerCase().includes('not allowed') || code === 7) {
+        setError('Purchases are not allowed on this device. Check Screen Time or parental controls.');
+      } else {
+        setError(msg || 'Purchase failed. Please try again.');
       }
       return false;
     } finally {
@@ -151,9 +182,17 @@ export function useSubscription() {
 
   // ── Convenience getters ───────────────────────────────────────────────────
 
+  const weeklyPackage: PurchasesPackage | null =
+    offering?.availablePackages.find(p => p.identifier === '$rc_weekly') ??
+    offering?.weekly ?? null;
+
   const monthlyPackage: PurchasesPackage | null =
     offering?.availablePackages.find(p => p.identifier === '$rc_monthly') ??
     offering?.monthly ?? null;
+
+  const sixMonthPackage: PurchasesPackage | null =
+    offering?.availablePackages.find(p => p.identifier === '$rc_six_month') ??
+    offering?.sixMonth ?? null;
 
   const yearlyPackage: PurchasesPackage | null =
     offering?.availablePackages.find(p => p.identifier === '$rc_annual') ??
@@ -161,7 +200,9 @@ export function useSubscription() {
 
   return {
     offering,
+    weeklyPackage,
     monthlyPackage,
+    sixMonthPackage,
     yearlyPackage,
     status,
     loading,

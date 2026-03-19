@@ -83,6 +83,7 @@ export default function WorkFilterSheet({ visible, onClose, colors, insets, onAp
   const router = useRouter();
   const { profile } = useAuth();
   const isPro = profile?.subscription_tier === 'pro';
+  const isFaceVerified = profile?.verification_status === 'verified';
   const isDark = colors.bg === '#000000';
 
   // ── Lookups from DB ───────────────────────────────────────────────────────
@@ -190,16 +191,76 @@ export default function WorkFilterSheet({ visible, onClose, colors, insets, onAp
               </View>
             </Squircle>
 
-            {/* Verified only */}
-            <Squircle style={[styles.filterCard, { flexDirection: 'row', alignItems: 'center', gap: 12 }]} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
-              <Squircle style={styles.filterRowIcon} cornerRadius={12} cornerSmoothing={1} fillColor={colors.surface2}>
-                <Ionicons name="checkmark-circle-outline" size={18} color={colors.text} />
+            {/* Verified only — requires own face scan to be verified */}
+            <Pressable
+              onPress={() => !isFaceVerified && router.push('/verification' as any)}
+              disabled={isFaceVerified}
+              style={({ pressed }) => [{ opacity: pressed && !isFaceVerified ? 0.75 : 1 }]}
+            >
+              <Squircle
+                style={[styles.filterCard, { gap: 12 }]}
+                cornerRadius={22} cornerSmoothing={1}
+                fillColor={isFaceVerified ? colors.surface : 'rgba(34,197,94,0.06)'}
+                strokeColor={isFaceVerified ? colors.border : 'rgba(34,197,94,0.3)'}
+                strokeWidth={1}
+              >
+                {/* Top row */}
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                  <Squircle
+                    style={styles.filterRowIcon}
+                    cornerRadius={12} cornerSmoothing={1}
+                    fillColor={isFaceVerified ? 'rgba(34,197,94,0.15)' : 'rgba(34,197,94,0.12)'}
+                  >
+                    <Ionicons
+                      name={isFaceVerified ? 'shield-checkmark' : 'scan-outline'}
+                      size={18}
+                      color="#22c55e"
+                    />
+                  </Squircle>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.filterRowTitle, { color: colors.text }]}>Verified only</Text>
+                    <Text style={[styles.filterRowSub, { color: colors.textSecondary }]}>
+                      {isFaceVerified ? 'Show only face-verified profiles' : 'Only show verified profiles in your feed'}
+                    </Text>
+                  </View>
+                  <Switch
+                    value={isFaceVerified ? verifiedOnly : false}
+                    onValueChange={isFaceVerified ? setVerifiedOnly : undefined}
+                    disabled={!isFaceVerified}
+                    thumbColor={isFaceVerified ? colors.bg : colors.surface2}
+                    trackColor={{ false: colors.surface2, true: colors.text }}
+                    style={{ opacity: isFaceVerified ? 1 : 0.35 }}
+                  />
+                </View>
+
+                {/* Verification prompt banner — only shown when NOT verified */}
+                {!isFaceVerified && (
+                  <View style={{
+                    flexDirection: 'row', alignItems: 'center', gap: 10,
+                    backgroundColor: 'rgba(34,197,94,0.1)',
+                    borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10,
+                  }}>
+                    <Ionicons name="camera-outline" size={16} color="#22c55e" />
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 13, fontFamily: 'ProductSans-Bold', color: '#22c55e' }}>
+                        Verify your face to unlock
+                      </Text>
+                      <Text style={{ fontSize: 11, fontFamily: 'ProductSans-Regular', color: 'rgba(34,197,94,0.75)', marginTop: 1 }}>
+                        Takes 30 seconds · Your face is never stored
+                      </Text>
+                    </View>
+                    <View style={{
+                      flexDirection: 'row', alignItems: 'center', gap: 4,
+                      backgroundColor: '#22c55e', borderRadius: 20,
+                      paddingHorizontal: 12, paddingVertical: 6,
+                    }}>
+                      <Text style={{ fontSize: 12, fontFamily: 'ProductSans-Bold', color: '#000' }}>Start</Text>
+                      <Ionicons name="arrow-forward" size={12} color="#000" />
+                    </View>
+                  </View>
+                )}
               </Squircle>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.filterRowTitle, { color: colors.text }]}>Verified only</Text>
-                <Text style={[styles.filterRowSub, { color: colors.textSecondary }]}>Show only verified profiles</Text>
-              </View>
-              <Switch value={verifiedOnly} onValueChange={setVerifiedOnly} thumbColor={colors.bg} trackColor={{ false: colors.surface2, true: colors.text }} />
+            </Pressable>
             </Squircle>
 
             {/* Industries — from DB */}

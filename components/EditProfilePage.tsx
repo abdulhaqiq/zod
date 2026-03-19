@@ -147,7 +147,18 @@ function PhotoGrid({
     }
   };
 
+  const MIN_PHOTOS = 2;
+
   const removePhoto = (index: number) => {
+    const filled = photos.filter(Boolean).length;
+    if (filled <= MIN_PHOTOS) {
+      Alert.alert(
+        "Can't remove photo",
+        `You need at least ${MIN_PHOTOS} photos on your profile. Add another photo before removing this one.`,
+        [{ text: 'OK' }]
+      );
+      return;
+    }
     Alert.alert('Remove Photo', 'Remove this photo from your profile?', [
       { text: 'Cancel', style: 'cancel' },
       {
@@ -536,14 +547,37 @@ export default function EditProfilePage() {
                   setPhotos(slots);
                 }}
               />
-              <EditRow
-                icon="checkmark-circle-outline"
-                label="Verification"
-                value="Get Verified"
-                onPress={() => router.push('/verification')}
-                colors={colors}
-                last
-              />
+              {profile?.is_verified ? (
+                <Pressable
+                  onPress={() => router.push({ pathname: '/verification', params: { tab: 'id' } })}
+                  style={({ pressed }) => [
+                    styles.editRow,
+                    pressed && { opacity: 0.65 },
+                  ]}
+                >
+                  <View style={[styles.editIconWrap, { backgroundColor: '#16a34a', alignItems: 'center', justifyContent: 'center' }]}>
+                    <Ionicons name="checkmark" size={16} color="#fff" />
+                  </View>
+                  <View style={{ flex: 1, gap: 1 }}>
+                    <Text style={[styles.editLabel, { color: colors.text }]}>Verification</Text>
+                    <Text style={[styles.editPreview, { color: '#22c55e' }]}>Face Verified · Complete ID</Text>
+                  </View>
+                  <View style={styles.verifiedBadge}>
+                    <Ionicons name="shield-checkmark" size={11} color="#fff" />
+                    <Text style={styles.verifiedBadgeText}>Verified</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={16} color={colors.border} style={{ marginLeft: 4 }} />
+                </Pressable>
+              ) : (
+                <EditRow
+                  icon="checkmark-circle-outline"
+                  label="Verification"
+                  value="Get Verified"
+                  onPress={() => router.push('/verification')}
+                  colors={colors}
+                  last
+                />
+              )}
             </Group>
           </View>
 
@@ -802,10 +836,12 @@ const styles = StyleSheet.create({
   group:        { overflow: 'hidden' },
 
   editRow:      { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 13 },
-  editIconWrap: { width: 32, height: 32, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
-  editLabel:    { fontSize: 14, fontFamily: 'ProductSans-Regular' },
-  editPreview:  { fontSize: 11, fontFamily: 'ProductSans-Regular' },
-  editValue:    { fontSize: 12, fontFamily: 'ProductSans-Regular', maxWidth: 130, textAlign: 'right' },
+  editIconWrap:      { width: 32, height: 32, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+  editLabel:         { fontSize: 14, fontFamily: 'ProductSans-Regular' },
+  editPreview:       { fontSize: 11, fontFamily: 'ProductSans-Regular' },
+  editValue:         { fontSize: 12, fontFamily: 'ProductSans-Regular', maxWidth: 130, textAlign: 'right' },
+  verifiedBadge:     { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#16a34a', borderRadius: 20, paddingHorizontal: 8, paddingVertical: 4 },
+  verifiedBadgeText: { fontSize: 11, fontFamily: 'ProductSans-Bold', color: '#fff' },
 
   chipCountBadge: { width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center', marginRight: 2 },
   chipCountText:  { fontSize: 11, fontFamily: 'ProductSans-Bold' },

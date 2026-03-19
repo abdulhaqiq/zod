@@ -3,6 +3,7 @@ import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import SliderRN from '@react-native-community/slider';
 import { useRouter } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useImperativeHandle, useRef, useState, forwardRef } from 'react';
 import {
   Alert,
@@ -34,7 +35,7 @@ import AiMatchPage from '@/components/AiMatchPage';
 import WorkMatchedPage from '@/components/WorkMatchedPage';
 import WorkAiInsightsPage from '@/components/WorkAiInsightsPage';
 import DateFilterSheet from '@/components/filters/DateFilterSheet';
-import { apiFetch } from '@/constants/api';
+import { apiFetch, WS_V1 } from '@/constants/api';
 import { useAuth } from '@/context/AuthContext';
 import { useAppTheme } from '@/context/ThemeContext';
 
@@ -109,7 +110,6 @@ function AppLogo({ color }: { color: string; mode?: AppMode; onPress?: () => voi
   return (
     <View style={styles.logoBtn}>
       <Text style={[styles.logoText, { color }]}>zod</Text>
-      <Text style={[styles.logoMode, { color }]}> date</Text>
     </View>
   );
 }
@@ -137,7 +137,7 @@ const mStyles = StyleSheet.create({
 // ─── Nav tabs ─────────────────────────────────────────────────────────────────
 
 const BASE_DATE_NAV_TABS = [
-  { id: 'people',  icon: 'people-outline'      as const, iconActive: 'people'      as const },
+  { id: 'people',  icon: 'layers-outline'      as const, iconActive: 'layers'      as const },
   { id: 'likeyou', icon: 'heart-outline'       as const, iconActive: 'heart'       as const },
   { id: 'ai',      icon: 'sparkles-outline'    as const, iconActive: 'sparkles'    as const },
   { id: 'chats',   icon: 'chatbubbles-outline' as const, iconActive: 'chatbubbles' as const },
@@ -156,8 +156,8 @@ const WORK_NAV_TABS = [
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface Profile {
-  id: string; name: string; age: number; verified: boolean; premium: boolean;
-  location: string; distance: string; about: string;
+  id: string; name: string; age: number | null; verified: boolean; premium: boolean;
+  location: string; distance: string | null; about: string;
   images: string[];
   details: { height: string; drinks: string; smokes: string; gender: string; wantsKids: string; sign: string; politics: string; religion: string; ethnicity: string; work: string; education: string };
   lookingFor: string;
@@ -197,12 +197,22 @@ const WORK_MATCHED: WorkProfile[] = [];  // replaced by server-side matches (pen
 
 // ─── Super Like Button ────────────────────────────────────────────────────────
 
-const SuperLikeBtn = ({ onPress }: { onPress: () => void }) => {
+const SuperLikeBtn = ({
+  onPress,
+  isPro,
+  remaining,
+}: {
+  onPress: () => void;
+  isPro: boolean;
+  remaining: number;
+}) => {
   const scale    = useRef(new Animated.Value(1)).current;
   const ring     = useRef(new Animated.Value(0)).current;
   const ringOpacity = useRef(new Animated.Value(0)).current;
   const spin     = useRef(new Animated.Value(0)).current;
   const glow     = useRef(new Animated.Value(0)).current;
+
+  const depleted = isPro && remaining <= 0;
 
   const fire = () => {
     // Reset
@@ -238,6 +248,8 @@ const SuperLikeBtn = ({ onPress }: { onPress: () => void }) => {
   const rotate    = spin.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '72deg'] });
   const glowOpacity = glow.interpolate({ inputRange: [0, 1], outputRange: [0, 0.55] });
 
+  const starColor = depleted ? '#888' : '#FFE066';
+
   return (
     <Pressable onPress={fire} style={{ alignItems: 'center', justifyContent: 'center', width: 56, height: 56 }}>
       {/* Burst ring */}
@@ -266,13 +278,27 @@ const SuperLikeBtn = ({ onPress }: { onPress: () => void }) => {
         style={[
           styles.cardActionBtn,
           styles.cardActionSuper,
-          { transform: [{ scale }] },
+          { transform: [{ scale }], opacity: depleted ? 0.45 : 1 },
         ]}
       >
         <Animated.View style={{ transform: [{ rotate }] }}>
-          <Ionicons name="star" size={22} color="#FFE066" />
+          <Ionicons name={isPro ? 'star' : 'lock-closed'} size={isPro ? 22 : 18} color={starColor} />
         </Animated.View>
       </Animated.View>
+      {/* Remaining count badge — only shown for Pro */}
+      {isPro && (
+        <View style={{
+          position: 'absolute', top: -4, right: -4,
+          backgroundColor: depleted ? '#555' : '#FFE066',
+          borderRadius: 10, minWidth: 18, height: 18,
+          alignItems: 'center', justifyContent: 'center',
+          paddingHorizontal: 4,
+        }}>
+          <Text style={{ color: '#000', fontSize: 11, fontFamily: 'ProductSans-Bold' }}>
+            {remaining}
+          </Text>
+        </View>
+      )}
     </Pressable>
   );
 }
@@ -291,7 +317,9 @@ const ProfileCard = forwardRef<ProfileCardHandle, {
   onSwipedRight: () => void;
   onSuperLike: () => void;
   colors: any;
-}>(function ProfileCard({ profile, onSwipedLeft, onSwipedRight, onSuperLike, colors }, ref) {
+  isPro: boolean;
+  superLikesRemaining: number;
+}>(function ProfileCard({ profile, onSwipedLeft, onSwipedRight, onSuperLike, colors, isPro, superLikesRemaining }, ref) {
   const position = useRef(new Animated.ValueXY()).current;
   const superStampAnim = useRef(new Animated.Value(0)).current;
 
@@ -441,12 +469,21 @@ const ProfileCard = forwardRef<ProfileCardHandle, {
                 </View>
               )}
               <View style={styles.nameRow}>
-                <Text style={styles.photoName}>{profile.name}, {profile.age}</Text>
+                <Text
+                  style={styles.photoName}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.72}
+                >
+                  {profile.name}{profile.age != null ? `, ${profile.age}` : ''}
+                </Text>
                 {profile.verified && <Ionicons name="checkmark-circle" size={20} color="#4FC3F7" style={{ marginLeft: 6 }} />}
               </View>
               <View style={styles.locationRow}>
                 <Ionicons name="location" size={12} color="rgba(255,255,255,0.7)" />
-                <Text style={styles.locationText}>{profile.location} · {profile.distance}</Text>
+                <Text style={styles.locationText}>
+                  {[profile.location, profile.distance].filter(Boolean).join(' · ')}
+                </Text>
               </View>
               {profile.mood?.text && (
                 <View style={styles.moodPill}>
@@ -462,7 +499,7 @@ const ProfileCard = forwardRef<ProfileCardHandle, {
 
             {/* Right: super like button */}
             <View style={styles.cardActionCol}>
-              <SuperLikeBtn onPress={swipeUp} />
+              <SuperLikeBtn onPress={swipeUp} isPro={isPro} remaining={superLikesRemaining} />
             </View>
           </View>
         </View>
@@ -698,7 +735,7 @@ function WorkProfileCard({ profile, onSwipedLeft, onSwipedRight, colors }: {
             <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8 }}>
               <View style={{ flex: 1 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Text style={styles.photoName}>{profile.name}</Text>
+                  <Text style={styles.photoName} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72}>{profile.name}</Text>
                   {profile.verified && <Ionicons name="checkmark-circle" size={16} color="#fff" />}
                   {/* LinkedIn badge */}
                   {profile.linkedInUrl && (
@@ -710,7 +747,7 @@ function WorkProfileCard({ profile, onSwipedLeft, onSwipedRight, colors }: {
                 <Text style={wStyles.cardRole}>{profile.role} · {profile.company}</Text>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 }}>
                   <Ionicons name="location-outline" size={11} color="rgba(255,255,255,0.7)" />
-                  <Text style={styles.locationText}>{profile.distance} away</Text>
+                  {profile.distance ? <Text style={styles.locationText}>{profile.distance} away</Text> : null}
                 </View>
               </View>
               {profile.areYouHiring && (
@@ -972,13 +1009,25 @@ function RangeSlider({
 export default function FeedScreen() {
   const { colors, isDark } = useAppTheme();
   const { profile, token } = useAuth();
+  const router = useRouter();
   const insets = useSafeAreaInsets();
-  const myAvatar = profile?.photos?.[0] ?? null;
+  const isPro = profile?.subscription_tier === 'pro';
+  const [superLikesRemaining, setSuperLikesRemaining] = useState(
+    profile?.super_likes_remaining ?? 0,
+  );
+
+  // Keep local count in sync whenever the profile refreshes (e.g. after app restart)
+  useEffect(() => {
+    setSuperLikesRemaining(profile?.super_likes_remaining ?? 0);
+  }, [profile?.super_likes_remaining, profile?.subscription_tier]);
 
   const [profiles,       setProfiles]     = useState<Profile[]>([]);
   const [loadingFeed,    setLoadingFeed]  = useState(false);
   const [feedPage,       setFeedPage]     = useState(0);
   const [hasMore,        setHasMore]      = useState(true);
+  // Synchronous in-memory set — updated instantly on every swipe so fetches
+  // triggered by removeTop() always see the just-swiped profile excluded.
+  const swipedThisSessionRef = useRef<Set<string>>(new Set());
   const [activeTab,      setActiveTab]    = useState('people');
   const [filterOpen,     setFilterOpen]   = useState(false);
   const cardRef = useRef<ProfileCardHandle>(null);
@@ -986,6 +1035,35 @@ export default function FeedScreen() {
   const [appMode]                         = useState<AppMode>('date');
   const [likedYouCount,  setLikedYouCount] = useState(0);
   const [unreadChats,    setUnreadChats]   = useState(0);
+  const [matchedProfile, setMatchedProfile] = useState<MatchedProfile | null>(null);
+
+  // ── WebSocket — real-time match / liked_you events while on the feed ──────
+  useEffect(() => {
+    if (!token) return;
+    const ws = new WebSocket(`${WS_V1}/ws/notify?token=${token}`);
+
+    ws.onmessage = (e) => {
+      try {
+        const msg = JSON.parse(e.data);
+        if (msg.type === 'match' && msg.profile) {
+          const p = msg.profile;
+          setMatchedProfile({
+            id: p.id,
+            name: p.name,
+            age: p.age,
+            image: p.images?.[0] ?? '',
+            interests: p.interests ?? [],
+            prompts: p.prompts ?? [],
+          });
+        } else if (msg.type === 'liked_you') {
+          setLikedYouCount(n => n + 1);
+        }
+      } catch { /* ignore malformed */ }
+    };
+    ws.onerror = () => {};
+
+    return () => ws.close();
+  }, [token]);
 
   const fmtBadge = (n: number) => n > 9 ? '9+' : String(n);
 
@@ -1012,16 +1090,76 @@ export default function FeedScreen() {
     } catch { /* ignore */ }
   }, [token]);
 
+  // ── Local swipe cache (persists across restarts) ──────────────────────────
+  // Use a ref so SWIPE_CACHE_KEY never causes useCallback/useEffect to re-fire
+  // when the profile object reference changes (avoids spurious feed re-fetches).
+  const swipeCacheKeyRef = useRef(`swiped_ids_${profile?.id ?? 'unknown'}`);
+  useEffect(() => {
+    if (profile?.id) swipeCacheKeyRef.current = `swiped_ids_${profile.id}`;
+  }, [profile?.id]);
+
+  const markSwipedLocally = useCallback(async (profileId: string) => {
+    const key = swipeCacheKeyRef.current;
+    try {
+      const raw = await AsyncStorage.getItem(key);
+      const existing: string[] = raw ? JSON.parse(raw) : [];
+      if (!existing.includes(profileId)) {
+        existing.push(profileId);
+        // Cap at 5000 entries to avoid unbounded growth
+        const trimmed = existing.slice(-5000);
+        await AsyncStorage.setItem(key, JSON.stringify(trimmed));
+      }
+    } catch { /* silent */ }
+  }, []);
+
+  const getLocalSwipedIds = useCallback(async (): Promise<Set<string>> => {
+    const key = swipeCacheKeyRef.current;
+    try {
+      const raw = await AsyncStorage.getItem(key);
+      return new Set<string>(raw ? JSON.parse(raw) : []);
+    } catch {
+      return new Set();
+    }
+  }, []);
+
   // ── Fetch discover feed from API ──────────────────────────────────────────
   const fetchFeed = useCallback(async (page: number = 0, replace: boolean = true) => {
     if (!token) return;
     setLoadingFeed(true);
     try {
-      const res = await apiFetch<{ profiles: Profile[]; has_more: boolean }>(
-        `/discover/feed?page=${page}&limit=10`,
-        { token },
+      const [res, localSwiped] = await Promise.all([
+        apiFetch<{ profiles: Profile[]; has_more: boolean }>(
+          `/discover/feed?page=${page}&limit=10`,
+          { token },
+        ),
+        getLocalSwipedIds(),
+      ]);
+
+      // Auto-reconcile: if the backend returns a profile that's in our local cache,
+      // the cache is stale (no backend swipe record exists for it). Remove those
+      // entries so the profile can appear correctly.
+      const stale = res.profiles.map(p => p.id).filter(id => localSwiped.has(id));
+      if (stale.length > 0) {
+        stale.forEach(id => localSwiped.delete(id));
+        try {
+          await AsyncStorage.setItem(
+            swipeCacheKeyRef.current,
+            JSON.stringify(Array.from(localSwiped)),
+          );
+        } catch { /* ignore */ }
+      }
+
+      // Filter: remove profiles swiped in this session (instant) OR persisted in AsyncStorage
+      const sessionSwiped = swipedThisSessionRef.current;
+      const fresh = res.profiles.filter(
+        p => !sessionSwiped.has(p.id) && !localSwiped.has(p.id),
       );
-      setProfiles(prev => replace ? res.profiles : [...prev, ...res.profiles]);
+      setProfiles(prev => {
+        if (replace) return fresh;
+        // Deduplicate against cards already in the deck
+        const existingIds = new Set(prev.map(p => p.id));
+        return [...prev, ...fresh.filter(p => !existingIds.has(p.id))];
+      });
       setHasMore(res.has_more);
       setFeedPage(page);
     } catch {
@@ -1029,13 +1167,20 @@ export default function FeedScreen() {
     } finally {
       setLoadingFeed(false);
     }
-  }, [token]);
+  }, [token, getLocalSwipedIds]);
 
   useEffect(() => {
     if (appMode === 'date') fetchFeed(0, true);
   }, [appMode, fetchFeed]);
 
   useEffect(() => { fetchCounts(); }, [fetchCounts]);
+
+  // ── Clear local swipe cache only (no backend reset) ──────────────────────
+  const clearLocalCache = useCallback(async () => {
+    try { await AsyncStorage.removeItem(swipeCacheKeyRef.current); } catch { /* ignore */ }
+    swipedThisSessionRef.current.clear();
+    fetchFeed(0, true);
+  }, [fetchFeed]);
 
   const removeTop = () => {
     setProfiles(p => {
@@ -1052,37 +1197,93 @@ export default function FeedScreen() {
     try {
       await apiFetch('/discover/swipes/reset?mode=date', { token, method: 'DELETE' });
     } catch { /* ignore */ }
+    // Also clear local swipe cache so reset takes full effect
+    try { await AsyncStorage.removeItem(swipeCacheKeyRef.current); } catch { /* ignore */ }
+    swipedThisSessionRef.current.clear();
     fetchFeed(0, true);
   }, [token, fetchFeed]);
 
-  // Record swipe to backend (fire-and-forget — don't block the UI)
-  const recordSwipe = (profileId: string, direction: 'left' | 'right') => {
-    if (!token) return;
-    apiFetch('/discover/swipe', {
-      token,
-      method: 'POST',
-      body: JSON.stringify({ swiped_id: profileId, direction, mode: 'date' }),
-    }).catch(() => {/* silent — swipe is already gone from deck */});
+  // Show the match celebration for a profile that was on the deck
+  const _showMatchIfNeeded = (res: { match: boolean }, p: Profile) => {
+    if (res.match) {
+      setMatchedProfile({
+        id: p.id,
+        name: p.name,
+        age: p.age,
+        image: p.images?.[0] ?? '',
+        interests: p.interests ?? [],
+        prompts: p.prompts ?? [],
+      });
+    }
   };
 
   const handleSwipeLeft = (profileId: string) => {
-    recordSwipe(profileId, 'left');
+    swipedThisSessionRef.current.add(profileId);  // in-memory dedup for this session
     removeTop();
+    if (!token) return;
+    apiFetch('/discover/swipe', {
+      token, method: 'POST',
+      body: JSON.stringify({ swiped_id: profileId, direction: 'left', mode: 'date' }),
+    })
+      .then(() => markSwipedLocally(profileId))   // persist only after backend confirms
+      .catch(() => {});
   };
 
   const handleSwipeRight = (profileId: string) => {
-    recordSwipe(profileId, 'right');
+    const swiped = profiles[0];
+    swipedThisSessionRef.current.add(profileId);
     removeTop();
+    if (!token || !swiped) return;
+    apiFetch<{ match: boolean }>('/discover/swipe', {
+      token, method: 'POST',
+      body: JSON.stringify({ swiped_id: profileId, direction: 'right', mode: 'date' }),
+    })
+      .then(res => {
+        markSwipedLocally(profileId);             // persist only after backend confirms
+        _showMatchIfNeeded(res, swiped);
+      })
+      .catch(() => {});
   };
 
   const handleSuperLike = (profileId: string) => {
     if (!token) return;
-    apiFetch('/discover/swipe', {
-      token,
-      method: 'POST',
-      body: JSON.stringify({ swiped_id: profileId, direction: 'super', mode: 'date' }),
-    }).catch(() => {});
+
+    // Non-pro: prompt upgrade
+    if (!isPro) {
+      Alert.alert(
+        'Super Likes are Pro',
+        'Upgrade to Pro to send super likes and stand out from the crowd.',
+        [{ text: 'Maybe Later', style: 'cancel' }, { text: 'Upgrade', onPress: () => router.push('/subscription' as any) }],
+      );
+      return;
+    }
+
+    // Pro but no remaining super likes this cycle
+    if (superLikesRemaining <= 0) {
+      Alert.alert(
+        'No Super Likes Left',
+        'You\'ve used all 10 super likes for this billing cycle. Your next 10 drop on your renewal date.',
+        [{ text: 'OK' }],
+      );
+      return;
+    }
+
+    const swiped = profiles[0];
+    swipedThisSessionRef.current.add(profileId);
+    setSuperLikesRemaining(r => Math.max(0, r - 1));
     removeTop();
+    apiFetch<{ match: boolean; super_likes_remaining?: number }>('/discover/swipe', {
+      token, method: 'POST',
+      body: JSON.stringify({ swiped_id: profileId, direction: 'super', mode: 'date' }),
+    }).then(res => {
+      markSwipedLocally(profileId);               // persist only after backend confirms
+      if (res.super_likes_remaining !== undefined && res.super_likes_remaining !== null) {
+        setSuperLikesRemaining(res.super_likes_remaining);
+      }
+      if (swiped) _showMatchIfNeeded(res, swiped);
+    }).catch(() => {
+      setSuperLikesRemaining(r => r + 1);
+    });
   };
 
   // Reset activeTab to 'people' when mode changes to avoid stale tab
@@ -1096,9 +1297,9 @@ export default function FeedScreen() {
       {/* Top bar — only on People tab */}
       {showTopBar && (
         <View style={styles.topBar}>
-          <Pressable onPress={() => setExploreOpen(true)} hitSlop={8}>
+          <Pressable onPress={clearLocalCache} hitSlop={8}>
             <Squircle style={styles.iconBtn} cornerRadius={14} cornerSmoothing={1} fillColor={colors.surface2}>
-              <Ionicons name="compass-outline" size={20} color={colors.text} />
+              <Ionicons name="refresh-outline" size={20} color={colors.text} />
             </Squircle>
           </Pressable>
           <AppLogo color={colors.text} />
@@ -1129,6 +1330,8 @@ export default function FeedScreen() {
                 onSwipedRight={() => handleSwipeRight(profiles[0].id)}
                 onSuperLike={() => handleSuperLike(profiles[0].id)}
                 colors={colors}
+                isPro={isPro}
+                superLikesRemaining={superLikesRemaining}
               />
             )
           )}
@@ -1152,8 +1355,7 @@ export default function FeedScreen() {
       {/* Sticky bottom tab bar */}
       <View style={[styles.bottomNav, { backgroundColor: colors.surface, borderTopColor: colors.border, paddingBottom: Math.max(insets.bottom, 8) }]}>
         {navTabs.map(item => {
-          const active    = activeTab === item.id;
-          const isProfile = item.id === 'profile';
+          const active = activeTab === item.id;
           return (
             <Pressable
               key={item.id}
@@ -1165,23 +1367,7 @@ export default function FeedScreen() {
               hitSlop={8}
             >
               <View style={styles.navIconWrap}>
-                {isProfile ? (
-                  <View style={[styles.avatarWrap, active && { borderWidth: 2, borderColor: colors.text }]}>
-                    {myAvatar ? (
-                      <ExpoImage
-                        source={{ uri: myAvatar }}
-                        style={styles.avatarImg}
-                        contentFit="cover"
-                        cachePolicy="memory-disk"
-                        transition={150}
-                      />
-                    ) : (
-                      <Ionicons name={active ? 'person' : 'person-outline'} size={20} color={active ? colors.text : colors.textSecondary} />
-                    )}
-                  </View>
-                ) : (
-                  <Ionicons name={active ? item.iconActive : item.icon} size={22} color={active ? colors.text : colors.textSecondary} />
-                )}
+                <Ionicons name={active ? item.iconActive : item.icon} size={22} color={active ? colors.text : colors.textSecondary} />
                 {item.badge && (
                   <View style={[styles.badge, { backgroundColor: colors.text }]}>
                     <Text style={[styles.badgeText, { color: colors.bg }]}>{item.badge}</Text>
@@ -1212,6 +1398,19 @@ export default function FeedScreen() {
           <ExplorePage colors={colors} insets={insets} />
         </View>
       )}
+
+      {/* Match celebration — shown when a swipe creates a mutual match */}
+      {matchedProfile && (
+        <MatchScreen
+          profile={matchedProfile}
+          onChat={() => {
+            const p = matchedProfile;
+            setMatchedProfile(null);
+            router.push({ pathname: '/chat', params: { matchId: p.id, name: p.name, image: p.image, online: 'true' } } as any);
+          }}
+          onDismiss={() => setMatchedProfile(null)}
+        />
+      )}
     </View>
   );
 }
@@ -1241,8 +1440,8 @@ const styles = StyleSheet.create({
   photoInfo:      { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 18, gap: 4, flexDirection: 'row', alignItems: 'flex-end' },
   premiumBadge:   { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 2 },
   premiumText:    { color: '#FFD60A', fontSize: 10, fontFamily: 'ProductSans-Bold', letterSpacing: 1 },
-  nameRow:        { flexDirection: 'row', alignItems: 'center' },
-  photoName:      { fontSize: 28, fontFamily: 'ProductSans-Black', color: '#fff' },
+  nameRow:        { flexDirection: 'row', alignItems: 'center', flex: 1 },
+  photoName:      { fontSize: 28, fontFamily: 'ProductSans-Black', color: '#fff', flexShrink: 1 },
   locationRow:    { flexDirection: 'row', alignItems: 'center', gap: 4 },
   locationText:   { fontSize: 13, fontFamily: 'ProductSans-Regular', color: 'rgba(255,255,255,0.7)' },
   scrollHint:     { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },

@@ -25,6 +25,7 @@ import {
   Dimensions,
   Easing,
   FlatList,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -39,6 +40,35 @@ import { useAuth } from '@/context/AuthContext';
 import { useAppTheme } from '@/context/ThemeContext';
 
 const { width: W, height: H } = Dimensions.get('window');
+
+// ─── Brand palette ────────────────────────────────────────────────────────────
+const BRAND = {
+  cardFill:    'rgba(12, 50, 109, 0.35)',   // Dark Midnight Blue tint
+  cardBorder:  'rgba(208, 165, 62, 0.45)',  // Satin Sheen Gold border
+  gold:        '#D0A53E',                    // Satin Sheen Gold — highlights
+  orange:      '#E05327',                    // Flame Orange — accents only
+  bgTop:       '#1a0d3a',                    // Spectral Night top
+  bgBottom:    '#0a0614',                    // Spectral Night bottom
+  optionFill:  'rgba(12, 50, 109, 0.5)',    // Option boxes
+  optionBorder:'rgba(208, 165, 62, 0.25)',  // Option box border
+  white:       '#E2E1E0',                    // Chinese White text
+  btnFill:     '#E2E1E0',                    // Button background — Chinese White
+  btnText:     '#1C1C1C',                    // Button text — Eerie Black
+} as const;
+
+// ─── Gradient helpers ─────────────────────────────────────────────────────────
+
+/** Lighten a hex color by mixing it toward white by `amount` (0–1). */
+function lightenHex(hex: string, amount: number): string {
+  const h = hex.replace('#', '');
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  const nr = Math.round(r + (255 - r) * amount);
+  const ng = Math.round(g + (255 - g) * amount);
+  const nb = Math.round(b + (255 - b) * amount);
+  return `#${nr.toString(16).padStart(2, '0')}${ng.toString(16).padStart(2, '0')}${nb.toString(16).padStart(2, '0')}`;
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -67,6 +97,125 @@ interface GameCardData {
   options?: string[];
 }
 
+// ─── Fallback cards (used when DB has no rows yet) ────────────────────────────
+
+function _gc(game: string, category: string, emoji: string, question: string, n: number, color: string, option_a?: string, option_b?: string): GameCardData {
+  return { id: `fb-${game}-${category}-${n}`, game, category, emoji, question, color, option_a, option_b };
+}
+
+const FALLBACK_GAME_CARDS: GameCardData[] = [
+  // ── question_cards ──────────────────────────────────────────────────────────
+  _gc('question_cards','Deep','🌀',"What's one belief you've held for years that you recently started questioning?",0,'#1e1b4b'),
+  _gc('question_cards','Deep','🎵',"If your life had a theme song right now, what would it be and why?",1,'#1e1b4b'),
+  _gc('question_cards','Deep','💔',"What's the hardest thing you've ever had to forgive someone for?",2,'#1e1b4b'),
+  _gc('question_cards','Deep','⏳',"If you could relive one moment in your life, which would it be?",3,'#1e1b4b'),
+  _gc('question_cards','Deep','🌠',"What's something you want to accomplish before you die that most people would never guess?",4,'#1e1b4b'),
+  _gc('question_cards','Deep','🏡',"What does 'home' mean to you?",5,'#1e1b4b'),
+  _gc('question_cards','Deep','🪞',"If you could talk to your 16-year-old self for 5 minutes, what would you say?",6,'#1e1b4b'),
+  _gc('question_cards','Deep','🌑',"What's one secret fear you've never told anyone?",7,'#1e1b4b'),
+  _gc('question_cards','Deep','✨',"At what point in your life did you feel most alive?",8,'#1e1b4b'),
+  _gc('question_cards','Deep','❤️',"How do you know when you're in love?",9,'#1e1b4b'),
+  _gc('question_cards','Deep','⚡',"What's something that scares you but excites you at the same time?",10,'#1e1b4b'),
+  _gc('question_cards','Deep','💡',"What's the most important lesson love has taught you?",11,'#1e1b4b'),
+
+  _gc('question_cards','Fun','🍕',"If you were a pizza topping, what would you be and why?",0,'#3a2800'),
+  _gc('question_cards','Fun','😳',"What's the most embarrassing thing that happened to you in public?",1,'#3a2800'),
+  _gc('question_cards','Fun','🔍',"What's the strangest thing you've Googled in the last week?",2,'#3a2800'),
+  _gc('question_cards','Fun','⭐',"If you could swap lives with a celebrity for a day, who and why?",3,'#3a2800'),
+  _gc('question_cards','Fun','🤹',"What's your most useless talent?",4,'#3a2800'),
+  _gc('question_cards','Fun','🐾',"If your pet could talk, what would be their biggest complaint about you?",5,'#3a2800'),
+  _gc('question_cards','Fun','🎤',"What's your go-to karaoke song?",6,'#3a2800'),
+  _gc('question_cards','Fun','📺',"If you had to star in a reality TV show, which one?",7,'#3a2800'),
+  _gc('question_cards','Fun','🏆',"What's the most ridiculous argument you've ever won?",8,'#3a2800'),
+  _gc('question_cards','Fun','👽',"If aliens visited Earth, what would you be embarrassed to explain to them?",9,'#3a2800'),
+  _gc('question_cards','Fun','😂',"If you were a meme, which one would you be?",10,'#3a2800'),
+  _gc('question_cards','Fun','🛒',"What's the most random thing you've ever impulse-bought?",11,'#3a2800'),
+
+  _gc('question_cards','Romantic','🕯️',"What's your idea of the perfect date?",0,'#3d0a28'),
+  _gc('question_cards','Romantic','💌',"What small gesture makes you feel most loved?",1,'#3d0a28'),
+  _gc('question_cards','Romantic','👀',"Do you believe in love at first sight?",2,'#3d0a28'),
+  _gc('question_cards','Romantic','🎶',"What song instantly puts you in a romantic mood?",3,'#3d0a28'),
+  _gc('question_cards','Romantic','🎁',"What's the most thoughtful thing someone has ever done for you?",4,'#3d0a28'),
+  _gc('question_cards','Romantic','💬',"What's the most meaningful compliment you've ever received?",5,'#3d0a28'),
+  _gc('question_cards','Romantic','🌹',"What quality do you look for first in a partner?",6,'#3d0a28'),
+  _gc('question_cards','Romantic','☔',"What's something you'd want to do together on a rainy Sunday?",7,'#3d0a28'),
+  _gc('question_cards','Romantic','💞',"How do you show love — words, actions, or something else?",8,'#3d0a28'),
+  _gc('question_cards','Romantic','🌅',"What's one experience you want to share with someone special?",9,'#3d0a28'),
+  _gc('question_cards','Romantic','☀️',"What would your dream morning look like with someone you love?",10,'#3d0a28'),
+  _gc('question_cards','Romantic','🎀',"What's one thing you'd do to surprise the person you love?",11,'#3d0a28'),
+
+  _gc('question_cards','Spicy','🔥',"What's one rule you love to break?",0,'#3d0c0c'),
+  _gc('question_cards','Spicy','😏',"What's the boldest thing you've done to get someone's attention?",1,'#3d0c0c'),
+  _gc('question_cards','Spicy','🤫',"Have you ever done something you immediately thought 'I can never tell anyone this'?",2,'#3d0c0c'),
+  _gc('question_cards','Spicy','📲',"Have you ever sent a text to the wrong person — what was it?",3,'#3d0c0c'),
+  _gc('question_cards','Spicy','⚡',"What's the most spontaneous thing you've ever done?",4,'#3d0c0c'),
+  _gc('question_cards','Spicy','😅',"Have you ever lied to get out of a date?",5,'#3d0c0c'),
+  _gc('question_cards','Spicy','👀',"What do you find attractive that you'd never admit out loud?",6,'#3d0c0c'),
+  _gc('question_cards','Spicy','😬',"What's the worst date you've ever been on?",7,'#3d0c0c'),
+  _gc('question_cards','Spicy','😤',"What's your biggest pet peeve in dating?",8,'#3d0c0c'),
+  _gc('question_cards','Spicy','🎭',"What's the most creative excuse you've ever made?",9,'#3d0c0c'),
+  _gc('question_cards','Spicy','💅',"What's the pettiest thing you've done after a breakup?",10,'#3d0c0c'),
+  _gc('question_cards','Spicy','🙈',"What's your most 'oops' moment on a date?",11,'#3d0c0c'),
+
+  // ── wyr ─────────────────────────────────────────────────────────────────────
+  _gc('wyr','Classic','💀',"Know date you die vs. how you die",0,'#2d1a5e',"Know the date","Know how"),
+  _gc('wyr','Classic','🧠',"Perfect memory vs. forget painful things",1,'#2d1a5e',"Perfect memory","Forget painful things"),
+  _gc('wyr','Classic','📵',"Lose your phone vs. lose your wallet",2,'#2d1a5e',"Lose my phone","Lose my wallet"),
+  _gc('wyr','Classic','🤍',"One true love vs. 10 great friendships",3,'#2d1a5e',"One true love","10 great friendships"),
+  _gc('wyr','Classic','🎬',"Speak only in song lyrics vs. movie quotes",4,'#2d1a5e',"Song lyrics","Movie quotes"),
+  _gc('wyr','Classic','🌆',"Live in a big city vs. the countryside",5,'#2d1a5e',"Big city","Countryside"),
+  _gc('wyr','Classic','☕',"No internet for a month vs. no coffee",6,'#2d1a5e',"No internet","No coffee"),
+  _gc('wyr','Classic','🚀',"Explore the ocean vs. outer space",7,'#2d1a5e',"Explore ocean","Outer space"),
+  _gc('wyr','Classic','😴',"Photographic memory vs. only need 4 hours sleep",8,'#2d1a5e',"Photographic memory","4 hrs sleep"),
+  _gc('wyr','Classic','🏛️',"Famous now but forgotten vs. unknown but remembered forever",9,'#2d1a5e',"Famous now","Remembered forever"),
+  _gc('wyr','Classic','⏸️',"Rewind button vs. pause button for your life",10,'#2d1a5e',"Rewind","Pause"),
+  _gc('wyr','Classic','🍽️',"Eat your favourite meal every day vs. never eat it again",11,'#2d1a5e',"Eat it every day","Never eat it again"),
+
+  // ── nhi ─────────────────────────────────────────────────────────────────────
+  _gc('nhi','Fun','🙈',"Never have I ever lied to get out of plans",0,'#3a2800'),
+  _gc('nhi','Fun','📱',"Never have I ever stalked an ex on social media",1,'#3a2800'),
+  _gc('nhi','Fun','😴',"Never have I ever fallen asleep on a date",2,'#3a2800'),
+  _gc('nhi','Fun','🍕',"Never have I ever eaten an entire pizza alone",3,'#3a2800'),
+  _gc('nhi','Fun','✈️',"Never have I ever missed a flight",4,'#3a2800'),
+  _gc('nhi','Spicy','😅',"Never have I ever sent a text to the wrong person",5,'#3d0c0c'),
+  _gc('nhi','Spicy','👻',"Never have I ever ghosted someone I actually liked",6,'#3d0c0c'),
+  _gc('nhi','Spicy','🤥',"Never have I ever faked being sick to avoid someone",7,'#3d0c0c'),
+  _gc('nhi','Spicy','🕵️',"Never have I ever googled a date before meeting them",8,'#3d0c0c'),
+  _gc('nhi','Spicy','💌',"Never have I ever written a love letter I never sent",9,'#3d0c0c'),
+
+  // ── hot_takes ────────────────────────────────────────────────────────────────
+  _gc('hot_takes','Dating','🔥',"Dating apps have made dating worse, not better",0,'#3d0c0c'),
+  _gc('hot_takes','Dating','💅',"Playing hard to get is just manipulation",1,'#3d0c0c'),
+  _gc('hot_takes','Dating','🤔',"Splitting the bill on a first date is the right move",2,'#3d0c0c'),
+  _gc('hot_takes','Dating','😤',"Long-distance relationships never really work",3,'#3d0c0c'),
+  _gc('hot_takes','Life','🌶️',"Social media has ruined modern dating",4,'#3d0c0c'),
+  _gc('hot_takes','Life','🏠',"Working from home is better than office life",5,'#3d0c0c'),
+  _gc('hot_takes','Life','☕',"Morning people have a personality advantage over night owls",6,'#3d0c0c'),
+  _gc('hot_takes','Life','🎮',"Video games are a valid hobby at any age",7,'#3d0c0c'),
+  _gc('hot_takes','Life','🐱',"Cat people and dog people are fundamentally different",8,'#3d0c0c'),
+  _gc('hot_takes','Pop','🎵',"Streaming has made music worse overall",9,'#3d0c0c'),
+];
+
+function getFallbackGameCards(gameType: string, category?: string): GameCardData[] {
+  const base = FALLBACK_GAME_CARDS.filter(c => c.game === gameType);
+  if (!category) return base;
+  return base.filter(c => c.category === category);
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/** Returns '#fff' or '#0f172a' depending on the perceived brightness of a hex color. */
+function contrastText(hex: string): string {
+  const clean = hex.replace('#', '');
+  if (clean.length < 6) return '#fff';
+  const r = parseInt(clean.slice(0, 2), 16);
+  const g = parseInt(clean.slice(2, 4), 16);
+  const b = parseInt(clean.slice(4, 6), 16);
+  // Relative luminance (sRGB)
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance > 0.55 ? '#0f172a' : '#fff';
+}
+
 // ─── Shimmer ──────────────────────────────────────────────────────────────────
 
 function Shimmer({ width, height, borderRadius = 12, bgColor = '#1a1a1a' }: { width: number | string; height: number; borderRadius?: number; bgColor?: string }) {
@@ -88,17 +237,19 @@ function Shimmer({ width, height, borderRadius = 12, bgColor = '#1a1a1a' }: { wi
   );
 }
 
+const SHIMMER_BG = 'rgba(255,255,255,0.07)';
+
 function LoadingSkeleton() {
   return (
     <View style={{ padding: 20, gap: 14 }}>
       {[0, 1, 2, 3, 4].map(i => (
         <View key={i} style={{ flexDirection: 'row', gap: 14, alignItems: 'center' }}>
-          <Shimmer width={56} height={56} borderRadius={18} />
+          <Shimmer width={56} height={56} borderRadius={18} bgColor={SHIMMER_BG} />
           <View style={{ flex: 1, gap: 8 }}>
-            <Shimmer width="70%" height={16} borderRadius={8} />
-            <Shimmer width="45%" height={12} borderRadius={6} />
+            <Shimmer width="70%" height={16} borderRadius={8} bgColor={SHIMMER_BG} />
+            <Shimmer width="45%" height={12} borderRadius={6} bgColor={SHIMMER_BG} />
           </View>
-          <Shimmer width={24} height={24} borderRadius={12} />
+          <Shimmer width={24} height={24} borderRadius={12} bgColor={SHIMMER_BG} />
         </View>
       ))}
     </View>
@@ -107,19 +258,17 @@ function LoadingSkeleton() {
 
 // ─── Category pill ────────────────────────────────────────────────────────────
 
-function CategoryPill({ label, isActive, accent, onPress }: {
+function CategoryPill({ label, isActive, onPress }: {
   label: string; isActive: boolean; accent: string; onPress: () => void;
 }) {
-  // For very light accent colors (like white), use dark text when active
-  const activeTextColor = accent.toLowerCase() === '#f8fafc' || accent.toLowerCase() === '#ffffff' ? '#0f172a' : '#fff';
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [{ opacity: pressed ? 0.75 : 1 }]}>
       <Squircle style={s.catPill}
         cornerRadius={50} cornerSmoothing={1}
-        fillColor={isActive ? accent : 'rgba(255,255,255,0.07)'}
-        strokeColor={isActive ? accent : 'rgba(255,255,255,0.15)'}
+        fillColor={isActive ? BRAND.gold : 'rgba(12,50,109,0.4)'}
+        strokeColor={isActive ? BRAND.gold : BRAND.cardBorder}
         strokeWidth={1.5}>
-        <Text style={[s.catPillText, { color: isActive ? activeTextColor : 'rgba(255,255,255,0.6)' }]}>{label}</Text>
+        <Text style={[s.catPillText, { color: isActive ? '#1a0d00' : BRAND.white }]}>{label}</Text>
       </Squircle>
     </Pressable>
   );
@@ -130,49 +279,47 @@ function CategoryPill({ label, isActive, accent, onPress }: {
 function WyrCard({ card, accent, onSend }: { card: GameCardData; accent: string; onSend: (card: GameCardData) => void }) {
   return (
     <Squircle style={s.gameCard} cornerRadius={24} cornerSmoothing={1}
-      fillColor="rgba(255,255,255,0.05)"
-      strokeColor={`${accent}60`} strokeWidth={1.5}>
-      <Squircle style={s.gameCardBadge} cornerRadius={50} cornerSmoothing={1} fillColor={`${accent}25`}>
-        <Text style={{ fontSize: 14 }}>{card.emoji}</Text>
+      fillColor={BRAND.cardFill} strokeColor={`${accent}55`} strokeWidth={1.5}>
+      <Squircle style={s.gameCardBadge} cornerRadius={50} cornerSmoothing={1} fillColor={`${accent}22`}>
         <Text style={[s.gameCardBadgeText, { color: accent }]}>Would You Rather</Text>
       </Squircle>
       <View style={s.wyrRow}>
-        <Squircle style={s.wyrBox} cornerRadius={16} cornerSmoothing={1} fillColor="rgba(255,255,255,0.08)">
-          <Text style={s.wyrLabel}>A</Text>
-          <Text style={s.wyrText}>{card.option_a ?? ''}</Text>
+        <Squircle style={s.wyrBox} cornerRadius={16} cornerSmoothing={1}
+          fillColor={BRAND.optionFill} strokeColor={`${accent}30`} strokeWidth={1}>
+          <Text style={[s.wyrLabel, { color: accent }]}>A</Text>
+          <Text style={[s.wyrText, { color: BRAND.white }]}>{card.option_a ?? ''}</Text>
         </Squircle>
         <Text style={s.wyrOr}>or</Text>
-        <Squircle style={s.wyrBox} cornerRadius={16} cornerSmoothing={1} fillColor="rgba(255,255,255,0.08)">
-          <Text style={s.wyrLabel}>B</Text>
-          <Text style={s.wyrText}>{card.option_b ?? ''}</Text>
+        <Squircle style={s.wyrBox} cornerRadius={16} cornerSmoothing={1}
+          fillColor={BRAND.optionFill} strokeColor={`${accent}30`} strokeWidth={1}>
+          <Text style={[s.wyrLabel, { color: accent }]}>B</Text>
+          <Text style={[s.wyrText, { color: BRAND.white }]}>{card.option_b ?? ''}</Text>
         </Squircle>
       </View>
       <Pressable onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); onSend(card); }} style={({ pressed }) => [{ opacity: pressed ? 0.8 : 1 }]}>
-        <Squircle style={[s.sendCardBtn, { backgroundColor: accent }]} cornerRadius={50} cornerSmoothing={1} fillColor={accent}>
-          <Ionicons name="send" size={14} color="#fff" />
-          <Text style={s.sendCardBtnText}>Send This</Text>
+        <Squircle style={s.sendCardBtn} cornerRadius={50} cornerSmoothing={1} fillColor={BRAND.btnFill}>
+          <Ionicons name="send" size={14} color={BRAND.btnText} />
+          <Text style={[s.sendCardBtnText, { color: BRAND.btnText }]}>Send This</Text>
         </Squircle>
       </Pressable>
     </Squircle>
   );
 }
 
-// ─── Statement Card (NHI / Hot Takes) ────────────────────────────────────────
+// ─── Statement Card (NHI / Hot Takes / Question Cards) ───────────────────────
 
 function StatementCard({ card, accent, label, onSend }: { card: GameCardData; accent: string; label: string; onSend: (card: GameCardData) => void }) {
   return (
     <Squircle style={s.gameCard} cornerRadius={24} cornerSmoothing={1}
-      fillColor="rgba(255,255,255,0.05)"
-      strokeColor={`${accent}60`} strokeWidth={1.5}>
-      <Squircle style={s.gameCardBadge} cornerRadius={50} cornerSmoothing={1} fillColor={`${accent}25`}>
-        <Text style={{ fontSize: 14 }}>{card.emoji}</Text>
+      fillColor={BRAND.cardFill} strokeColor={`${accent}55`} strokeWidth={1.5}>
+      <Squircle style={s.gameCardBadge} cornerRadius={50} cornerSmoothing={1} fillColor={`${accent}22`}>
         <Text style={[s.gameCardBadgeText, { color: accent }]}>{label}</Text>
       </Squircle>
-      <Text style={s.statementText}>{card.question}</Text>
+      <Text style={[s.statementText, { color: BRAND.white }]}>{card.question}</Text>
       <Pressable onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); onSend(card); }} style={({ pressed }) => [{ opacity: pressed ? 0.8 : 1 }]}>
-        <Squircle style={s.sendCardBtn} cornerRadius={50} cornerSmoothing={1} fillColor={accent}>
-          <Ionicons name="send" size={14} color="#fff" />
-          <Text style={s.sendCardBtnText}>Send This</Text>
+        <Squircle style={s.sendCardBtn} cornerRadius={50} cornerSmoothing={1} fillColor={BRAND.btnFill}>
+          <Ionicons name="send" size={14} color={BRAND.btnText} />
+          <Text style={[s.sendCardBtnText, { color: BRAND.btnText }]}>Send This</Text>
         </Squircle>
       </Pressable>
     </Squircle>
@@ -184,22 +331,21 @@ function StatementCard({ card, accent, label, onSend }: { card: GameCardData; ac
 function QuizCard({ card, accent, label, onSend }: { card: GameCardData; accent: string; label: string; onSend: (card: GameCardData) => void }) {
   return (
     <Squircle style={s.gameCard} cornerRadius={24} cornerSmoothing={1}
-      fillColor="rgba(255,255,255,0.05)"
-      strokeColor={`${accent}60`} strokeWidth={1.5}>
-      <Squircle style={s.gameCardBadge} cornerRadius={50} cornerSmoothing={1} fillColor={`${accent}25`}>
-        <Text style={{ fontSize: 14 }}>{card.emoji}</Text>
+      fillColor={BRAND.cardFill} strokeColor={`${accent}55`} strokeWidth={1.5}>
+      <Squircle style={s.gameCardBadge} cornerRadius={50} cornerSmoothing={1} fillColor={`${accent}22`}>
         <Text style={[s.gameCardBadgeText, { color: accent }]}>{label}</Text>
       </Squircle>
-      <Text style={s.statementText}>{card.question}</Text>
+      <Text style={[s.statementText, { color: BRAND.white }]}>{card.question}</Text>
       {(card.options ?? []).map((opt, i) => (
-        <Squircle key={i} style={s.quizOpt} cornerRadius={14} cornerSmoothing={1} fillColor={`${accent}15`}>
-          <Text style={[s.quizOptText, { color: '#fff' }]}>{opt}</Text>
+        <Squircle key={i} style={s.quizOpt} cornerRadius={14} cornerSmoothing={1}
+          fillColor={BRAND.optionFill} strokeColor={`${accent}30`} strokeWidth={1}>
+          <Text style={[s.quizOptText, { color: BRAND.white }]}>{opt}</Text>
         </Squircle>
       ))}
       <Pressable onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); onSend(card); }} style={({ pressed }) => [{ opacity: pressed ? 0.8 : 1 }]}>
-        <Squircle style={s.sendCardBtn} cornerRadius={50} cornerSmoothing={1} fillColor={accent}>
-          <Ionicons name="send" size={14} color="#fff" />
-          <Text style={s.sendCardBtnText}>Send This Quiz</Text>
+        <Squircle style={s.sendCardBtn} cornerRadius={50} cornerSmoothing={1} fillColor={BRAND.btnFill}>
+          <Ionicons name="send" size={14} color={BRAND.btnText} />
+          <Text style={[s.sendCardBtnText, { color: BRAND.btnText }]}>Send This Quiz</Text>
         </Squircle>
       </Pressable>
     </Squircle>
@@ -210,56 +356,58 @@ function QuizCard({ card, accent, label, onSend }: { card: GameCardData; accent:
 
 // ─── Truth or Dare Card ───────────────────────────────────────────────────────
 
-function TodCard({ card, accent, onSend }: { card: GameCardData; accent: string; onSend: (card: GameCardData) => void }) {
-  const isDare = card.category?.toLowerCase() === 'dare';
-  const badgeColor = isDare ? '#f59e0b' : '#a78bfa';
-  const badgeLabel = isDare ? '😈 Dare' : '🤫 Truth';
+function TodCard({ card, onSend }: { card: GameCardData; accent: string; onSend: (card: GameCardData) => void }) {
+  const isDare     = card.category?.toLowerCase() === 'dare';
+  const badgeColor = isDare ? BRAND.orange : BRAND.gold;
+  const badgeLabel = isDare ? 'Dare' : 'Truth';
   return (
     <Squircle style={s.gameCard} cornerRadius={24} cornerSmoothing={1}
-      fillColor="rgba(255,255,255,0.05)"
-      strokeColor={`${accent}60`} strokeWidth={1.5}>
-      <Squircle style={s.gameCardBadge} cornerRadius={50} cornerSmoothing={1} fillColor={`${badgeColor}25`}>
+      fillColor={BRAND.cardFill} strokeColor={BRAND.cardBorder} strokeWidth={1.5}>
+      <Squircle style={s.gameCardBadge} cornerRadius={50} cornerSmoothing={1}
+        fillColor={isDare ? 'rgba(224,83,39,0.18)' : 'rgba(208,165,62,0.18)'}>
         <Text style={[s.gameCardBadgeText, { color: badgeColor }]}>{badgeLabel}</Text>
       </Squircle>
-      <Text style={s.statementText}>{card.question}</Text>
+      <Text style={[s.statementText, { color: BRAND.white }]}>{card.question}</Text>
       <Pressable onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); onSend(card); }} style={({ pressed }) => [{ opacity: pressed ? 0.8 : 1 }]}>
-        <Squircle style={s.sendCardBtn} cornerRadius={50} cornerSmoothing={1} fillColor={accent}>
-          <Ionicons name="send" size={14} color="#fff" />
-          <Text style={[s.sendCardBtnText, { color: isDare ? '#0f172a' : '#fff' }]}>Send This</Text>
+        <Squircle style={s.sendCardBtn} cornerRadius={50} cornerSmoothing={1} fillColor={BRAND.btnFill}>
+          <Ionicons name="send" size={14} color={BRAND.btnText} />
+          <Text style={[s.sendCardBtnText, { color: BRAND.btnText }]}>
+            {isDare ? 'Send Dare' : 'Send Truth'}
+          </Text>
         </Squircle>
       </Pressable>
     </Squircle>
   );
 }
 
-function CustomCard({ accent, label, placeholder, onSend }: {
+function CustomCard({ label, placeholder, onSend }: {
   accent: string; label: string; placeholder: string;
   onSend: (text: string) => void;
 }) {
   const [text, setText] = useState('');
   return (
     <Squircle style={s.gameCard} cornerRadius={24} cornerSmoothing={1}
-      fillColor="rgba(255,255,255,0.04)" strokeColor="rgba(255,255,255,0.1)" strokeWidth={1}>
-      <Squircle style={s.gameCardBadge} cornerRadius={50} cornerSmoothing={1} fillColor={`${accent}25`}>
-        <Ionicons name="create-outline" size={13} color={accent} />
-        <Text style={[s.gameCardBadgeText, { color: accent }]}>{label}</Text>
+      fillColor={BRAND.cardFill} strokeColor={BRAND.cardBorder} strokeWidth={1.5}>
+      <Squircle style={s.gameCardBadge} cornerRadius={50} cornerSmoothing={1} fillColor="rgba(208,165,62,0.18)">
+        <Ionicons name="create-outline" size={13} color={BRAND.gold} />
+        <Text style={[s.gameCardBadgeText, { color: BRAND.gold }]}>{label}</Text>
       </Squircle>
       <Squircle style={s.customInput} cornerRadius={16} cornerSmoothing={1}
-        fillColor="rgba(255,255,255,0.07)" strokeColor="rgba(255,255,255,0.1)" strokeWidth={1}>
+        fillColor={BRAND.optionFill} strokeColor={BRAND.optionBorder} strokeWidth={1}>
         <TextInput
           value={text} onChangeText={setText}
           placeholder={placeholder}
-          placeholderTextColor="rgba(255,255,255,0.3)"
-          style={s.customInputText}
+          placeholderTextColor="rgba(226,225,224,0.3)"
+          style={[s.customInputText, { color: BRAND.white }]}
           multiline maxLength={200}
         />
       </Squircle>
       <Pressable onPress={() => { if (text.trim()) { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); onSend(text.trim()); } }}
         disabled={!text.trim()}
         style={({ pressed }) => [{ opacity: !text.trim() ? 0.4 : pressed ? 0.8 : 1 }]}>
-        <Squircle style={s.sendCardBtn} cornerRadius={50} cornerSmoothing={1} fillColor={accent}>
-          <Ionicons name="send" size={14} color="#fff" />
-          <Text style={s.sendCardBtnText}>Send Custom</Text>
+        <Squircle style={s.sendCardBtn} cornerRadius={50} cornerSmoothing={1} fillColor={BRAND.btnFill}>
+          <Ionicons name="send" size={14} color={BRAND.btnText} />
+          <Text style={[s.sendCardBtnText, { color: BRAND.btnText }]}>Send Custom</Text>
         </Squircle>
       </Pressable>
     </Squircle>
@@ -297,32 +445,34 @@ function AiGeneratedPreview({
         fillColor="rgba(255,255,255,0.06)" strokeColor={`${accent}40`} strokeWidth={1}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
           <Text style={{ fontSize: 18 }}>{generated.emoji}</Text>
-          <Text style={{ color: accent, fontSize: 11, fontFamily: 'ProductSans-Black', letterSpacing: 0.4 }}>Would You Rather</Text>
+          <Text style={{ color: BRAND.gold, fontSize: 11, fontFamily: 'ProductSans-Black', letterSpacing: 0.4 }}>Would You Rather</Text>
         </View>
         <View style={{ flexDirection: 'row', gap: 8 }}>
-          <Squircle style={{ flex: 1, padding: 12, gap: 4 }} cornerRadius={14} cornerSmoothing={1} fillColor="rgba(255,255,255,0.08)">
-            <Text style={{ fontSize: 10, color: accent, fontFamily: 'ProductSans-Black', letterSpacing: 0.5 }}>A</Text>
-            <Text style={{ color: '#fff', fontSize: 14, fontFamily: 'ProductSans-Bold', lineHeight: 20 }}>{optA.trim()}</Text>
+          <Squircle style={{ flex: 1, padding: 12, gap: 4 }} cornerRadius={14} cornerSmoothing={1}
+            fillColor={BRAND.optionFill} strokeColor={BRAND.optionBorder} strokeWidth={1}>
+            <Text style={{ fontSize: 10, color: BRAND.gold, fontFamily: 'ProductSans-Black', letterSpacing: 0.5 }}>A</Text>
+            <Text style={{ color: BRAND.white, fontSize: 14, fontFamily: 'ProductSans-Bold', lineHeight: 20 }}>{optA.trim()}</Text>
           </Squircle>
-          <Text style={{ color: 'rgba(255,255,255,0.3)', fontSize: 14, fontFamily: 'ProductSans-Black', alignSelf: 'center' }}>or</Text>
-          <Squircle style={{ flex: 1, padding: 12, gap: 4 }} cornerRadius={14} cornerSmoothing={1} fillColor="rgba(255,255,255,0.08)">
-            <Text style={{ fontSize: 10, color: accent, fontFamily: 'ProductSans-Black', letterSpacing: 0.5 }}>B</Text>
-            <Text style={{ color: '#fff', fontSize: 14, fontFamily: 'ProductSans-Bold', lineHeight: 20 }}>{optB.trim()}</Text>
+          <Text style={{ color: 'rgba(208,165,62,0.4)', fontSize: 14, fontFamily: 'ProductSans-Black', alignSelf: 'center' }}>or</Text>
+          <Squircle style={{ flex: 1, padding: 12, gap: 4 }} cornerRadius={14} cornerSmoothing={1}
+            fillColor={BRAND.optionFill} strokeColor={BRAND.optionBorder} strokeWidth={1}>
+            <Text style={{ fontSize: 10, color: BRAND.gold, fontFamily: 'ProductSans-Black', letterSpacing: 0.5 }}>B</Text>
+            <Text style={{ color: BRAND.white, fontSize: 14, fontFamily: 'ProductSans-Bold', lineHeight: 20 }}>{optB.trim()}</Text>
           </Squircle>
         </View>
         <View style={{ flexDirection: 'row', gap: 8 }}>
           <Pressable onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onRegenerate(); }} disabled={loading}
             style={({ pressed }) => [{ flex: 1, opacity: loading ? 0.5 : pressed ? 0.75 : 1 }]}>
-            <Squircle style={[s.sendCardBtn, { backgroundColor: 'rgba(255,255,255,0.1)' }]} cornerRadius={50} cornerSmoothing={1} fillColor="rgba(255,255,255,0.08)">
-              <Text style={{ fontSize: 13 }}>🔄</Text>
+            <Squircle style={s.sendCardBtn} cornerRadius={50} cornerSmoothing={1} fillColor="rgba(255,255,255,0.08)">
+              <Text style={{ fontSize: 13 }}>↺</Text>
               <Text style={[s.sendCardBtnText, { fontSize: 13 }]}>Try Again</Text>
             </Squircle>
           </Pressable>
           <Pressable onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); onSend(generated.question); }}
             style={({ pressed }) => [{ flex: 1, opacity: pressed ? 0.8 : 1 }]}>
-            <Squircle style={s.sendCardBtn} cornerRadius={50} cornerSmoothing={1} fillColor={accent}>
-              <Ionicons name="send" size={14} color="#fff" />
-              <Text style={s.sendCardBtnText}>Send This</Text>
+            <Squircle style={s.sendCardBtn} cornerRadius={50} cornerSmoothing={1} fillColor={BRAND.btnFill}>
+              <Ionicons name="send" size={14} color={BRAND.btnText} />
+              <Text style={[s.sendCardBtnText, { color: BRAND.btnText }]}>Send This</Text>
             </Squircle>
           </Pressable>
         </View>
@@ -335,18 +485,19 @@ function AiGeneratedPreview({
     const [q, ...opts] = generated.question.split('|||');
     return (
       <Squircle style={{ padding: 14, gap: 10 }} cornerRadius={18} cornerSmoothing={1}
-        fillColor="rgba(255,255,255,0.06)" strokeColor={`${accent}40`} strokeWidth={1}>
+        fillColor={BRAND.cardFill} strokeColor={BRAND.cardBorder} strokeWidth={1.5}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
           <Text style={{ fontSize: 18 }}>{generated.emoji}</Text>
-          <Text style={{ color: accent, fontSize: 11, fontFamily: 'ProductSans-Black', letterSpacing: 0.4 }}>
+          <Text style={{ color: BRAND.gold, fontSize: 11, fontFamily: 'ProductSans-Black', letterSpacing: 0.4 }}>
             {gameType === 'quiz' ? 'Quiz Question' : 'Date Step'}
           </Text>
         </View>
-        <Text style={s.statementText}>{q.trim()}</Text>
+        <Text style={[s.statementText, { color: BRAND.white }]}>{q.trim()}</Text>
         <View style={{ gap: 6 }}>
           {opts.map((opt, i) => (
-            <Squircle key={i} style={{ paddingHorizontal: 14, paddingVertical: 10 }} cornerRadius={12} cornerSmoothing={1} fillColor={`${accent}18`}>
-              <Text style={{ color: '#fff', fontSize: 14, fontFamily: 'ProductSans-Bold' }}>{opt.trim()}</Text>
+            <Squircle key={i} style={{ paddingHorizontal: 14, paddingVertical: 10 }} cornerRadius={12} cornerSmoothing={1}
+              fillColor={BRAND.optionFill} strokeColor={BRAND.optionBorder} strokeWidth={1}>
+              <Text style={{ color: BRAND.white, fontSize: 14, fontFamily: 'ProductSans-Bold' }}>{opt.trim()}</Text>
             </Squircle>
           ))}
         </View>
@@ -354,15 +505,15 @@ function AiGeneratedPreview({
           <Pressable onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onRegenerate(); }} disabled={loading}
             style={({ pressed }) => [{ flex: 1, opacity: loading ? 0.5 : pressed ? 0.75 : 1 }]}>
             <Squircle style={s.sendCardBtn} cornerRadius={50} cornerSmoothing={1} fillColor="rgba(255,255,255,0.08)">
-              <Text style={{ fontSize: 13 }}>🔄</Text>
+              <Text style={{ fontSize: 13 }}>↺</Text>
               <Text style={[s.sendCardBtnText, { fontSize: 13 }]}>Try Again</Text>
             </Squircle>
           </Pressable>
           <Pressable onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); onSend(generated.question); }}
             style={({ pressed }) => [{ flex: 1, opacity: pressed ? 0.8 : 1 }]}>
-            <Squircle style={s.sendCardBtn} cornerRadius={50} cornerSmoothing={1} fillColor={accent}>
-              <Ionicons name="send" size={14} color="#fff" />
-              <Text style={s.sendCardBtnText}>Send This</Text>
+            <Squircle style={s.sendCardBtn} cornerRadius={50} cornerSmoothing={1} fillColor={BRAND.btnFill}>
+              <Ionicons name="send" size={14} color={BRAND.btnText} />
+              <Text style={[s.sendCardBtnText, { color: BRAND.btnText }]}>Send This</Text>
             </Squircle>
           </Pressable>
         </View>
@@ -372,29 +523,32 @@ function AiGeneratedPreview({
 
   // Truth or Dare: show truth/dare badge
   if (gameType === 'truth_or_dare') {
-    const isDare = generated.sub_type === 'dare';
-    const badgeColor = isDare ? '#f59e0b' : '#a78bfa';
-    const badgeLabel = isDare ? '😈 Dare' : '🤫 Truth';
+    const isDare     = generated.sub_type === 'dare';
+    const badgeColor = isDare ? BRAND.orange : BRAND.gold;
+    const badgeLabel = isDare ? 'Dare' : 'Truth';
     return (
       <Squircle style={{ padding: 14, gap: 10 }} cornerRadius={18} cornerSmoothing={1}
-        fillColor="rgba(255,255,255,0.06)" strokeColor={`${accent}40`} strokeWidth={1}>
-        <Squircle style={s.gameCardBadge} cornerRadius={50} cornerSmoothing={1} fillColor={`${badgeColor}25`}>
+        fillColor={BRAND.cardFill} strokeColor={BRAND.cardBorder} strokeWidth={1.5}>
+        <Squircle style={s.gameCardBadge} cornerRadius={50} cornerSmoothing={1}
+          fillColor={isDare ? 'rgba(224,83,39,0.18)' : 'rgba(208,165,62,0.18)'}>
           <Text style={[s.gameCardBadgeText, { color: badgeColor }]}>{badgeLabel}</Text>
         </Squircle>
-        <Text style={s.statementText}>{generated.question}</Text>
+        <Text style={[s.statementText, { color: BRAND.white }]}>{generated.question}</Text>
         <View style={{ flexDirection: 'row', gap: 8 }}>
           <Pressable onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onRegenerate(); }} disabled={loading}
             style={({ pressed }) => [{ flex: 1, opacity: loading ? 0.5 : pressed ? 0.75 : 1 }]}>
             <Squircle style={s.sendCardBtn} cornerRadius={50} cornerSmoothing={1} fillColor="rgba(255,255,255,0.08)">
-              <Text style={{ fontSize: 13 }}>🔄</Text>
+              <Text style={{ fontSize: 13 }}>↺</Text>
               <Text style={[s.sendCardBtnText, { fontSize: 13 }]}>Try Again</Text>
             </Squircle>
           </Pressable>
           <Pressable onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); onSend(generated.question); }}
             style={({ pressed }) => [{ flex: 1, opacity: pressed ? 0.8 : 1 }]}>
-            <Squircle style={s.sendCardBtn} cornerRadius={50} cornerSmoothing={1} fillColor={accent}>
-              <Ionicons name="send" size={14} color="#fff" />
-              <Text style={s.sendCardBtnText}>Send This</Text>
+            <Squircle style={s.sendCardBtn} cornerRadius={50} cornerSmoothing={1} fillColor={BRAND.btnFill}>
+              <Ionicons name="send" size={14} color={BRAND.btnText} />
+              <Text style={[s.sendCardBtnText, { color: BRAND.btnText }]}>
+                {isDare ? 'Send Dare' : 'Send Truth'}
+              </Text>
             </Squircle>
           </Pressable>
         </View>
@@ -405,22 +559,22 @@ function AiGeneratedPreview({
   // Default: statement / question card
   return (
     <Squircle style={{ padding: 14, gap: 10 }} cornerRadius={18} cornerSmoothing={1}
-      fillColor="rgba(255,255,255,0.06)" strokeColor={`${accent}40`} strokeWidth={1}>
+      fillColor={BRAND.cardFill} strokeColor={BRAND.cardBorder} strokeWidth={1.5}>
       <Text style={{ fontSize: 22, textAlign: 'center' }}>{generated.emoji}</Text>
-      <Text style={[s.statementText, { textAlign: 'center', fontSize: 16 }]}>{generated.question}</Text>
+      <Text style={[s.statementText, { textAlign: 'center', fontSize: 16, color: BRAND.white }]}>{generated.question}</Text>
       <View style={{ flexDirection: 'row', gap: 8 }}>
         <Pressable onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onRegenerate(); }} disabled={loading}
           style={({ pressed }) => [{ flex: 1, opacity: loading ? 0.5 : pressed ? 0.75 : 1 }]}>
           <Squircle style={s.sendCardBtn} cornerRadius={50} cornerSmoothing={1} fillColor="rgba(255,255,255,0.08)">
-            <Text style={{ fontSize: 13 }}>🔄</Text>
+            <Text style={{ fontSize: 13 }}>↺</Text>
             <Text style={[s.sendCardBtnText, { fontSize: 13 }]}>Try Again</Text>
           </Squircle>
         </Pressable>
         <Pressable onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); onSend(generated.question); }}
           style={({ pressed }) => [{ flex: 1, opacity: pressed ? 0.8 : 1 }]}>
-          <Squircle style={s.sendCardBtn} cornerRadius={50} cornerSmoothing={1} fillColor={accent}>
-            <Ionicons name="send" size={14} color="#fff" />
-            <Text style={s.sendCardBtnText}>Send This</Text>
+          <Squircle style={s.sendCardBtn} cornerRadius={50} cornerSmoothing={1} fillColor={BRAND.btnFill}>
+            <Ionicons name="send" size={14} color={BRAND.btnText} />
+            <Text style={[s.sendCardBtnText, { color: BRAND.btnText }]}>Send This</Text>
           </Squircle>
         </Pressable>
       </View>
@@ -471,28 +625,27 @@ function AiCard({ accent, gameType, token, onSend }: {
 
   return (
     <Squircle style={s.gameCard} cornerRadius={24} cornerSmoothing={1}
-      fillColor="rgba(99,102,241,0.08)" strokeColor={`${accent}55`} strokeWidth={1.5}>
+      fillColor={BRAND.cardFill} strokeColor={BRAND.cardBorder} strokeWidth={1.5}>
 
       {/* Badge */}
-      <Squircle style={s.gameCardBadge} cornerRadius={50} cornerSmoothing={1} fillColor={`${accent}25`}>
-        <Text style={{ fontSize: 13 }}>✨</Text>
-        <Text style={[s.gameCardBadgeText, { color: accent }]}>Create with AI</Text>
+      <Squircle style={s.gameCardBadge} cornerRadius={50} cornerSmoothing={1} fillColor="rgba(208,165,62,0.18)">
+        <Text style={[s.gameCardBadgeText, { color: BRAND.gold }]}>Create with AI</Text>
       </Squircle>
 
       {/* Truth or Dare mode picker */}
       {isTod && (
         <View style={{ flexDirection: 'row', gap: 8 }}>
           {(['truth', 'dare', ''] as const).map((mode) => {
-            const label = mode === 'truth' ? '🤫 Truth' : mode === 'dare' ? '😈 Dare' : '🎲 Surprise';
+            const label = mode === 'truth' ? 'Truth' : mode === 'dare' ? 'Dare' : 'Surprise';
             const isActive = todMode === mode;
-            const modeColor = mode === 'dare' ? '#f59e0b' : mode === 'truth' ? '#a78bfa' : accent;
+            const modeColor = mode === 'dare' ? BRAND.orange : mode === 'truth' ? BRAND.gold : 'rgba(226,225,224,0.6)';
             return (
               <Pressable key={mode} onPress={() => setTodMode(mode)}
                 style={({ pressed }) => [{ flex: 1, opacity: pressed ? 0.75 : 1 }]}>
                 <Squircle style={{ paddingVertical: 10, alignItems: 'center' }} cornerRadius={14} cornerSmoothing={1}
-                  fillColor={isActive ? `${modeColor}30` : 'rgba(255,255,255,0.06)'}
-                  strokeColor={isActive ? modeColor : 'rgba(255,255,255,0.1)'} strokeWidth={1.5}>
-                  <Text style={{ color: isActive ? modeColor : 'rgba(255,255,255,0.5)', fontSize: 13, fontFamily: isActive ? 'ProductSans-Black' : 'ProductSans-Regular' }}>
+                  fillColor={isActive ? (mode === 'dare' ? 'rgba(224,83,39,0.2)' : mode === 'truth' ? 'rgba(208,165,62,0.2)' : 'rgba(255,255,255,0.1)') : 'rgba(255,255,255,0.05)'}
+                  strokeColor={isActive ? modeColor : 'rgba(208,165,62,0.2)'} strokeWidth={1.5}>
+                  <Text style={{ color: isActive ? modeColor : 'rgba(226,225,224,0.4)', fontSize: 13, fontFamily: isActive ? 'ProductSans-Black' : 'ProductSans-Regular' }}>
                     {label}
                   </Text>
                 </Squircle>
@@ -504,12 +657,12 @@ function AiCard({ accent, gameType, token, onSend }: {
 
       {/* Theme hint input */}
       <Squircle style={[s.customInput, { minHeight: 48 }]} cornerRadius={14} cornerSmoothing={1}
-        fillColor="rgba(255,255,255,0.07)" strokeColor="rgba(255,255,255,0.1)" strokeWidth={1}>
+        fillColor={BRAND.optionFill} strokeColor={BRAND.optionBorder} strokeWidth={1}>
         <TextInput
           value={theme} onChangeText={setTheme}
           placeholder="Optional: add a theme or mood…"
-          placeholderTextColor="rgba(255,255,255,0.3)"
-          style={[s.customInputText, { paddingTop: 0 }]}
+          placeholderTextColor="rgba(226,225,224,0.3)"
+          style={[s.customInputText, { paddingTop: 0, color: BRAND.white }]}
           maxLength={80}
           returnKeyType="done"
         />
@@ -519,10 +672,10 @@ function AiCard({ accent, gameType, token, onSend }: {
       <Pressable onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); generate(); }} disabled={loading}
         style={({ pressed }) => [{ opacity: loading ? 0.6 : pressed ? 0.8 : 1 }]}>
         <Squircle style={s.sendCardBtn} cornerRadius={50} cornerSmoothing={1}
-          fillColor={loading ? 'rgba(255,255,255,0.12)' : accent}>
+          fillColor={loading ? 'rgba(255,255,255,0.12)' : BRAND.btnFill}>
           {loading
-            ? <ActivityIndicator size="small" color="#fff" />
-            : <><Text style={{ fontSize: 14 }}>✨</Text><Text style={s.sendCardBtnText}>
+            ? <ActivityIndicator size="small" color={BRAND.btnText} />
+            : <><Text style={[s.sendCardBtnText, { color: BRAND.btnText }]}>
                 {isTod
                   ? (todMode === 'truth' ? 'Generate Truth' : todMode === 'dare' ? 'Generate Dare' : 'Generate Surprise')
                   : 'Generate'
@@ -568,13 +721,18 @@ function GameDetailScreen({ game, token, partnerId, partnerName, roomId, onBack,
   const [cards, setCards] = useState<GameCardData[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeCategory, setActiveCategory] = useState<string>('');
+  const [writeModal, setWriteModal] = useState(false);
+  const [aiModal, setAiModal] = useState(false);
   const insets = useSafeAreaInsets();
 
   useEffect(() => {
     setLoading(true);
     apiFetch<GameCardData[]>(`/mini-games/${game.game_type}/cards`, { token })
-      .then(data => setCards(Array.isArray(data) ? data : []))
-      .catch(() => setCards([]))
+      .then(data => {
+        const fetched = Array.isArray(data) ? data : [];
+        setCards(fetched.length > 0 ? fetched : getFallbackGameCards(game.game_type));
+      })
+      .catch(() => setCards(getFallbackGameCards(game.game_type)))
       .finally(() => setLoading(false));
   }, [game.game_type, token]);
 
@@ -605,17 +763,34 @@ function GameDetailScreen({ game, token, partnerId, partnerName, roomId, onBack,
   };
 
   return (
-    <View style={[s.detailRoot, { backgroundColor: game.bg_color }]}>
+    <LinearGradient
+      colors={[game.bg_color, '#080612']}
+      locations={[0, 1]}
+      style={s.detailRoot}
+    >
       {/* Header */}
-      <LinearGradient colors={[game.bg_color, 'transparent']} style={[s.detailHeader, { paddingTop: insets.top + 12 }]}>
+      <LinearGradient colors={[`${game.bg_color}f8`, 'transparent']} style={[s.detailHeader, { paddingTop: insets.top + 12 }]}>
         <Pressable onPress={onBack} hitSlop={12} style={({ pressed }) => [{ opacity: pressed ? 0.6 : 1 }]}>
           <Squircle style={s.backBtn} cornerRadius={12} cornerSmoothing={1} fillColor="rgba(255,255,255,0.1)">
             <Ionicons name="arrow-back" size={18} color="#fff" />
           </Squircle>
         </Pressable>
         <View style={{ flex: 1 }}>
-          <Text style={s.detailTitle}>{game.emoji} {game.name}</Text>
+          <Text style={s.detailTitle}>{game.name}</Text>
           <Text style={[s.detailSub, { color: game.accent_color }]}>{game.tagline}</Text>
+        </View>
+        {/* Write Your Own & AI buttons */}
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          <Pressable onPress={() => setWriteModal(true)} hitSlop={8} style={({ pressed }) => [{ opacity: pressed ? 0.6 : 1 }]}>
+            <Squircle style={s.headerIconBtn} cornerRadius={12} cornerSmoothing={1} fillColor="rgba(255,255,255,0.12)" strokeColor="rgba(255,255,255,0.2)" strokeWidth={1}>
+              <Ionicons name="create-outline" size={18} color="#fff" />
+            </Squircle>
+          </Pressable>
+          <Pressable onPress={() => setAiModal(true)} hitSlop={8} style={({ pressed }) => [{ opacity: pressed ? 0.6 : 1 }]}>
+            <Squircle style={s.headerIconBtn} cornerRadius={12} cornerSmoothing={1} fillColor="rgba(255,255,255,0.12)" strokeColor="rgba(255,255,255,0.2)" strokeWidth={1}>
+              <Ionicons name="sparkles" size={18} color="#fff" />
+            </Squircle>
+          </Pressable>
         </View>
       </LinearGradient>
 
@@ -634,37 +809,50 @@ function GameDetailScreen({ game, token, partnerId, partnerName, roomId, onBack,
           </ScrollView>
         )}
 
-        {/* Description */}
-        <Squircle style={s.descBox} cornerRadius={18} cornerSmoothing={1} fillColor="rgba(255,255,255,0.06)">
-          <Text style={s.descText}>{game.description}</Text>
-        </Squircle>
-
         {/* Cards */}
         {loading ? (
           <View style={{ gap: 14 }}>
-            {[0, 1, 2].map(i => <Shimmer key={i} width="100%" height={160} borderRadius={24} bgColor={`${game.bg_color}cc`} />)}
+            {[0, 1, 2].map(i => <Shimmer key={i} width="100%" height={160} borderRadius={24} bgColor="rgba(12,50,109,0.5)" />)}
           </View>
         ) : (
-          <>
-            {filtered.map(renderCard)}
-            {/* Write your own */}
+          filtered.map(renderCard)
+        )}
+      </ScrollView>
+
+      {/* Write Your Own Modal */}
+      <Modal visible={writeModal} animationType="slide" transparent onRequestClose={() => setWriteModal(false)}>
+        <Pressable style={s.modalBackdrop} onPress={() => setWriteModal(false)}>
+          <Pressable style={s.modalSheet} onPress={e => e.stopPropagation()}>
+            <LinearGradient colors={[game.bg_color, '#080612']} style={StyleSheet.absoluteFill} />
+            <View style={[s.modalHandle, { backgroundColor: `${game.accent_color}60` }]} />
+            <Text style={[s.modalTitle, { color: game.accent_color }]}>Write Your Own</Text>
             <CustomCard
               accent={game.accent_color}
               label="Write Your Own"
               placeholder={customPlaceholder[game.game_type] ?? 'Your custom prompt…'}
-              onSend={text => onSend(game, null, text)}
+              onSend={text => { setWriteModal(false); onSend(game, null, text); }}
             />
-            {/* Create with AI */}
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* Create with AI Modal */}
+      <Modal visible={aiModal} animationType="slide" transparent onRequestClose={() => setAiModal(false)}>
+        <Pressable style={s.modalBackdrop} onPress={() => setAiModal(false)}>
+          <Pressable style={s.modalSheet} onPress={e => e.stopPropagation()}>
+            <LinearGradient colors={[game.bg_color, '#080612']} style={StyleSheet.absoluteFill} />
+            <View style={[s.modalHandle, { backgroundColor: `${game.accent_color}60` }]} />
+            <Text style={[s.modalTitle, { color: game.accent_color }]}>Create with AI</Text>
             <AiCard
               accent={game.accent_color}
               gameType={game.game_type}
               token={token}
-              onSend={text => onSend(game, null, text)}
+              onSend={text => { setAiModal(false); onSend(game, null, text); }}
             />
-          </>
-        )}
-      </ScrollView>
-    </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+    </LinearGradient>
   );
 }
 
@@ -684,7 +872,7 @@ function GameRowItem({ game, index, onPress }: { game: MiniGameMeta; index: numb
         <Squircle style={s.gameRow} cornerRadius={22} cornerSmoothing={1}
           fillColor={game.bg_color} strokeColor={`${game.accent_color}35`} strokeWidth={1}>
           <View style={[s.gameRowGlow, { backgroundColor: `${game.accent_color}10` }]} />
-          <View style={[s.gameRowIcon, { backgroundColor: `${game.accent_color}20` }]}>
+          <View style={[s.gameRowIcon, { backgroundColor: `${game.accent_color}22` }]}>
             <Text style={{ fontSize: 28 }}>{game.emoji}</Text>
           </View>
           <View style={{ flex: 1 }}>
@@ -792,27 +980,18 @@ export default function MiniGamesPage() {
   }
 
   return (
-    <View style={[s.root, { backgroundColor: colors.bg }]}>
+    <LinearGradient colors={[BRAND.bgTop, '#0e0a28', BRAND.bgBottom]} locations={[0, 0.5, 1]} style={s.root}>
       {/* ── Header ── */}
       <Animated.View style={[s.header, { paddingTop: insets.top + 16, opacity: headerAnim, transform: [{ translateY: headerAnim.interpolate({ inputRange: [0, 1], outputRange: [-20, 0] }) }] }]}>
         <Pressable onPress={() => router.back()} hitSlop={12} style={({ pressed }) => [{ opacity: pressed ? 0.6 : 1 }]}>
-          <Squircle style={s.backBtn} cornerRadius={12} cornerSmoothing={1} fillColor={colors.surface2}>
-            <Ionicons name="arrow-back" size={18} color={colors.text} />
+          <Squircle style={s.backBtn} cornerRadius={12} cornerSmoothing={1} fillColor="rgba(12,50,109,0.5)">
+            <Ionicons name="arrow-back" size={18} color={BRAND.white} />
           </Squircle>
         </Pressable>
 
         <View style={{ flex: 1, marginLeft: 12 }}>
-          <Text style={[s.hubTitle, { color: colors.text }]}>🎮 Games</Text>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            {partnerImage ? (
-              <Image source={{ uri: partnerImage }} style={s.partnerThumb} contentFit="cover" />
-            ) : (
-              <View style={[s.partnerThumb, { backgroundColor: colors.surface2, alignItems: 'center', justifyContent: 'center' }]}>
-                <Ionicons name="person" size={10} color={colors.textSecondary} />
-              </View>
-            )}
-            <Text style={[s.hubSub, { color: colors.textSecondary }]}>Play with {partnerName}</Text>
-          </View>
+          <Text style={[s.hubTitle, { color: BRAND.white }]}>Games</Text>
+          <Text style={[s.hubSub, { color: BRAND.white }]}>Play with {partnerName}</Text>
         </View>
       </Animated.View>
 
@@ -830,7 +1009,7 @@ export default function MiniGamesPage() {
           )}
         />
       )}
-    </View>
+    </LinearGradient>
   );
 }
 
@@ -893,4 +1072,13 @@ const s = StyleSheet.create({
   // Send button
   sendCardBtn:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14 },
   sendCardBtnText: { fontSize: 15, fontFamily: 'ProductSans-Black', color: '#fff' },
+
+  // Header icon buttons (Write / AI)
+  headerIconBtn: { width: 38, height: 38, alignItems: 'center', justifyContent: 'center' },
+
+  // Modal
+  modalBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.6)' },
+  modalSheet:    { borderTopLeftRadius: 28, borderTopRightRadius: 28, overflow: 'hidden', padding: 20, paddingBottom: 40, gap: 16 },
+  modalHandle:   { width: 40, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: 4 },
+  modalTitle:    { fontSize: 18, fontFamily: 'ProductSans-Black', letterSpacing: 0.2 },
 });

@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
+  Animated,
   Image,
   Pressable,
   ScrollView,
@@ -22,9 +23,36 @@ interface Conversation {
   partner_name: string;
   partner_image: string | null;
   room_id: string;
-  last_message: { content: string; sender_id: string; created_at: string } | null;
+  last_message: { content: string; sender_id: string; created_at: string; msg_type?: string } | null;
   unread_count: number;
   is_online: boolean;
+}
+
+/** Formats a raw message content + msg_type into a human-readable preview. */
+function _previewText(content: string, msgType?: string): string {
+  // Use msg_type first (most reliable)
+  if (msgType === 'image') return '📷 Photo';
+  if (msgType && msgType !== 'text' && msgType !== 'message') {
+    // Game / tod / mini-game messages
+    if (msgType.startsWith('tod_')) return '🎯 Truth or Dare';
+    if (msgType === 'question_cards') return '❓ Question Card';
+    if (msgType === 'wyr') return '🤔 Would You Rather';
+    if (msgType === 'hot_takes') return '🔥 Hot Take';
+    if (msgType === 'nhi') return '🙈 Never Have I Ever';
+    return '🎮 Game';
+  }
+
+  if (!content) return '';
+  // Fallback: detect image by URI pattern (for legacy messages without msg_type)
+  if (
+    content.startsWith('file://') ||
+    content.startsWith('ph://') ||
+    /\.(jpg|jpeg|png|webp|heic|gif)(\?|$)/i.test(content) ||
+    (content.startsWith('http') && (content.includes('/chat/') || content.includes('/photos/')))
+  ) {
+    return '📷 Photo';
+  }
+  return content;
 }
 
 function _relativeTime(isoStr: string): string {
@@ -35,6 +63,76 @@ function _relativeTime(isoStr: string): string {
   const hrs = Math.floor(mins / 60);
   if (hrs < 24) return `${hrs}h`;
   return `${Math.floor(hrs / 24)}d`;
+}
+
+// ─── Animated conversation row ────────────────────────────────────────────────
+
+function ConvRow({
+  conv, isMe, preview, timeStr, hasUnread, onPress, colors,
+}: {
+  conv: Conversation;
+  isMe: boolean;
+  preview: string;
+  timeStr: string;
+  hasUnread: boolean;
+  onPress: () => void;
+  colors: any;
+}) {
+  const scale = useRef(new Animated.Value(1)).current;
+
+  const onPressIn = () =>
+    Animated.spring(scale, { toValue: 0.97, useNativeDriver: true, speed: 30, bounciness: 0 }).start();
+  const onPressOut = () =>
+    Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 20, bounciness: 4 }).start();
+
+  return (
+    <Animated.View style={{ transform: [{ scale }] }}>
+      <Pressable
+        onPress={onPress}
+        onPressIn={onPressIn}
+        onPressOut={onPressOut}
+        style={({ pressed }) => [
+          styles.convRow,
+          { backgroundColor: pressed ? colors.surface2 : colors.surface },
+        ]}
+      >
+        <View style={styles.avatarWrap}>
+          {conv.partner_image
+            ? <Image source={{ uri: conv.partner_image }} style={styles.avatar} />
+            : <View style={[styles.avatar, { backgroundColor: colors.surface2 }]} />
+          }
+          {conv.is_online && (
+            <View style={[styles.onlineDot, { borderColor: colors.surface, backgroundColor: '#22c55e' }]} />
+          )}
+        </View>
+        <View style={{ flex: 1, gap: 3 }}>
+          <View style={styles.topRow}>
+            <Text style={[styles.convName, { color: colors.text }]}>{conv.partner_name}</Text>
+            <Text style={[styles.convTime, {
+              color: hasUnread ? colors.text : colors.textSecondary,
+              fontFamily: hasUnread ? 'ProductSans-Bold' : 'ProductSans-Regular',
+            }]}>
+              {timeStr}
+            </Text>
+          </View>
+          <Text
+            style={[styles.convPreview, {
+              color: hasUnread ? colors.text : colors.textSecondary,
+              fontFamily: hasUnread ? 'ProductSans-Medium' : 'ProductSans-Regular',
+            }]}
+            numberOfLines={1}
+          >
+            {isMe ? `You: ${preview}` : preview}
+          </Text>
+        </View>
+        {hasUnread && (
+          <Squircle style={styles.unreadBadge} cornerRadius={20} cornerSmoothing={1} fillColor={colors.text}>
+            <Text style={[styles.unreadText, { color: colors.bg }]}>{conv.unread_count}</Text>
+          </Squircle>
+        )}
+      </Pressable>
+    </Animated.View>
+  );
 }
 
 // ─── Shimmer placeholder ──────────────────────────────────────────────────────
@@ -108,9 +206,10 @@ export default function ChatsPage({ insets, token }: { insets: any; token: strin
               const updated = [...prev];
               const conv = { ...updated[idx] };
               conv.last_message = {
-                content: payload.content,
-                sender_id: payload.sender_id,
+                content:    payload.content,
+                sender_id:  payload.sender_id,
                 created_at: payload.created_at ?? new Date().toISOString(),
+                msg_type:   payload.msg_type,
               };
               conv.unread_count = (conv.unread_count ?? 0) + 1;
               updated.splice(idx, 1);
@@ -243,75 +342,59 @@ export default function ChatsPage({ insets, token }: { insets: any; token: strin
       {!loading && (
         <View style={{ paddingHorizontal: 16 }}>
           <Text style={[styles.sectionLabel, { color: colors.textSecondary, marginBottom: 12 }]}>MESSAGES</Text>
-          <Squircle
-            style={styles.convGroup}
-            cornerRadius={22} cornerSmoothing={1}
-            fillColor={colors.surface}
-            strokeColor={colors.border}
-            strokeWidth={StyleSheet.hairlineWidth}
-          >
-            {filtered.map((c, i) => {
-              const preview   = c.last_message?.content ?? 'Say hi! 👋';
-              const isMyMsg   = c.last_message?.sender_id === myId;
-              const timeStr   = c.last_message ? _relativeTime(c.last_message.created_at) : '';
-              const hasUnread = c.unread_count > 0;
-              return (
-                <View key={c.partner_id}>
-                  <Pressable
-                    onPress={() => router.push({ pathname: '/chat', params: { partnerId: c.partner_id, name: c.partner_name, image: c.partner_image ?? '', online: c.is_online ? 'true' : 'false' } })}
-                    style={({ pressed }) => [styles.convRow, pressed && { backgroundColor: colors.surface2 }]}
-                  >
-                    <View style={styles.avatarWrap}>
-                      {c.partner_image
-                        ? <Image source={{ uri: c.partner_image }} style={styles.avatar} />
-                        : <View style={[styles.avatar, { backgroundColor: colors.surface2 }]} />
-                      }
-                      {c.is_online && <View style={[styles.onlineDot, { borderColor: colors.surface, backgroundColor: '#22c55e' }]} />}
-                    </View>
-                    <View style={{ flex: 1, gap: 3 }}>
-                      <View style={styles.topRow}>
-                        <Text style={[styles.convName, { color: colors.text }]}>{c.partner_name}</Text>
-                        <Text style={[styles.convTime, { color: hasUnread ? colors.text : colors.textSecondary, fontFamily: hasUnread ? 'ProductSans-Bold' : 'ProductSans-Regular' }]}>
-                          {timeStr}
-                        </Text>
-                      </View>
-                      <Text
-                        style={[styles.convPreview, { color: hasUnread ? colors.text : colors.textSecondary, fontFamily: hasUnread ? 'ProductSans-Medium' : 'ProductSans-Regular' }]}
-                        numberOfLines={1}
-                      >
-                        {isMyMsg ? `You: ${preview}` : preview}
-                      </Text>
-                    </View>
-                    {hasUnread && (
-                      <Squircle style={styles.unreadBadge} cornerRadius={20} cornerSmoothing={1} fillColor={colors.text}>
-                        <Text style={[styles.unreadText, { color: colors.bg }]}>{c.unread_count}</Text>
-                      </Squircle>
-                    )}
-                  </Pressable>
-                  {i < filtered.length - 1 && (
-                    <View style={[styles.divider, { backgroundColor: colors.border }]} />
-                  )}
-                </View>
-              );
-            })}
 
-            {hasNoMatches && (
+          {hasNoMatches && (
+            <Squircle style={styles.convGroup} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={StyleSheet.hairlineWidth}>
               <View style={{ alignItems: 'center', padding: 32, gap: 8 }}>
                 <Ionicons name="chatbubble-outline" size={28} color={colors.textTertiary} />
                 <Text style={[styles.convPreview, { color: colors.textSecondary, textAlign: 'center' }]}>
                   Match with someone to start chatting!
                 </Text>
               </View>
-            )}
-            {!hasNoMatches && filtered.length === 0 && (
+            </Squircle>
+          )}
+
+          {!hasNoMatches && filtered.length === 0 && (
+            <Squircle style={styles.convGroup} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={StyleSheet.hairlineWidth}>
               <View style={{ alignItems: 'center', padding: 32, gap: 8 }}>
                 <Ionicons name="search-outline" size={28} color={colors.textTertiary} />
                 <Text style={[styles.convPreview, { color: colors.textSecondary, textAlign: 'center' }]}>
                   No conversations found
                 </Text>
               </View>
-            )}
-          </Squircle>
+            </Squircle>
+          )}
+
+          <View style={{ gap: 10 }}>
+            {filtered.map((c) => {
+              const rawContent = c.last_message?.content ?? '';
+              const msgType    = c.last_message?.msg_type;
+              const preview    = (rawContent || msgType) ? _previewText(rawContent, msgType) : 'Say hi! 👋';
+              const isMyMsg    = c.last_message?.sender_id === myId;
+              const timeStr    = c.last_message ? _relativeTime(c.last_message.created_at) : '';
+              const hasUnread  = c.unread_count > 0;
+              return (
+                <Squircle
+                  key={c.partner_id}
+                  cornerRadius={22} cornerSmoothing={1}
+                  fillColor={colors.surface}
+                  strokeColor={colors.border}
+                  strokeWidth={StyleSheet.hairlineWidth}
+                  style={{ overflow: 'hidden' }}
+                >
+                  <ConvRow
+                    conv={c}
+                    isMe={isMyMsg}
+                    preview={preview}
+                    timeStr={timeStr}
+                    hasUnread={hasUnread}
+                    colors={colors}
+                    onPress={() => router.push({ pathname: '/chat', params: { partnerId: c.partner_id, name: c.partner_name, image: c.partner_image ?? '', online: c.is_online ? 'true' : 'false' } })}
+                  />
+                </Squircle>
+              );
+            })}
+          </View>
         </View>
       )}
     </ScrollView>
@@ -337,7 +420,7 @@ const styles = StyleSheet.create({
   matchName:     { fontSize: 12, fontFamily: 'ProductSans-Medium', textAlign: 'center' },
 
   convGroup:     { overflow: 'hidden' },
-  convRow:       { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 13, paddingHorizontal: 14 },
+  convRow:       { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 14, paddingHorizontal: 16, borderRadius: 22 },
   avatarWrap:    { position: 'relative' },
   avatar:        { width: 52, height: 52, borderRadius: 26 },
   onlineDot:     { position: 'absolute', bottom: 1, right: 1, width: 13, height: 13, borderRadius: 7, borderWidth: 2 },

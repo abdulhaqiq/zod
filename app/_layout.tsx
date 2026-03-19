@@ -1,17 +1,30 @@
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
+import * as Notifications from 'expo-notifications';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import 'react-native-reanimated';
 
 import AppSplashScreen from '@/components/AppSplashScreen';
 import { AuthProvider, useAuth, UserProfile } from '@/context/AuthContext';
+import { CallProvider, useCall } from '@/context/CallContext';
 import { AppThemeProvider, useAppTheme } from '@/context/ThemeContext';
 import { API_V1 } from '@/constants/api';
 import { darkColors, lightColors } from '@/constants/appColors';
 import { useAutoLocation } from '@/hooks/useAutoLocation';
+
+// Show match/message banners while the app is in the foreground
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge:  false,
+    shouldShowBanner: true,
+    shouldShowList:   true,
+  }),
+});
 
 export const unstable_settings = {
   initialRouteName: 'welcome',
@@ -94,6 +107,7 @@ const noConnStyles = StyleSheet.create({
 function RootLayoutInner() {
   const { isDark, syncFromBackend, setApiFetch } = useAppTheme();
   const { token, isLoading, isOnboarded, profile, isNetworkError } = useAuth();
+  const { setIncomingCall } = useCall();
   const router = useRouter();
   const segments = useSegments();
 
@@ -110,6 +124,108 @@ function RootLayoutInner() {
 
   // Auto-update location on every app open (non-blocking, best-effort)
   useAutoLocation();
+
+  // ── Push notification registration + call action categories ─────────────
+  useEffect(() => {
+    if (!token) return;
+
+    const register = async () => {
+      try {
+        const { status: existingStatus } = await Notifications.getPermissionsAsync();
+        let finalStatus = existingStatus;
+        if (existingStatus !== 'granted') {
+          const { status } = await Notifications.requestPermissionsAsync();
+          finalStatus = status;
+        }
+        if (finalStatus !== 'granted') return;
+
+        // Android needs a notification channel
+        if (Platform.OS === 'android') {
+          await Notifications.setNotificationChannelAsync('default', {
+            name: 'default',
+            importance: Notifications.AndroidImportance.MAX,
+            vibrationPattern: [0, 250, 250, 250],
+          });
+          // Separate high-priority channel for incoming calls
+          await Notifications.setNotificationChannelAsync('incoming_call', {
+            name: 'Incoming Calls',
+            importance: Notifications.AndroidImportance.MAX,
+            vibrationPattern: [0, 500, 200, 500],
+            sound: 'default',
+          });
+        }
+
+        // Register notification category with Accept / Decline action buttons
+        await Notifications.setNotificationCategoryAsync('incoming_call', [
+          {
+            identifier: 'accept',
+            buttonTitle: '✅ Accept',
+            options: { opensAppToForeground: true },
+          },
+          {
+            identifier: 'decline',
+            buttonTitle: '❌ Decline',
+            options: { opensAppToForeground: false, isDestructive: true },
+          },
+        ]);
+
+        const pushTokenData = await Notifications.getExpoPushTokenAsync();
+        const expoPushToken = pushTokenData.data;
+
+        // Save to backend
+        await fetch(`${API_V1}/profile/me/push-token`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ token: expoPushToken }),
+        });
+      } catch { /* Expo Go or simulator — silently skip */ }
+    };
+
+    register();
+  }, [token]);
+
+  // ── Handle push notification taps (app in background / killed) ────────────
+  useEffect(() => {
+    const sub = Notifications.addNotificationResponseReceivedListener(response => {
+      const data   = response.notification.request.content.data as Record<string, any>;
+      const action = response.actionIdentifier;
+      if (!data) return;
+
+      // ── Incoming call notification actions ──────────────────────────────
+      if (data.type === 'call') {
+        const callerName  = (data.caller_name  ?? data.sender_name ?? 'Someone') as string;
+        const callerImage = (data.caller_image ?? data.sender_image ?? '') as string;
+        const callerId    = (data.from ?? data.sender_id ?? '') as string;
+
+        if (action === 'decline') {
+          // User tapped Decline from the notification — no need to open the app
+          return;
+        }
+        // 'accept' or default tap → open app and show incoming call screen
+        setIncomingCall({ id: callerId, name: callerName, image: callerImage || undefined });
+        return;
+      }
+
+      // ── Active-call persistent notification tap → just bring app to foreground
+      // (CallContext still holds the active call state, so the call screen re-appears)
+      if (data.type === 'active_call') return;
+
+      // ── Regular chat / match notifications ──────────────────────────────
+      if (data.type === 'match' || data.type === 'chat') {
+        const otherId = data.other_user_id as string | undefined;
+        const name    = data.other_name   as string | undefined;
+        const image   = data.other_image  as string | undefined;
+        const roomId  = data.room_id      as string | undefined;
+        if (otherId) {
+          router.push({
+            pathname: '/chat',
+            params: { matchId: roomId ?? otherId, name: name ?? '', image: image ?? '', online: 'false' },
+          } as any);
+        }
+      }
+    });
+    return () => sub.remove();
+  }, [router, setIncomingCall]);
 
   // Sync theme from backend profile whenever profile changes
   useEffect(() => {
@@ -241,8 +357,10 @@ function RootLayoutInner() {
           <AppSplashScreen ready={routingDone} onFinish={() => setSplashDone(true)} />
         )}
 
-        {/* No connection overlay — shown on top after splash fades out */}
-        {isNetworkError && !isLoading && splashDone && (
+        {/* No connection overlay — shown on top after splash fades out.
+            Stays visible while retrying (isLoading=true) so the Stack never
+            flashes through; NoConnectionScreen shows a spinner when loading. */}
+        {isNetworkError && splashDone && (
           <View style={StyleSheet.absoluteFill}>
             <NoConnectionScreen />
           </View>
@@ -251,6 +369,12 @@ function RootLayoutInner() {
         {/* Instant black cover for post-splash auth redirects (e.g. logout).
             Prevents the feed from flashing while router.replace fires. */}
         {covering && <View style={styles.cover} />}
+
+        {/* Opaque cover while auth is bootstrapping — prevents the welcome screen
+            from flashing through before the splash animation even starts */}
+        {isLoading && !splashDone && (
+          <View style={[styles.cover, { backgroundColor: bgColor }]} />
+        )}
 
       </View>
     </ThemeProvider>
@@ -264,6 +388,16 @@ const styles = StyleSheet.create({
     zIndex: 1000,
   },
 });
+
+/** Thin bridge: reads token from AuthContext and passes it to CallProvider. */
+function CallProviderBridge() {
+  const { token } = useAuth();
+  return (
+    <CallProvider token={token}>
+      <RootLayoutInner />
+    </CallProvider>
+  );
+}
 
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({
@@ -280,7 +414,7 @@ export default function RootLayout() {
   return (
     <AppThemeProvider>
       <AuthProvider>
-        <RootLayoutInner />
+        <CallProviderBridge />
       </AuthProvider>
     </AppThemeProvider>
   );

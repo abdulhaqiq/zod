@@ -1,6 +1,6 @@
 import Constants from 'expo-constants';
 
-const LOCAL_DEV_IP = '172.20.10.2'; // your machine's LAN IP — update if it changes
+const LOCAL_DEV_IP = '192.168.1.22'; // your machine's LAN IP — update if it changes
 
 function getApiBaseUrl(): string {
   const debuggerHost =

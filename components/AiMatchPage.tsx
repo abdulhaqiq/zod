@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -15,10 +16,28 @@ import { apiFetch } from '@/constants/api';
 import { useAuth } from '@/context/AuthContext';
 import { useAppTheme } from '@/context/ThemeContext';
 
+const CACHE_KEY   = 'ai_picks_cache';
+const CACHE_TTL   = 6 * 60 * 60 * 1000; // 6 hours in ms
+
+interface Compatibility {
+  percent: number;
+  tier: string;
+  brief: string;
+  insights: { emoji: string; label: string }[];
+  breakdown: Record<string, number>;
+}
+
+interface Interest {
+  emoji: string;
+  label: string;
+}
+
 interface Profile {
   id: string; name: string; age: number; verified: boolean;
   distance: string; images: string[];
-  interests: { emoji: string; label: string }[];
+  interests: Interest[];
+  shared_interests: Interest[];
+  compatibility: Compatibility | null;
 }
 
 // ─── Shimmer skeleton ─────────────────────────────────────────────────────────
@@ -105,28 +124,71 @@ function ScoreBar({ score, colors }: { score: number; colors: any }) {
   );
 }
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function _formatRefreshTime(date: Date): string {
+  const diff = date.getTime() - Date.now();
+  if (diff <= 0) return 'now';
+  const h = Math.floor(diff / 3_600_000);
+  const m = Math.floor((diff % 3_600_000) / 60_000);
+  if (h > 0) return `in ${h}h ${m}m`;
+  return `in ${m}m`;
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 export default function AiMatchPage({ insets }: { insets: any }) {
   const { token }  = useAuth();
   const { colors } = useAppTheme();
   const router     = useRouter();
-  const [picks,   setPicks]   = useState<Profile[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [picks,    setPicks]    = useState<Profile[]>([]);
+  const [loading,  setLoading]  = useState(true);
+  const [nextRefresh, setNextRefresh] = useState<Date | null>(null);
   // Track swipe actions taken in this session to show "passed" badge without re-fetch
   const [swiped, setSwiped]   = useState<Record<string, 'like' | 'pass'>>({});
 
-  const fetchPicks = useCallback(() => {
+  const loadFromCache = useCallback(async (): Promise<boolean> => {
+    try {
+      const raw = await AsyncStorage.getItem(CACHE_KEY);
+      if (!raw) return false;
+      const { profiles, fetchedAt } = JSON.parse(raw) as { profiles: Profile[]; fetchedAt: number };
+      const age = Date.now() - fetchedAt;
+      if (age < CACHE_TTL) {
+        setPicks(profiles);
+        setNextRefresh(new Date(fetchedAt + CACHE_TTL));
+        return true;
+      }
+    } catch {}
+    return false;
+  }, []);
+
+  const fetchPicks = useCallback(async (force = false) => {
     if (!token) return;
+
+    if (!force) {
+      const hit = await loadFromCache();
+      if (hit) { setLoading(false); return; }
+    }
+
     setLoading(true);
-    // Pass a higher limit so after filtering already-swiped we still have cards.
-    // The backend already excludes swiped profiles from /discover/feed so this
-    // just gets the freshest un-swiped profiles for the AI section.
-    apiFetch<{ profiles: Profile[] }>('/discover/feed?page=0&limit=10', { token })
-      .then(res => setPicks(res.profiles ?? []))
-      .catch(() => setPicks([]))
-      .finally(() => setLoading(false));
-  }, [token]);
+    try {
+      const res = await apiFetch<{ profiles: Profile[] }>('/discover/ai-picks?mode=date', { token });
+      const profiles = res.profiles ?? [];
+      const fetchedAt = Date.now();
+      setPicks(profiles);
+      setNextRefresh(new Date(fetchedAt + CACHE_TTL));
+      // Only cache non-empty results so empty pools are always re-fetched
+      if (profiles.length > 0) {
+        await AsyncStorage.setItem(CACHE_KEY, JSON.stringify({ profiles, fetchedAt }));
+      } else {
+        await AsyncStorage.removeItem(CACHE_KEY);
+      }
+    } catch {
+      setPicks([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [token, loadFromCache]);
 
   useEffect(() => { fetchPicks(); }, [fetchPicks]);
 
@@ -141,11 +203,13 @@ export default function AiMatchPage({ insets }: { insets: any }) {
     } catch {}
   };
 
-  const scored = picks.map((p, i) => ({
+  const scored = picks.map((p) => ({
     profile: p,
-    score: Math.max(70, 97 - i * 4),
-    sharedInterests: (p.interests ?? []).slice(0, 3).map((x: any) => x.label ?? x),
-    reason: `You and ${p.name ?? 'this person'} share compatible interests and lifestyle patterns that suggest strong chemistry.`,
+    score: Math.round(p.compatibility?.percent ?? 0),
+    sharedInterests: (p.shared_interests ?? p.interests ?? []).slice(0, 3).map((x: any) => x.label ?? x),
+    reason: p.compatibility?.brief
+      ?? `You and ${p.name ?? 'this person'} share compatible interests and lifestyle patterns.`,
+    insights: p.compatibility?.insights ?? [],
   }));
 
   return (
@@ -161,9 +225,13 @@ export default function AiMatchPage({ insets }: { insets: any }) {
         </Squircle>
         <View style={{ flex: 1 }}>
           <Text style={[styles.pageTitle, { color: colors.text }]}>AI Matches</Text>
-          <Text style={[styles.pageSub, { color: colors.textSecondary }]}>Curated picks based on your profile</Text>
+          <Text style={[styles.pageSub, { color: colors.textSecondary }]}>
+            {nextRefresh
+              ? `Refreshes ${_formatRefreshTime(nextRefresh)}`
+              : 'Curated picks based on your profile'}
+          </Text>
         </View>
-        <Pressable onPress={fetchPicks} hitSlop={10} style={({ pressed }) => [{ opacity: pressed ? 0.6 : 1 }]}>
+        <Pressable onPress={() => fetchPicks(true)} hitSlop={10} style={({ pressed }) => [{ opacity: pressed ? 0.6 : 1 }]}>
           <Squircle style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}
             cornerRadius={12} cornerSmoothing={1} fillColor={colors.surface2}>
             <Ionicons name="refresh" size={16} color={colors.text} />
@@ -192,7 +260,7 @@ export default function AiMatchPage({ insets }: { insets: any }) {
       )}
 
       {/* Match cards */}
-      {!loading && scored.map(({ profile, score, sharedInterests, reason }) => {
+      {!loading && scored.map(({ profile, score, sharedInterests, reason, insights }) => {
         const action = swiped[profile.id];
         const isLiked  = action === 'like';
         const isPassed = action === 'pass';
@@ -245,9 +313,19 @@ export default function AiMatchPage({ insets }: { insets: any }) {
               <View style={[styles.divider, { backgroundColor: colors.border }]} />
 
               {/* Why matched */}
-              <View style={{ gap: 6 }}>
+              <View style={{ gap: 8 }}>
                 <Text style={[styles.secLabel, { color: colors.textSecondary }]}>WHY YOU MATCH</Text>
                 <Text style={[styles.reason, { color: colors.text }]}>{reason}</Text>
+                {insights.length > 0 && (
+                  <View style={styles.chipRow}>
+                    {insights.map((ins) => (
+                      <Squircle key={ins.label} style={styles.insightChip} cornerRadius={20} cornerSmoothing={1} fillColor={colors.surface2}>
+                        <Text style={{ fontSize: 11 }}>{ins.emoji}</Text>
+                        <Text style={[styles.insightText, { color: colors.textSecondary }]}>{ins.label}</Text>
+                      </Squircle>
+                    ))}
+                  </View>
+                )}
               </View>
 
               {/* Actions */}
@@ -337,6 +415,8 @@ const styles = StyleSheet.create({
   chip:           { paddingHorizontal: 12, paddingVertical: 6 },
   chipText:       { fontSize: 13, fontFamily: 'ProductSans-Medium' },
   emptyChipText:  { fontSize: 12, fontFamily: 'ProductSans-Regular' },
+  insightChip:    { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5 },
+  insightText:    { fontSize: 11, fontFamily: 'ProductSans-Medium' },
   reason:         { fontSize: 14, fontFamily: 'ProductSans-Regular', lineHeight: 21 },
 
   actions:        { flexDirection: 'row', gap: 10 },

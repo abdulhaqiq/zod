@@ -51,9 +51,8 @@ export interface UserProfile {
   hometown: string | null;
   address: string | null;
   country: string | null;
-  latitude: number | null;
-  longitude: number | null;
   subscription_tier: string;         // "free" | "pro"
+  super_likes_remaining: number;
   dark_mode: boolean;
   best_photo_enabled: boolean;
   face_match_score: number | null;
@@ -92,6 +91,19 @@ export interface UserProfile {
   filter_smoking:         number[] | null;
   filter_height_min:      number | null;
   filter_height_max:      number | null;
+
+  university:                string | null;
+  university_email:          string | null;
+  university_email_verified: boolean;
+  hide_age:                 boolean;
+  hide_distance:            boolean;
+  require_verified_to_chat: boolean;
+
+  is_incognito:        boolean;
+  travel_mode_enabled: boolean;
+  auto_zod_enabled:    boolean;
+  travel_city:         string | null;
+  travel_country:      string | null;
 
   is_verified: boolean;
   is_onboarded: boolean;
@@ -199,13 +211,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     async function bootstrap() {
-      setIsNetworkError(false);
       const [access, refresh] = await Promise.all([
         SecureStore.getItemAsync(ACCESS_KEY),
         SecureStore.getItemAsync(REFRESH_KEY),
       ]);
 
       if (!access) {
+        setIsNetworkError(false);
         setIsLoading(false);
         return;
       }
@@ -249,6 +261,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       }
 
+      setIsNetworkError(false);
       if (me && me !== 'network_error') {
         setToken(activeToken);
         setRefresh(refresh ?? null);
@@ -372,7 +385,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const retryBootstrap = () => {
     setIsLoading(true);
-    setIsNetworkError(false);
+    // Keep isNetworkError=true so the Stack stays hidden while we retry;
+    // bootstrap() will clear it only on success.
     setBootstrapTick(t => t + 1);
   };
 

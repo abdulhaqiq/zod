@@ -72,8 +72,8 @@ export const GAMES: GameMeta[] = [
     id: 'cards',
     label: 'Question Cards',
     emoji: '🃏',
-    accent: '#f8fafc',
-    bg: '#0f172a',
+    accent: '#e2e8f0',
+    bg: '#1e293b',
     tagline: 'Deep, fun & spicy prompts',
     desc: 'Send a curated question card',
   },
@@ -81,8 +81,8 @@ export const GAMES: GameMeta[] = [
     id: 'truth_or_dare',
     label: 'Truth or Dare',
     emoji: '🎲',
-    accent: '#a78bfa',
-    bg: '#1a0533',
+    accent: '#c4b5fd',
+    bg: '#2e0f52',
     tagline: 'The classic game',
     desc: 'Truth questions or wild dares',
   },
@@ -90,8 +90,8 @@ export const GAMES: GameMeta[] = [
     id: 'game_wyr',
     label: 'Would You Rather',
     emoji: '🤷',
-    accent: '#8b5cf6',
-    bg: '#1e1040',
+    accent: '#a78bfa',
+    bg: '#2d1a5e',
     tagline: 'Pick one — no regrets',
     desc: 'Send a dilemma, they pick a side',
   },
@@ -99,8 +99,8 @@ export const GAMES: GameMeta[] = [
     id: 'game_nhi',
     label: 'Never Have I Ever',
     emoji: '🍹',
-    accent: '#f59e0b',
-    bg: '#1c1200',
+    accent: '#fbbf24',
+    bg: '#3a2800',
     tagline: 'Confess or bluff',
     desc: 'Classic confessions game',
   },
@@ -108,8 +108,8 @@ export const GAMES: GameMeta[] = [
     id: 'game_hot',
     label: 'Hot Takes',
     emoji: '🔥',
-    accent: '#ef4444',
-    bg: '#1f0505',
+    accent: '#f87171',
+    bg: '#3d0c0c',
     tagline: 'Agree or fight about it',
     desc: 'Bold opinions, instant reactions',
   },
@@ -117,8 +117,8 @@ export const GAMES: GameMeta[] = [
     id: 'game_quiz',
     label: 'Compatibility Quiz',
     emoji: '💘',
-    accent: '#ec4899',
-    bg: '#1f0512',
+    accent: '#f472b6',
+    bg: '#3d0a28',
     tagline: 'How well do you match?',
     desc: '5 questions, reveal your score',
   },
@@ -126,8 +126,8 @@ export const GAMES: GameMeta[] = [
     id: 'game_date',
     label: 'Build a Date',
     emoji: '🗓️',
-    accent: '#10b981',
-    bg: '#001810',
+    accent: '#34d399',
+    bg: '#003d20',
     tagline: 'Plan your perfect date',
     desc: 'Pick together step by step',
   },
@@ -135,8 +135,8 @@ export const GAMES: GameMeta[] = [
     id: 'game_emoji',
     label: 'Emoji Story',
     emoji: '😂',
-    accent: '#06b6d4',
-    bg: '#00141a',
+    accent: '#22d3ee',
+    bg: '#003040',
     tagline: 'Tell a story in emojis',
     desc: '3 emojis each, 5 rounds',
   },
@@ -256,9 +256,9 @@ function GameCard({ meta, children, isMe, avatarSlot, style }: {
         fillColor={meta.bg}
       >
         {/* Game type badge */}
-        <View style={[gStyles.badge, { backgroundColor: `${meta.accent}22` }]}>
+        <View style={[gStyles.badge, { backgroundColor: `${meta.accent}30` }]}>
           <Text style={{ fontSize: 12, fontFamily: 'ProductSans-Regular' }}>{meta.emoji}</Text>
-          <Text style={[gStyles.badgeText, { color: meta.accent }]}>{meta.label}</Text>
+          <Text style={[gStyles.badgeText, { color: '#fff' }]}>{meta.label}</Text>
         </View>
         {children}
       </Squircle>
@@ -466,8 +466,8 @@ function HotBubble({ msg, colors, isMe, meta, extra, avatarSlot, onRespond, mess
                 onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onRespond({ ...msg, gameExtra: { ...extra, reaction: r, phase: 'answer', inviteId: msg.id } }); }}
                 style={({ pressed }) => [{ opacity: pressed ? 0.75 : 1 }]}
               >
-                <Squircle style={gStyles.hotReactionBtn} cornerRadius={50} cornerSmoothing={1} fillColor={`${col}18`}>
-                  <Text style={{ fontSize: 14 }}>{r}</Text>
+                <Squircle style={gStyles.hotReactionBtn} cornerRadius={50} cornerSmoothing={1} fillColor={`${col}40`}>
+                  <Text style={{ fontSize: 14, color: '#fff', fontFamily: 'ProductSans-Bold' }}>{r}</Text>
                 </Squircle>
               </Pressable>
             );
@@ -956,7 +956,7 @@ function EmojiBubble({ msg, colors, isMe, meta, extra, avatarSlot, onRespond }: 
 function FooterRow({ msg, isMe }: { msg: GameMsg; isMe: boolean }) {
   return (
     <View style={{ flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', gap: 3, marginTop: 8 }}>
-      <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', fontFamily: 'ProductSans-Regular' }}>{msg.time}</Text>
+      <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.55)', fontFamily: 'ProductSans-Regular' }}>{msg.time}</Text>
       {isMe && <MsgTicks status={msg.status} />}
     </View>
   );
@@ -1341,7 +1341,7 @@ const gStyles = StyleSheet.create({
   badge:      { flexDirection: 'row', alignItems: 'center', gap: 5, alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 50, marginBottom: 2 },
   badgeText:  { fontSize: 11, fontFamily: 'ProductSans-Bold', letterSpacing: 0.3 },
 
-  subLabel:   { fontSize: 10, fontFamily: 'ProductSans-Bold', color: 'rgba(255,255,255,0.45)', letterSpacing: 0.5 },
+  subLabel:   { fontSize: 10, fontFamily: 'ProductSans-Bold', color: 'rgba(255,255,255,0.65)', letterSpacing: 0.5 },
   cardQuestion: { fontSize: 15, fontFamily: 'ProductSans-Black', color: '#fff', lineHeight: 22 },
 
   // WYR

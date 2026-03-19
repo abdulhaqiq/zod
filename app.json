@@ -17,7 +17,8 @@
           "en"
         ],
         "CFBundleAllowMixedLocalizations": false,
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSMicrophoneUsageDescription": "Allow Zod to use your microphone for voice calls."
       }
     },
     "android": {

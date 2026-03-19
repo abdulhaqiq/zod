@@ -27,7 +27,6 @@ import { useRouter } from 'expo-router';
 import Squircle from '@/components/ui/Squircle';
 import { apiFetch, API_V1 } from '@/constants/api';
 import { useAuth } from '@/context/AuthContext';
-import { RELATIONSHIP_TYPES } from '@/constants/lookupData';
 import { useLookups, type LookupOption } from '@/hooks/useLookups';
 
 // ─── Range Slider ─────────────────────────────────────────────────────────────
@@ -129,13 +128,12 @@ function RangeSlider({
 
 // ─── Filter Chip ──────────────────────────────────────────────────────────────
 
-function FilterChip({ emoji, label, selected, onPress, colors }: {
-  emoji?: string; label: string; selected: boolean; onPress: () => void; colors: any;
+function FilterChip({ label, selected, onPress, colors }: {
+  label: string; selected: boolean; onPress: () => void; colors: any;
 }) {
   return (
     <Pressable onPress={onPress}>
       <Squircle style={styles.filterChip} cornerRadius={16} cornerSmoothing={1} fillColor={selected ? colors.text : colors.surface2} strokeColor={selected ? colors.text : colors.border} strokeWidth={1}>
-        {emoji ? <Text style={{ fontSize: 13 }}>{emoji}</Text> : null}
         <Text style={[styles.filterChipText, { color: selected ? colors.bg : colors.text }]}>{label}</Text>
       </Squircle>
     </Pressable>
@@ -156,7 +154,7 @@ export default function DateFilterSheet({ visible, onClose, onApply, colors, ins
   const router = useRouter();
   const { profile, token, updateProfile } = useAuth();
   const isPro = profile?.subscription_tier === 'pro';
-  const isFaceVerified = profile?.verification_status === 'verified' || profile?.is_verified === true;
+  const isFaceVerified = profile?.verification_status === 'verified';
 
   // ── Live lookup data from API (same source as EditProfilePage) ─────────────
   const { lookups } = useLookups();
@@ -178,14 +176,12 @@ export default function DateFilterSheet({ visible, onClose, onApply, colors, ins
   const [exercise,     setExercise]     = useState<number[]>([]);
   const [drinking,     setDrinking]     = useState<number[]>([]);
   const [smoking,      setSmoking]      = useState<number[]>([]);
-  const [heightMin,    setHeightMin]    = useState(150);
-  const [heightMax,    setHeightMax]    = useState(200);
+  const [heightMin,    setHeightMin]    = useState(140);
   // Pro filter state (IDs)
   const [lookingFor,   setLookingFor]   = useState<number[]>([]);
   const [education,    setEducation]    = useState<number[]>([]);
   const [familyPlans,  setFamilyPlans]  = useState<number[]>([]);
   const [havingKids,   setHavingKids]   = useState<number[]>([]);
-  const [purpose,      setPurpose]      = useState<number[]>([]);
 
   // Sync from saved profile whenever the sheet opens
   useEffect(() => {
@@ -193,7 +189,8 @@ export default function DateFilterSheet({ visible, onClose, onApply, colors, ins
     setVerifiedOnly(profile.filter_verified_only ?? false);
     setAgeMin(profile.filter_age_min ?? 18);
     setAgeMax(profile.filter_age_max ?? 45);
-    setDistance(profile.filter_max_distance_km ?? 50);
+    // null in DB means "Any distance" — restore slider to max (150)
+    setDistance(profile.filter_max_distance_km != null ? Math.min(profile.filter_max_distance_km, 150) : 150);
     setSigns(profile.filter_star_signs ?? []);
     setInterests(profile.filter_interests ?? []);
     setLangs(profile.filter_languages ?? []);
@@ -201,9 +198,7 @@ export default function DateFilterSheet({ visible, onClose, onApply, colors, ins
     setExercise(profile.filter_exercise ?? []);
     setDrinking(profile.filter_drinking ?? []);
     setSmoking(profile.filter_smoking ?? []);
-    setHeightMin(profile.filter_height_min ?? 150);
-    setHeightMax(profile.filter_height_max ?? 200);
-    setPurpose(profile.filter_purpose ?? []);
+    setHeightMin(profile.filter_height_min ?? 140);
     setLookingFor(profile.filter_looking_for ?? []);
     setEducation(profile.filter_education_level ?? []);
     setFamilyPlans(profile.filter_family_plans ?? []);
@@ -214,40 +209,45 @@ export default function DateFilterSheet({ visible, onClose, onApply, colors, ins
     setArr(arr.includes(val) ? arr.filter(x => x !== val) : [...arr, val]);
 
   const reset = () => {
-    setVerifiedOnly(false); setAgeMin(18); setAgeMax(45); setDistance(50);
+    setVerifiedOnly(false); setAgeMin(18); setAgeMax(45); setDistance(150);
     setSigns([]); setInterests([]); setLangs([]); setEthnicities([]);
-    setExercise([]); setDrinking([]); setSmoking([]); setHeightMin(150); setHeightMax(200);
-    setPurpose([]); setLookingFor([]); setEducation([]); setFamilyPlans([]); setHavingKids([]);
+    setExercise([]); setDrinking([]); setSmoking([]); setHeightMin(140);
+    setLookingFor([]); setEducation([]); setFamilyPlans([]); setHavingKids([]);
   };
 
   const handleApply = async () => {
     if (!token) { onClose(); return; }
     setSaving(true);
     try {
-      const patch = {
+      // Build patch — always include every basic filter so the backend
+      // overwrites any stale values.  null = "clear / any".
+      const patch: Record<string, any> = {
         filter_age_min:         ageMin,
         filter_age_max:         ageMax,
+        // distance >= 150 is the "Any" position on the slider → store null
         filter_max_distance_km: distance >= 150 ? null : distance,
         filter_verified_only:   verifiedOnly,
         filter_star_signs:      signs.length     ? signs     : null,
         filter_interests:       interests.length ? interests : null,
         filter_languages:       langs.length     ? langs     : null,
-        // Lifestyle filters
         filter_ethnicities:     ethnicities.length ? ethnicities : null,
         filter_exercise:        exercise.length  ? exercise  : null,
         filter_drinking:        drinking.length  ? drinking  : null,
         filter_smoking:         smoking.length   ? smoking   : null,
-        filter_height_min:      heightMin !== 150 ? heightMin : null,
-        filter_height_max:      heightMax !== 200 ? heightMax : null,
-        // Pro filters
-        filter_purpose:         purpose.length     ? purpose     : null,
-        filter_looking_for:     lookingFor.length  ? lookingFor  : null,
-        filter_education_level: education.length   ? education   : null,
-        filter_family_plans:    familyPlans.length ? familyPlans : null,
-        filter_have_kids:       havingKids.length  ? havingKids  : null,
+        // height slider default (140) = "Any" → store null
+        filter_height_min:      heightMin > 140 ? heightMin : null,
       };
 
-      const updated = await apiFetch<any>('/profile/me', {
+      // Only send Pro-only filters when the user has Pro — avoids sending
+      // useless nulls that the backend would silently strip anyway.
+      if (isPro) {
+        patch.filter_looking_for     = lookingFor.length  ? lookingFor  : null;
+        patch.filter_education_level = education.length   ? education   : null;
+        patch.filter_family_plans    = familyPlans.length ? familyPlans : null;
+        patch.filter_have_kids       = havingKids.length  ? havingKids  : null;
+      }
+
+      const updated = await apiFetch<any>('/profile/me/filters', {
         method: 'PATCH',
         token,
         body: JSON.stringify(patch),
@@ -257,7 +257,7 @@ export default function DateFilterSheet({ visible, onClose, onApply, colors, ins
       onApply();
       onClose();
     } catch (err: any) {
-      Alert.alert('Error', err.message ?? 'Could not save filters.');
+      Alert.alert('Could not save filters', err.message ?? 'Unknown error — please try again.');
     } finally {
       setSaving(false);
     }
@@ -347,36 +347,71 @@ export default function DateFilterSheet({ visible, onClose, onApply, colors, ins
 
             {/* Verified only */}
             <Pressable
-              onPress={!isFaceVerified ? () => router.push('/verify-face' as any) : undefined}
+              onPress={() => !isFaceVerified && router.push('/verification' as any)}
               disabled={isFaceVerified}
-              activeOpacity={1}
+              style={({ pressed }) => [{ opacity: pressed && !isFaceVerified ? 0.75 : 1 }]}
             >
               <Squircle
-                style={[styles.filterCard, { flexDirection: 'row', alignItems: 'center', gap: 12 }, !isFaceVerified && { opacity: 0.55 }]}
+                style={[styles.filterCard, { gap: 12 }]}
                 cornerRadius={22} cornerSmoothing={1}
-                fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}
+                fillColor={isFaceVerified ? colors.surface : 'rgba(34,197,94,0.06)'}
+                strokeColor={isFaceVerified ? colors.border : 'rgba(34,197,94,0.3)'}
+                strokeWidth={1}
               >
-                <Squircle style={styles.filterRowIcon} cornerRadius={12} cornerSmoothing={1} fillColor={colors.surface2}>
-                  <Ionicons name="checkmark-circle-outline" size={18} color={colors.text} />
-                </Squircle>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.filterRowTitle, { color: colors.text }]}>Verified only</Text>
-                  <Text style={[styles.filterRowSub, { color: colors.textSecondary }]}>
-                    {isFaceVerified ? 'Show only verified profiles' : 'Verify your face first to use this filter'}
-                  </Text>
-                </View>
-                {isFaceVerified ? (
-                  <Switch
-                    value={verifiedOnly}
-                    onValueChange={setVerifiedOnly}
-                    thumbColor={colors.bg}
-                    trackColor={{ false: colors.surface2, true: colors.text }}
-                  />
-                ) : (
-                  <Squircle style={styles.verifyGateBadge} cornerRadius={10} cornerSmoothing={1} fillColor={colors.surface2} strokeColor={colors.border} strokeWidth={1}>
-                    <Ionicons name="camera-outline" size={12} color={colors.textSecondary} />
-                    <Text style={[styles.verifyGateText, { color: colors.textSecondary }]}>Verify</Text>
+                {/* Top row */}
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                  <Squircle
+                    style={styles.filterRowIcon}
+                    cornerRadius={12} cornerSmoothing={1}
+                    fillColor={isFaceVerified ? 'rgba(34,197,94,0.15)' : 'rgba(34,197,94,0.12)'}
+                  >
+                    <Ionicons
+                      name={isFaceVerified ? 'shield-checkmark' : 'scan-outline'}
+                      size={18}
+                      color="#22c55e"
+                    />
                   </Squircle>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.filterRowTitle, { color: colors.text }]}>Verified only</Text>
+                    <Text style={[styles.filterRowSub, { color: colors.textSecondary }]}>
+                      {isFaceVerified ? 'Show only face-verified profiles' : 'Only show verified profiles in your feed'}
+                    </Text>
+                  </View>
+                  <Switch
+                    value={isFaceVerified ? verifiedOnly : false}
+                    onValueChange={isFaceVerified ? setVerifiedOnly : undefined}
+                    disabled={!isFaceVerified}
+                    thumbColor={isFaceVerified ? colors.bg : colors.surface2}
+                    trackColor={{ false: colors.surface2, true: colors.text }}
+                    style={{ opacity: isFaceVerified ? 1 : 0.35 }}
+                  />
+                </View>
+
+                {/* Verification prompt banner — only shown when NOT verified */}
+                {!isFaceVerified && (
+                  <View style={{
+                    flexDirection: 'row', alignItems: 'center', gap: 10,
+                    backgroundColor: 'rgba(34,197,94,0.1)',
+                    borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10,
+                  }}>
+                    <Ionicons name="camera-outline" size={16} color="#22c55e" />
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 13, fontFamily: 'ProductSans-Bold', color: '#22c55e' }}>
+                        Verify your face to unlock
+                      </Text>
+                      <Text style={{ fontSize: 11, fontFamily: 'ProductSans-Regular', color: 'rgba(34,197,94,0.75)', marginTop: 1 }}>
+                        Takes 30 seconds · Your face is never stored
+                      </Text>
+                    </View>
+                    <View style={{
+                      flexDirection: 'row', alignItems: 'center', gap: 4,
+                      backgroundColor: '#22c55e', borderRadius: 20,
+                      paddingHorizontal: 12, paddingVertical: 6,
+                    }}>
+                      <Text style={{ fontSize: 12, fontFamily: 'ProductSans-Bold', color: '#000' }}>Start</Text>
+                      <Ionicons name="arrow-forward" size={12} color="#000" />
+                    </View>
+                  </View>
                 )}
               </Squircle>
             </Pressable>
@@ -386,17 +421,7 @@ export default function DateFilterSheet({ visible, onClose, onApply, colors, ins
               <SecHead title="INTERESTS" />
               <View style={[styles.filterChipRow, { marginTop: 12 }]}>
                 {lo('interests').map(v => (
-                  <FilterChip key={v.id} emoji={v.emoji} label={v.label} selected={interests.includes(v.id)} onPress={() => toggle(interests, setInterests, v.id)} colors={colors} />
-                ))}
-              </View>
-            </Squircle>
-
-            {/* Star sign */}
-            <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
-              <SecHead title="STAR SIGN" />
-              <View style={[styles.filterChipRow, { marginTop: 12 }]}>
-                {lo('star_sign').map(v => (
-                  <FilterChip key={v.id} emoji={v.emoji} label={v.label} selected={signs.includes(v.id)} onPress={() => toggle(signs, setSigns, v.id)} colors={colors} />
+                  <FilterChip key={v.id} label={v.label} selected={interests.includes(v.id)} onPress={() => toggle(interests, setInterests, v.id)} colors={colors} />
                 ))}
               </View>
             </Squircle>
@@ -406,62 +431,7 @@ export default function DateFilterSheet({ visible, onClose, onApply, colors, ins
               <SecHead title="LANGUAGE" />
               <View style={[styles.filterChipRow, { marginTop: 12 }]}>
                 {lo('language').map(v => (
-                  <FilterChip key={v.id} emoji={v.emoji} label={v.label} selected={langs.includes(v.id)} onPress={() => toggle(langs, setLangs, v.id)} colors={colors} />
-                ))}
-              </View>
-            </Squircle>
-
-            {/* Height range */}
-            <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
-              <View style={styles.sliderLabelRow}>
-                <SecHead title="HEIGHT RANGE" />
-                <Text style={[styles.sliderValue, { color: colors.text }]}>{heightMin} – {heightMax} cm</Text>
-              </View>
-              <View style={[styles.sliderEdgeRow, { marginTop: 10 }]}>
-                <Text style={[styles.sliderEdge, { color: colors.textSecondary }]}>130</Text>
-                <View style={{ flex: 1 }}>
-                  <RangeSlider min={130} max={220} low={heightMin} high={heightMax} colors={colors} onLowChange={setHeightMin} onHighChange={setHeightMax} />
-                </View>
-                <Text style={[styles.sliderEdge, { color: colors.textSecondary }]}>220</Text>
-              </View>
-            </Squircle>
-
-            {/* Ethnicity */}
-            <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
-              <SecHead title="ETHNICITY" />
-              <View style={[styles.filterChipRow, { marginTop: 12 }]}>
-                {lo('ethnicity').map(v => (
-                  <FilterChip key={v.id} label={v.label} selected={ethnicities.includes(v.id)} onPress={() => toggle(ethnicities, setEthnicities, v.id)} colors={colors} />
-                ))}
-              </View>
-            </Squircle>
-
-            {/* Exercise */}
-            <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
-              <SecHead title="EXERCISE" />
-              <View style={[styles.filterChipRow, { marginTop: 12 }]}>
-                {lo('exercise').map(v => (
-                  <FilterChip key={v.id} emoji={v.emoji} label={v.label} selected={exercise.includes(v.id)} onPress={() => toggle(exercise, setExercise, v.id)} colors={colors} />
-                ))}
-              </View>
-            </Squircle>
-
-            {/* Drinking */}
-            <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
-              <SecHead title="DRINKING" />
-              <View style={[styles.filterChipRow, { marginTop: 12 }]}>
-                {lo('drinking').map(v => (
-                  <FilterChip key={v.id} emoji={v.emoji} label={v.label} selected={drinking.includes(v.id)} onPress={() => toggle(drinking, setDrinking, v.id)} colors={colors} />
-                ))}
-              </View>
-            </Squircle>
-
-            {/* Smoking */}
-            <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
-              <SecHead title="SMOKING" />
-              <View style={[styles.filterChipRow, { marginTop: 12 }]}>
-                {lo('smoking').map(v => (
-                  <FilterChip key={v.id} emoji={v.emoji} label={v.label} selected={smoking.includes(v.id)} onPress={() => toggle(smoking, setSmoking, v.id)} colors={colors} />
+                  <FilterChip key={v.id} label={v.label} selected={langs.includes(v.id)} onPress={() => toggle(langs, setLangs, v.id)} colors={colors} />
                 ))}
               </View>
             </Squircle>
@@ -488,11 +458,85 @@ export default function DateFilterSheet({ visible, onClose, onApply, colors, ins
 
             <Text style={[styles.filterSecHead, { color: colors.textSecondary, marginLeft: 2 }]}>ADVANCED FILTERS</Text>
 
+            {/* Min Height — single slider */}
             <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
-              <SecHead title="RELATIONSHIP INTENT" />
+              <View style={styles.sliderLabelRow}>
+                <SecHead title="MIN HEIGHT" />
+                <Text style={[styles.sliderValue, { color: colors.text }]}>
+                  {heightMin <= 140 ? 'Any' : `≥ ${heightMin} cm`}
+                </Text>
+              </View>
+              <View style={[styles.sliderRow, { marginTop: 10 }]}>
+                <Text style={[styles.sliderSub, { color: colors.textSecondary }]}>Any</Text>
+                <SliderRN
+                  style={{ flex: 1 }}
+                  minimumValue={140} maximumValue={220} step={1}
+                  value={heightMin}
+                  onValueChange={v => setHeightMin(Math.round(v))}
+                  minimumTrackTintColor={colors.text}
+                  maximumTrackTintColor={colors.surface2}
+                  thumbTintColor={colors.text}
+                />
+                <Text style={[styles.sliderSub, { color: colors.textSecondary }]}>220 cm</Text>
+              </View>
+            </Squircle>
+
+            {/* Ethnicity */}
+            <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
+              <SecHead title="ETHNICITY" />
               <View style={[styles.filterChipRow, { marginTop: 12 }]}>
-                {RELATIONSHIP_TYPES.map(v => (
-                  <FilterChip key={v.id} label={v.label} selected={purpose.includes(v.id)} onPress={() => toggle(purpose, setPurpose, v.id)} colors={colors} />
+                {lo('ethnicity').map(v => (
+                  <FilterChip key={v.id} label={v.label} selected={ethnicities.includes(v.id)} onPress={() => toggle(ethnicities, setEthnicities, v.id)} colors={colors} />
+                ))}
+              </View>
+            </Squircle>
+
+            {/* Exercise */}
+            <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
+              <SecHead title="EXERCISE" />
+              <View style={[styles.filterChipRow, { marginTop: 12 }]}>
+                {lo('exercise').map(v => (
+                  <FilterChip key={v.id} label={v.label} selected={exercise.includes(v.id)} onPress={() => toggle(exercise, setExercise, v.id)} colors={colors} />
+                ))}
+              </View>
+            </Squircle>
+
+            {/* Drinking */}
+            <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
+              <SecHead title="DRINKING" />
+              <View style={[styles.filterChipRow, { marginTop: 12 }]}>
+                {lo('drinking').map(v => (
+                  <FilterChip key={v.id} label={v.label} selected={drinking.includes(v.id)} onPress={() => toggle(drinking, setDrinking, v.id)} colors={colors} />
+                ))}
+              </View>
+            </Squircle>
+
+            {/* Smoking */}
+            <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
+              <SecHead title="SMOKING" />
+              <View style={[styles.filterChipRow, { marginTop: 12 }]}>
+                {lo('smoking').map(v => (
+                  <FilterChip key={v.id} label={v.label} selected={smoking.includes(v.id)} onPress={() => toggle(smoking, setSmoking, v.id)} colors={colors} />
+                ))}
+              </View>
+            </Squircle>
+
+            {/* Star sign */}
+            <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
+              <SecHead title="STAR SIGN" />
+              <View style={[styles.filterChipRow, { marginTop: 12 }]}>
+                {lo('star_sign').map(v => (
+                  <FilterChip key={v.id} label={v.label} selected={signs.includes(v.id)} onPress={() => toggle(signs, setSigns, v.id)} colors={colors} />
+                ))}
+              </View>
+            </Squircle>
+
+            {/* Education level */}
+            <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
+              <SecHead title="EDUCATION LEVEL" />
+              <View style={[styles.filterChipRow, { marginTop: 12 }]}>
+                {lo('education_level').map(v => (
+                  <FilterChip key={v.id} label={v.label} selected={education.includes(v.id)} onPress={() => toggle(education, setEducation, v.id)} colors={colors} />
                 ))}
               </View>
             </Squircle>
@@ -501,16 +545,7 @@ export default function DateFilterSheet({ visible, onClose, onApply, colors, ins
               <SecHead title="LOOKING FOR" />
               <View style={[styles.filterChipRow, { marginTop: 12 }]}>
                 {lo('looking_for').map(v => (
-                  <FilterChip key={v.id} emoji={v.emoji} label={v.label} selected={lookingFor.includes(v.id)} onPress={() => toggle(lookingFor, setLookingFor, v.id)} colors={colors} />
-                ))}
-              </View>
-            </Squircle>
-
-            <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
-              <SecHead title="EDUCATION LEVEL" />
-              <View style={[styles.filterChipRow, { marginTop: 12 }]}>
-                {lo('education_level').map(v => (
-                  <FilterChip key={v.id} emoji={v.emoji} label={v.label} selected={education.includes(v.id)} onPress={() => toggle(education, setEducation, v.id)} colors={colors} />
+                  <FilterChip key={v.id} label={v.label} selected={lookingFor.includes(v.id)} onPress={() => toggle(lookingFor, setLookingFor, v.id)} colors={colors} />
                 ))}
               </View>
             </Squircle>
@@ -519,7 +554,7 @@ export default function DateFilterSheet({ visible, onClose, onApply, colors, ins
               <SecHead title="FAMILY PLANS" />
               <View style={[styles.filterChipRow, { marginTop: 12 }]}>
                 {lo('family_plans').map(v => (
-                  <FilterChip key={v.id} emoji={v.emoji} label={v.label} selected={familyPlans.includes(v.id)} onPress={() => toggle(familyPlans, setFamilyPlans, v.id)} colors={colors} />
+                  <FilterChip key={v.id} label={v.label} selected={familyPlans.includes(v.id)} onPress={() => toggle(familyPlans, setFamilyPlans, v.id)} colors={colors} />
                 ))}
               </View>
             </Squircle>
@@ -528,7 +563,7 @@ export default function DateFilterSheet({ visible, onClose, onApply, colors, ins
               <SecHead title="HAVE KIDS" />
               <View style={[styles.filterChipRow, { marginTop: 12 }]}>
                 {lo('have_kids').map(v => (
-                  <FilterChip key={v.id} emoji={v.emoji} label={v.label} selected={havingKids.includes(v.id)} onPress={() => toggle(havingKids, setHavingKids, v.id)} colors={colors} />
+                  <FilterChip key={v.id} label={v.label} selected={havingKids.includes(v.id)} onPress={() => toggle(havingKids, setHavingKids, v.id)} colors={colors} />
                 ))}
               </View>
             </Squircle>
@@ -566,7 +601,7 @@ export default function DateFilterSheet({ visible, onClose, onApply, colors, ins
                 </Squircle>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.proHeaderTitle, { color: colors.text }]}>Pro Filters</Text>
-                  <Text style={[styles.proHeaderSub, { color: colors.textSecondary }]}>10 advanced filters + AI features</Text>
+                  <Text style={[styles.proHeaderSub, { color: colors.textSecondary }]}>Advanced filters + AI features</Text>
                 </View>
                 <Squircle style={styles.proLockBadge} cornerRadius={10} cornerSmoothing={1} fillColor={colors.surface2}>
                   <Ionicons name="lock-closed" size={13} color={colors.textSecondary} />
@@ -577,9 +612,14 @@ export default function DateFilterSheet({ visible, onClose, onApply, colors, ins
             <Text style={[styles.filterSecHead, { color: colors.textSecondary, marginLeft: 2 }]}>ADVANCED FILTERS</Text>
 
             {[
-              { title: 'RELATIONSHIP INTENT', items: RELATIONSHIP_TYPES.map(v => v.label) },
-              { title: 'LOOKING FOR',         items: lo('looking_for').map(v => v.label) },
+              { title: 'MIN HEIGHT',          items: ['Any', '≥ 155 cm', '≥ 160 cm', '≥ 165 cm', '≥ 170 cm', '≥ 175 cm'] },
+              { title: 'ETHNICITY',           items: lo('ethnicity').map(v => v.label) },
+              { title: 'EXERCISE',            items: lo('exercise').map(v => v.label) },
+              { title: 'DRINKING',            items: lo('drinking').map(v => v.label) },
+              { title: 'SMOKING',             items: lo('smoking').map(v => v.label) },
+              { title: 'STAR SIGN',           items: lo('star_sign').map(v => v.label) },
               { title: 'EDUCATION LEVEL',     items: lo('education_level').map(v => v.label) },
+              { title: 'LOOKING FOR',         items: lo('looking_for').map(v => v.label) },
               { title: 'FAMILY PLANS',        items: lo('family_plans').map(v => v.label) },
               { title: 'HAVE KIDS',           items: lo('have_kids').map(v => v.label) },
             ].map(sec => (
@@ -633,7 +673,7 @@ export default function DateFilterSheet({ visible, onClose, onApply, colors, ins
                     </Squircle>
                     <View style={{ flex: 1 }}>
                       <Text style={[styles.upsellTitle, { color: colors.text }]}>Unlock Advanced Filters</Text>
-                      <Text style={[styles.upsellSub, { color: colors.textSecondary }]}>Education, lifestyle, looking for & more</Text>
+                      <Text style={[styles.upsellSub, { color: colors.textSecondary }]}>Height, ethnicity, lifestyle, star sign & more</Text>
                     </View>
                   </View>
                   <Squircle style={styles.upsellBtn} cornerRadius={12} cornerSmoothing={1} fillColor={colors.surface2} strokeColor={colors.border} strokeWidth={1}>
@@ -686,8 +726,6 @@ const styles = StyleSheet.create({
   filterRowIcon:  { width: 38, height: 38, alignItems: 'center', justifyContent: 'center' },
   filterRowTitle: { fontSize: 14, fontFamily: 'ProductSans-Bold' },
   filterRowSub:   { fontSize: 12, fontFamily: 'ProductSans-Regular', marginTop: 1 },
-  verifyGateBadge:{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6 },
-  verifyGateText: { fontSize: 11, fontFamily: 'ProductSans-Bold' },
   filterSecHead:  { fontSize: 11, fontFamily: 'ProductSans-Bold', letterSpacing: 1.2 },
   sliderLabelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   sliderValue:    { fontSize: 13, fontFamily: 'ProductSans-Bold' },

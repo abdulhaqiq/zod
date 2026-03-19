@@ -15,6 +15,7 @@ import ScreenHeader from '@/components/ui/ScreenHeader';
 import Squircle from '@/components/ui/Squircle';
 import { useSubscription } from '@/hooks/useSubscription';
 import { useAppTheme } from '@/context/ThemeContext';
+import { useAuth } from '@/context/AuthContext';
 
 // ─── Feature list (from Apple requirements, shown as "What's included") ───────
 
@@ -35,12 +36,18 @@ const FEATURES = [
 
 // ─── Billing option ──────────────────────────────────────────────────────────
 
+const BADGE_COLORS: Record<string, string> = {
+  'Best Value': '#7c3aed',
+  'Popular':    '#0891b2',
+};
+
 function BillingOption({
   label, price, sub, badge, selected, onSelect, colors,
 }: {
   label: string; price: string; sub: string; badge?: string;
   selected: boolean; onSelect: () => void; colors: any;
 }) {
+  const badgeBg = badge ? (BADGE_COLORS[badge] ?? '#7c3aed') : undefined;
   return (
     <Pressable onPress={onSelect} style={({ pressed }) => [pressed && { opacity: 0.75 }]}>
       <Squircle
@@ -58,7 +65,7 @@ function BillingOption({
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
               <Text style={[styles.billingLabel, { color: colors.text }]}>{label}</Text>
               {badge ? (
-                <View style={styles.saveBadge}>
+                <View style={[styles.saveBadge, { backgroundColor: badgeBg }]}>
                   <Text style={styles.saveBadgeText}>{badge}</Text>
                 </View>
               ) : null}
@@ -72,37 +79,71 @@ function BillingOption({
   );
 }
 
+type BillingPeriod = 'weekly' | 'monthly' | 'sixmonths' | 'yearly';
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function SubscriptionPage() {
   const router = useRouter();
   const { colors } = useAppTheme();
-  const { monthlyPackage, yearlyPackage, status, purchasing, error, purchase, restore } = useSubscription();
+  const { profile } = useAuth();
+  const {
+    weeklyPackage,
+    monthlyPackage,
+    sixMonthPackage,
+    yearlyPackage,
+    status,
+    purchasing,
+    error,
+    purchase,
+    restore,
+  } = useSubscription();
 
-  const [billing, setBilling] = useState<'yearly' | 'monthly'>('yearly');
+  const [billing, setBilling] = useState<BillingPeriod>('yearly');
 
-  // Use real prices from RevenueCat if available, fallback to display prices
-  const monthlyPrice = monthlyPackage?.product.priceString ?? '$14.99';
+  // Backend profile is the primary source of truth — always available,
+  // even in Expo Go where RevenueCat SDK can't load.
+  const isPro = profile?.subscription_tier === 'pro' || status?.isPro === true;
+  const expiresAt = status?.expiresAt ?? null;
+
+  // Prices — use real RevenueCat prices when available, else fallback display strings
+  const weeklyPrice    = weeklyPackage?.product.priceString ?? '$4.99';
+  const monthlyPrice   = monthlyPackage?.product.priceString ?? '$14.99';
+  const sixMonthTotal  = sixMonthPackage?.product.priceString ?? '$59.99';
+  const sixMonthPerMo  = sixMonthPackage
+    ? `$${((sixMonthPackage.product.price) / 6).toFixed(2)}`
+    : '$10.00';
   const yearlyMonthlyPrice = yearlyPackage
     ? `$${((yearlyPackage.product.price) / 12).toFixed(2)}`
     : '$7.99';
-  const yearlyTotalPrice = yearlyPackage?.product.priceString ?? '$95.88/yr';
+  const yearlyTotalPrice = yearlyPackage?.product.priceString ?? '$95.88';
 
-  const selectedPackage: PurchasesPackage | null =
-    billing === 'yearly' ? yearlyPackage : monthlyPackage;
+  const packageMap: Record<BillingPeriod, PurchasesPackage | null> = {
+    weekly:    weeklyPackage,
+    monthly:   monthlyPackage,
+    sixmonths: sixMonthPackage,
+    yearly:    yearlyPackage,
+  };
+
+  const selectedPackage: PurchasesPackage | null = packageMap[billing];
+
+  // Native store is only available in development/production builds, not Expo Go
+  const storeAvailable =
+    weeklyPackage !== null || monthlyPackage !== null ||
+    sixMonthPackage !== null || yearlyPackage !== null;
 
   const handleSubscribe = async () => {
     if (!selectedPackage) {
       Alert.alert(
-        'Not Available',
-        'In-app purchases are not available in this build. Configure your RevenueCat API key and App Store products to enable purchasing.',
+        'Not available right now',
+        'In-app purchases are not yet configured for this app. Please check back soon.',
       );
       return;
     }
     const success = await purchase(selectedPackage);
     if (success) {
-      Alert.alert('Welcome to Zod Pro! 🎉', 'All premium features are now unlocked.', [
-        { text: 'Let\'s go!', onPress: () => router.back() },
+      Alert.alert('Welcome to Pro!', 'All premium features are now unlocked.', [
+        { text: "Let's go!", onPress: () => router.back() },
       ]);
     } else if (error) {
       Alert.alert('Purchase failed', error);
@@ -110,16 +151,26 @@ export default function SubscriptionPage() {
   };
 
   const handleRestore = async () => {
+    if (!storeAvailable) {
+      Alert.alert('Store not available', 'Restore purchases requires a development or production build.');
+      return;
+    }
     const success = await restore();
     if (success) {
       Alert.alert('Restored!', 'Your Pro subscription has been restored.');
       router.back();
     } else {
-      Alert.alert('No subscription found', 'We couldn\'t find an active Pro subscription for your account.');
+      Alert.alert('No subscription found', "We couldn't find an active Pro subscription for your account.");
     }
   };
 
-  const ctaPrice = billing === 'yearly' ? `${yearlyMonthlyPrice}/mo` : `${monthlyPrice}/mo`;
+  const ctaPriceMap: Record<BillingPeriod, string> = {
+    weekly:    `${weeklyPrice}/wk`,
+    monthly:   `${monthlyPrice}/mo`,
+    sixmonths: `${sixMonthPerMo}/mo`,
+    yearly:    `${yearlyMonthlyPrice}/mo`,
+  };
+  const ctaPrice = ctaPriceMap[billing];
 
   return (
     <View style={[styles.root, { backgroundColor: colors.bg }]}>
@@ -146,10 +197,19 @@ export default function SubscriptionPage() {
           <BillingOption
             label="Yearly"
             price={`${yearlyMonthlyPrice}/mo`}
-            sub={`Billed ${yearlyTotalPrice} · Save 47%`}
+            sub={`Billed ${yearlyTotalPrice}/yr · Save 47%`}
             badge="Best Value"
             selected={billing === 'yearly'}
             onSelect={() => setBilling('yearly')}
+            colors={colors}
+          />
+          <BillingOption
+            label="6 Months"
+            price={`${sixMonthPerMo}/mo`}
+            sub={`Billed ${sixMonthTotal} every 6 months · Save 33%`}
+            badge="Popular"
+            selected={billing === 'sixmonths'}
+            onSelect={() => setBilling('sixmonths')}
             colors={colors}
           />
           <BillingOption
@@ -158,6 +218,14 @@ export default function SubscriptionPage() {
             sub="Billed monthly, cancel anytime"
             selected={billing === 'monthly'}
             onSelect={() => setBilling('monthly')}
+            colors={colors}
+          />
+          <BillingOption
+            label="Weekly"
+            price={`${weeklyPrice}/wk`}
+            sub="Billed weekly, cancel anytime"
+            selected={billing === 'weekly'}
+            onSelect={() => setBilling('weekly')}
             colors={colors}
           />
         </View>
@@ -190,11 +258,11 @@ export default function SubscriptionPage() {
         </Squircle>
 
         {/* ── Status / already pro ──────────────────────────────────────── */}
-        {status?.isPro ? (
+        {isPro ? (
           <View style={[styles.proNotice, { backgroundColor: colors.surface }]}>
             <Ionicons name="checkmark-circle" size={18} color={colors.text} />
             <Text style={[styles.proNoticeText, { color: colors.text }]}>
-              You're on Zod Pro{status.expiresAt ? ` · renews ${new Date(status.expiresAt).toLocaleDateString()}` : ''}
+              You're on Zod Pro{expiresAt ? ` · renews ${new Date(expiresAt).toLocaleDateString()}` : ''}
             </Text>
           </View>
         ) : (
@@ -210,24 +278,49 @@ export default function SubscriptionPage() {
       </ScrollView>
 
       {/* ── Sticky CTA ────────────────────────────────────────────────────── */}
-      {!status?.isPro && (
+      {!isPro && (
         <View style={[styles.ctaWrap, { borderTopColor: colors.border, backgroundColor: colors.bg }]}>
+          {/* Inline error message */}
+          {error ? (
+            <Squircle
+              style={{ marginBottom: 12, paddingHorizontal: 16, paddingVertical: 12, flexDirection: 'row', alignItems: 'flex-start', gap: 10 }}
+              cornerRadius={14} cornerSmoothing={1}
+              fillColor="rgba(239,68,68,0.12)"
+              strokeColor="rgba(239,68,68,0.25)"
+              strokeWidth={1}
+            >
+              <Ionicons name="alert-circle-outline" size={16} color="#ef4444" style={{ marginTop: 1 }} />
+              <Text style={{ flex: 1, color: '#ef4444', fontSize: 13, fontFamily: 'ProductSans-Regular', lineHeight: 18 }}>
+                {error}
+              </Text>
+            </Squircle>
+          ) : null}
+
           <Pressable
             onPress={purchasing ? undefined : handleSubscribe}
             style={({ pressed }) => [pressed && !purchasing && { opacity: 0.8 }]}
           >
-            <Squircle style={styles.ctaBtn} cornerRadius={50} cornerSmoothing={1} fillColor={colors.text}>
+            <Squircle
+              style={styles.ctaBtn} cornerRadius={50} cornerSmoothing={1}
+              fillColor={storeAvailable ? colors.text : colors.surface2}
+            >
               {purchasing ? (
                 <ActivityIndicator color={colors.bg} />
-              ) : (
+              ) : storeAvailable ? (
                 <Text style={[styles.ctaBtnText, { color: colors.bg }]}>
                   Continue · {ctaPrice}
+                </Text>
+              ) : (
+                <Text style={[styles.ctaBtnText, { color: colors.textSecondary }]}>
+                  Not available right now
                 </Text>
               )}
             </Squircle>
           </Pressable>
           <Text style={[styles.ctaLegal, { color: colors.textTertiary }]}>
-            Subscription renews automatically. Cancel anytime in App Store settings.
+            {storeAvailable
+              ? 'Subscription renews automatically. Cancel anytime in App Store settings.'
+              : 'In-app purchases are being configured. Check back soon.'}
           </Text>
         </View>
       )}

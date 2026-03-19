@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -95,7 +95,7 @@ type FaceState =
   | 'passed'
   | 'failed';
 
-function FaceTab({ colors }: { colors: AppColors }) {
+function FaceTab({ colors, onSwitchToId }: { colors: AppColors; onSwitchToId: () => void }) {
   const { token, profile } = useAuth();
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef<CameraView>(null);
@@ -150,44 +150,67 @@ function FaceTab({ colors }: { colors: AppColors }) {
     return () => clearTimeout(timer);
   }, [state, challengeIdx]);
 
-  // WebSocket: real-time status updates while pending
+  // Real-time verification status: WebSocket primary, HTTP poll fallback only
+  // if WS closes before delivering a final result.
   useEffect(() => {
     if (state !== 'pending' || !profile?.id) {
-      if (wsRef.current) {
-        wsRef.current.close();
-        wsRef.current = null;
-      }
+      wsRef.current?.close();
+      wsRef.current = null;
       return;
     }
 
+    let settled = false;
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
+
+    const applyResult = (data: any) => {
+      if (settled) return;
+      if (data.status === 'verified') {
+        settled = true;
+        pollTimer && clearInterval(pollTimer);
+        setMatchScore(data.face_match_score ?? null);
+        setState('passed');
+      } else if (data.status === 'rejected') {
+        settled = true;
+        pollTimer && clearInterval(pollTimer);
+        setMatchScore(data.face_match_score ?? null);
+        setFailReason(data.rejection_reason ?? 'Verification failed. Please try again.');
+        setState('failed');
+      }
+      // 'pending' → keep waiting, do nothing
+    };
+
+    const startPolling = () => {
+      if (settled || pollTimer) return;
+      pollTimer = setInterval(async () => {
+        if (settled) { clearInterval(pollTimer!); return; }
+        try {
+          const r = await fetch(`${API_V1}/upload/verify-face/status`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (r.ok) { const d = await r.json(); if (d?.attempt) applyResult(d.attempt); }
+        } catch {}
+      }, 3000);
+    };
+
     const ws = new WebSocket(`${WS_V1}/ws/verify-face/${profile.id}`);
     wsRef.current = ws;
-
-    ws.onmessage = (event) => {
+    ws.onmessage = (e) => {
       try {
-        const data = JSON.parse(event.data);
-        if (data.status === 'verified') {
-          setMatchScore(data.face_match_score ?? null);
-          setState('passed');
-          ws.close();
-        } else if (data.status === 'rejected') {
-          setMatchScore(data.face_match_score ?? null);
-          setFailReason(data.rejection_reason ?? 'Verification failed. Please try again.');
-          setState('failed');
-          ws.close();
-        }
+        const data = JSON.parse(e.data);
+        if (data.status === 'heartbeat') return; // keep-alive ping, ignore
+        applyResult(data);
       } catch {}
     };
-
     ws.onerror = () => ws.close();
+    // WS closed without settling → fall back to HTTP polling
+    ws.onclose = () => { if (!settled) startPolling(); };
 
     return () => {
-      if (wsRef.current) {
-        wsRef.current.close();
-        wsRef.current = null;
-      }
+      wsRef.current?.close();
+      wsRef.current = null;
+      pollTimer && clearInterval(pollTimer);
     };
-  }, [state, profile?.id]);
+  }, [state, profile?.id, token]);
 
   const startScan = async () => {
     if (!permission?.granted) {
@@ -252,6 +275,59 @@ function FaceTab({ colors }: { colors: AppColors }) {
     );
   }
 
+  // ── Passed: full-width success card (not inside circle) ─────────────────────
+  if (state === 'passed') {
+    return (
+      <View style={styles.tabContent}>
+        <Squircle
+          style={styles.successCard}
+          cornerRadius={28}
+          cornerSmoothing={1}
+          fillColor="#052010"
+          strokeColor="#22c55e"
+          strokeWidth={1.5}
+        >
+          {/* Big checkmark */}
+          <View style={styles.successIconWrap}>
+            <Ionicons name="checkmark" size={40} color="#fff" />
+          </View>
+
+          <Text style={styles.successTitle}>Face Verified</Text>
+          <Text style={styles.successSub}>Your identity has been confirmed</Text>
+
+          {matchScore !== null && (
+            <View style={styles.successScoreRow}>
+              <View style={styles.successScoreDot} />
+              <Text style={styles.successScore}>{matchScore.toFixed(0)}% match confidence</Text>
+            </View>
+          )}
+        </Squircle>
+
+        {/* Prompt to do ID next */}
+        <Pressable
+          style={({ pressed }) => [{ opacity: pressed ? 0.75 : 1 }]}
+          onPress={onSwitchToId}
+        >
+          <Squircle
+            style={styles.successNextCard}
+            cornerRadius={20}
+            cornerSmoothing={1}
+            fillColor="rgba(34,197,94,0.07)"
+            strokeColor="rgba(34,197,94,0.25)"
+            strokeWidth={1}
+          >
+            <Ionicons name="card-outline" size={18} color="#22c55e" />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.successNextTitle}>Complete ID Verification</Text>
+              <Text style={styles.successNextSub}>Upload your ID to get fully verified</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color="#22c55e" />
+          </Squircle>
+        </Pressable>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.tabContent}>
       {/* Camera / preview area */}
@@ -262,26 +338,13 @@ function FaceTab({ colors }: { colors: AppColors }) {
           {isLiveCamera ? (
             <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing="front" />
 
-          ) : state === 'passed' ? (
-            <View style={[StyleSheet.absoluteFill, styles.overlayCenter, { backgroundColor: '#052010' }]}>
-              <View style={[styles.scannedBadge, { backgroundColor: '#22c55e' }]}>
-                <Ionicons name="checkmark" size={32} color="#fff" />
-              </View>
-              <Text style={[styles.scannedLabel, { color: '#22c55e' }]}>Face Verified!</Text>
-              {matchScore !== null && (
-                <Text style={{ fontSize: 13, color: 'rgba(34,197,94,0.75)', fontFamily: 'ProductSans-Bold' }}>
-                  {matchScore.toFixed(0)}% match
-                </Text>
-              )}
-            </View>
-
           ) : state === 'failed' ? (
             <View style={[StyleSheet.absoluteFill, styles.overlayCenter, { backgroundColor: '#1a0800' }]}>
               <Ionicons name="close-circle" size={56} color={colors.error} />
               <Text style={[styles.cameraHint, { color: colors.error }]}>Verification failed</Text>
               {matchScore !== null && matchScore > 0 && (
                 <Text style={{ fontSize: 13, color: 'rgba(255,59,48,0.7)', fontFamily: 'ProductSans-Bold' }}>
-                  {matchScore.toFixed(0)}% match (need 70%)
+                  {matchScore.toFixed(0)}% match (need 80%)
                 </Text>
               )}
             </View>
@@ -773,7 +836,12 @@ function IDTab({ colors }: { colors: AppColors }) {
 export default function VerificationPage() {
   const router = useRouter();
   const { colors } = useAppTheme();
-  const [tab, setTab] = useState<'face' | 'id'>('face');
+  const { profile } = useAuth();
+  const params = useLocalSearchParams<{ tab?: string }>();
+
+  // Open ID tab directly if face already verified or caller requested it
+  const defaultTab = (params.tab === 'id' || profile?.is_verified) ? 'id' : 'face';
+  const [tab, setTab] = useState<'face' | 'id'>(defaultTab);
 
   const tabs = (
     <View style={styles.tabRow}>
@@ -811,7 +879,10 @@ export default function VerificationPage() {
           contentContainerStyle={styles.scroll}
           showsVerticalScrollIndicator={false}
         >
-          {tab === 'face' ? <FaceTab colors={colors} /> : <IDTab colors={colors} />}
+          {tab === 'face'
+            ? <FaceTab colors={colors} onSwitchToId={() => setTab('id')} />
+            : <IDTab colors={colors} />
+          }
         </ScrollView>
       </KeyboardAvoidingView>
     </View>
@@ -832,6 +903,18 @@ const styles = StyleSheet.create({
 
   // Shared tab content
   tabContent:         { gap: 18, paddingTop: 10 },
+
+  // Passed success card
+  successCard:        { alignItems: 'center', paddingVertical: 40, paddingHorizontal: 24, gap: 10 },
+  successIconWrap:    { width: 80, height: 80, borderRadius: 40, backgroundColor: '#22c55e', alignItems: 'center', justifyContent: 'center', marginBottom: 6 },
+  successTitle:       { fontSize: 24, fontFamily: 'ProductSans-Black', color: '#22c55e', letterSpacing: -0.3 },
+  successSub:         { fontSize: 14, fontFamily: 'ProductSans-Regular', color: 'rgba(34,197,94,0.65)', textAlign: 'center' },
+  successScoreRow:    { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
+  successScoreDot:    { width: 6, height: 6, borderRadius: 3, backgroundColor: '#22c55e' },
+  successScore:       { fontSize: 13, fontFamily: 'ProductSans-Bold', color: 'rgba(34,197,94,0.8)' },
+  successNextCard:    { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 14 },
+  successNextTitle:   { fontSize: 14, fontFamily: 'ProductSans-Bold', color: '#22c55e' },
+  successNextSub:     { fontSize: 12, fontFamily: 'ProductSans-Regular', color: 'rgba(34,197,94,0.65)', marginTop: 2 },
 
   // Face scan
   facePreviewWrap:    { alignItems: 'center', justifyContent: 'center', height: 280 },

@@ -29,6 +29,7 @@ interface CityResult {
   city: string;
   country: string;
   flag: string;
+  place_id?: string;
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
@@ -110,19 +111,40 @@ export default function LocationSearchPage() {
     }, 300);
   }, [query, token]);
 
-  const select = async (item: CityResult) => {
+  const select = async (item: CityResult, index: number) => {
     Keyboard.dismiss();
-    const cityKey = `${item.city}-${item.country}`;
+    const cityKey = item.place_id || `${item.city}-${item.country}-${index}`;
     setSavingCity(cityKey);
     try {
-      // Save both city name and country so profile shows full location
-      const field = type === 'hometown' ? 'hometown' : 'city';
-      const updated = await apiFetch<any>('/profile/me', {
-        method: 'PATCH',
-        token: token ?? undefined,
-        body: JSON.stringify({ [field]: item.city }),
-      });
-      updateProfile(updated);
+      if (type === 'city') {
+        // Travel / change-location mode: geocode the city and update discovery lat/lon
+        const res = await apiFetch<any>('/location/change-city', {
+          method: 'POST',
+          token: token ?? undefined,
+          body: JSON.stringify({
+            city:     item.city,
+            country:  item.country,
+            place_id: item.place_id ?? null,
+          }),
+        });
+        // Sync profile context with new city/country/travel state
+        updateProfile({
+          city:                res.city,
+          country:             res.country,
+          travel_mode_enabled: true,
+          travel_city:         res.city,
+          travel_country:      res.country,
+        });
+      } else {
+        // Living Now / Hometown: update profile display field only
+        const field = type === 'hometown' ? 'hometown' : 'city';
+        const updated = await apiFetch<any>('/profile/me', {
+          method: 'PATCH',
+          token: token ?? undefined,
+          body: JSON.stringify({ [field]: item.city }),
+        });
+        updateProfile(updated);
+      }
       router.back();
     } catch { /* ignore */ }
     finally { setSavingCity(null); }
@@ -177,12 +199,12 @@ export default function LocationSearchPage() {
               <Squircle style={styles.resultGroup} cornerRadius={22} cornerSmoothing={1}
                 fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
                 {results.map((item, i) => {
-                  const cityKey = `${item.city}-${item.country}`;
+                  const cityKey = item.place_id || `${item.city}-${item.country}-${i}`;
                   const isSaving = savingCity === cityKey;
                   return (
                     <Pressable
                       key={cityKey}
-                      onPress={() => select(item)}
+                      onPress={() => select(item, i)}
                       disabled={savingCity !== null}
                       style={({ pressed }) => [
                         styles.resultRow,

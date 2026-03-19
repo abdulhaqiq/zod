@@ -24,6 +24,8 @@ import { useAuth } from '@/context/AuthContext';
 import { useAppTheme } from '@/context/ThemeContext';
 import { getLookupLabel, getLookupLabels } from '@/constants/lookupData';
 import { useProfileSave } from '@/hooks/useProfileSave';
+import { useSubscription } from '@/hooks/useSubscription';
+import { restoreRealLocation } from '@/hooks/useAutoLocation';
 import type { AppColors } from '@/constants/appColors';
 
 // ─── Height helpers ───────────────────────────────────────────────────────────
@@ -147,7 +149,7 @@ function MoodPickerModal({
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={moodStyles.backdrop} onPress={onClose} />
-      <View style={[moodStyles.sheet, { backgroundColor: colors.surface }]}>
+      <View style={[moodStyles.sheet, { backgroundColor: colors.bg }]}>
 
         {/* Handle */}
         <View style={[moodStyles.handle, { backgroundColor: colors.border }]} />
@@ -156,71 +158,115 @@ function MoodPickerModal({
         <View style={moodStyles.header}>
           <Text style={[moodStyles.title, { color: colors.text }]}>Mood Status</Text>
           <Pressable onPress={onClose} hitSlop={12}>
-            <Ionicons name="close" size={22} color={colors.textSecondary} />
+            <Squircle style={moodStyles.closeBtn} cornerRadius={10} cornerSmoothing={1} fillColor={colors.surface2}>
+              <Ionicons name="close" size={16} color={colors.textSecondary} />
+            </Squircle>
           </Pressable>
         </View>
 
-        {/* Preview + text input */}
-        <View style={[moodStyles.inputRow, { backgroundColor: colors.bg, borderColor: colors.border }]}>
-          <Text style={moodStyles.previewEmoji}>{emoji || '😊'}</Text>
-          <TextInput
-            style={[moodStyles.textInput, { color: colors.text }]}
-            value={text}
-            onChangeText={t => setText(t.slice(0, 60))}
-            placeholder="What's your vibe today?"
-            placeholderTextColor={colors.textTertiary}
-            maxLength={60}
-            returnKeyType="done"
-          />
-          {(emoji || text) ? (
-            <Pressable hitSlop={10} onPress={() => { setEmoji(''); setText(''); }}>
-              <Ionicons name="close-circle" size={18} color={colors.textTertiary} />
-            </Pressable>
-          ) : null}
+        {/* Squircle input row — emoji preview + text */}
+        <View style={moodStyles.inputWrap}>
+          <Squircle
+            style={moodStyles.emojiSquircle}
+            cornerRadius={16}
+            cornerSmoothing={1}
+            fillColor={colors.surface}
+            strokeColor={colors.border}
+            strokeWidth={1}
+          >
+            <Text style={moodStyles.previewEmoji}>{emoji || '😊'}</Text>
+          </Squircle>
+
+          <Squircle
+            style={moodStyles.textSquircle}
+            cornerRadius={16}
+            cornerSmoothing={1}
+            fillColor={colors.surface}
+            strokeColor={colors.border}
+            strokeWidth={1}
+          >
+            <TextInput
+              style={[moodStyles.textInput, { color: colors.text }]}
+              value={text}
+              onChangeText={t => setText(t.slice(0, 60))}
+              placeholder="What's your vibe today?"
+              placeholderTextColor={colors.textTertiary}
+              maxLength={60}
+              returnKeyType="done"
+            />
+            {(emoji || text) ? (
+              <Pressable hitSlop={10} onPress={() => { setEmoji(''); setText(''); }}>
+                <Ionicons name="close-circle" size={17} color={colors.textTertiary} />
+              </Pressable>
+            ) : null}
+          </Squircle>
         </View>
 
-        {/* Category tabs */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={moodStyles.catScroll} contentContainerStyle={moodStyles.catContent}>
-          {MOOD_CATEGORIES.map((c, i) => (
-            <Pressable
-              key={c.label}
-              onPress={() => setCatIdx(i)}
-              style={[
-                moodStyles.catTab,
-                i === catIdx && { backgroundColor: colors.accent ?? '#6C47FF' },
-                { borderColor: colors.border },
-              ]}
-            >
-              <Text style={moodStyles.catIcon}>{c.icon}</Text>
-              <Text style={[moodStyles.catLabel, { color: i === catIdx ? '#fff' : colors.textSecondary }]}>{c.label}</Text>
-            </Pressable>
-          ))}
+        {/* Category tabs — Squircle pills, active = colors.text (black/white) */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={moodStyles.catScroll}
+          contentContainerStyle={moodStyles.catContent}
+        >
+          {MOOD_CATEGORIES.map((c, i) => {
+            const active = i === catIdx;
+            return (
+              <Pressable key={c.label} onPress={() => setCatIdx(i)}>
+                <Squircle
+                  style={moodStyles.catTab}
+                  cornerRadius={20}
+                  cornerSmoothing={1}
+                  fillColor={active ? colors.text : colors.surface}
+                  strokeColor={active ? colors.text : colors.border}
+                  strokeWidth={1}
+                >
+                  <Text style={moodStyles.catIcon}>{c.icon}</Text>
+                  <Text style={[moodStyles.catLabel, { color: active ? colors.bg : colors.textSecondary }]}>
+                    {c.label}
+                  </Text>
+                </Squircle>
+              </Pressable>
+            );
+          })}
         </ScrollView>
 
-        {/* Emoji grid */}
+        {/* Emoji grid — each cell is a Squircle */}
         <ScrollView style={moodStyles.gridScroll} showsVerticalScrollIndicator={false}>
           <View style={moodStyles.grid}>
-            {cat.emojis.map(e => (
-              <Pressable
-                key={e}
-                onPress={() => setEmoji(e)}
-                style={[
-                  moodStyles.emojiCell,
-                  e === emoji && { backgroundColor: (colors.accent ?? '#6C47FF') + '33' },
-                ]}
-              >
-                <Text style={moodStyles.emojiGlyph}>{e}</Text>
-              </Pressable>
-            ))}
+            {cat.emojis.map(e => {
+              const selected = e === emoji;
+              return (
+                <Pressable key={e} onPress={() => setEmoji(e)}>
+                  <Squircle
+                    style={moodStyles.emojiCell}
+                    cornerRadius={12}
+                    cornerSmoothing={1}
+                    fillColor={selected ? colors.surface2 : 'transparent'}
+                    strokeColor={selected ? colors.border : 'transparent'}
+                    strokeWidth={selected ? 1 : 0}
+                  >
+                    <Text style={moodStyles.emojiGlyph}>{e}</Text>
+                  </Squircle>
+                </Pressable>
+              );
+            })}
           </View>
         </ScrollView>
 
-        {/* Save */}
+        {/* Save — Squircle, filled with colors.text */}
         <Pressable
-          style={[moodStyles.saveBtn, { backgroundColor: colors.accent ?? '#6C47FF' }]}
+          style={({ pressed }) => [moodStyles.saveBtnWrap, { opacity: pressed ? 0.75 : 1 }]}
           onPress={() => onSave(emoji, text)}
         >
-          <Text style={moodStyles.saveTxt}>Save</Text>
+          <Squircle
+            style={moodStyles.saveBtn}
+            cornerRadius={22}
+            cornerSmoothing={1}
+            fillColor={colors.text}
+          >
+            <Text style={[moodStyles.saveTxt, { color: colors.bg }]}>Save Status</Text>
+          </Squircle>
         </Pressable>
       </View>
     </Modal>
@@ -228,25 +274,37 @@ function MoodPickerModal({
 }
 
 const moodStyles = StyleSheet.create({
-  backdrop:     { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.45)' },
-  sheet:        { position: 'absolute', bottom: 0, left: 0, right: 0, borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingBottom: 36 },
-  handle:       { width: 36, height: 4, borderRadius: 2, alignSelf: 'center', marginTop: 10, marginBottom: 4 },
-  header:       { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 12 },
-  title:        { fontSize: 17, fontFamily: 'ProductSans-Bold' },
-  inputRow:     { flexDirection: 'row', alignItems: 'center', marginHorizontal: 16, borderRadius: 14, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10, gap: 10, marginBottom: 14 },
-  previewEmoji: { fontSize: 26 },
-  textInput:    { flex: 1, fontSize: 15, fontFamily: 'ProductSans-Regular' },
-  catScroll:    { flexGrow: 0, marginBottom: 12 },
-  catContent:   { paddingHorizontal: 16, gap: 8 },
-  catTab:       { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1 },
-  catIcon:      { fontSize: 15 },
-  catLabel:     { fontSize: 12, fontFamily: 'ProductSans-Medium' },
-  gridScroll:   { maxHeight: 220, marginHorizontal: 16 },
-  grid:         { flexDirection: 'row', flexWrap: 'wrap', gap: 4 },
-  emojiCell:    { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 10 },
-  emojiGlyph:   { fontSize: 26 },
-  saveBtn:      { marginHorizontal: 16, marginTop: 16, borderRadius: 14, paddingVertical: 14, alignItems: 'center' },
-  saveTxt:      { fontSize: 16, fontFamily: 'ProductSans-Bold', color: '#fff' },
+  backdrop:      { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.5)' },
+  sheet:         { position: 'absolute', bottom: 0, left: 0, right: 0, borderTopLeftRadius: 30, borderTopRightRadius: 30, paddingBottom: 40 },
+  handle:        { width: 36, height: 4, borderRadius: 2, alignSelf: 'center', marginTop: 10, marginBottom: 2 },
+  header:        { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 18, paddingVertical: 12 },
+  title:         { fontSize: 17, fontFamily: 'ProductSans-Bold' },
+  closeBtn:      { width: 30, height: 30, alignItems: 'center', justifyContent: 'center' },
+
+  // Input row
+  inputWrap:     { flexDirection: 'row', marginHorizontal: 16, gap: 10, marginBottom: 16 },
+  emojiSquircle: { width: 52, height: 52, alignItems: 'center', justifyContent: 'center' },
+  textSquircle:  { flex: 1, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 10, gap: 8 },
+  previewEmoji:  { fontSize: 26 },
+  textInput:     { flex: 1, fontSize: 15, fontFamily: 'ProductSans-Regular', paddingVertical: 0 },
+
+  // Category tabs
+  catScroll:     { flexGrow: 0, marginBottom: 14 },
+  catContent:    { paddingHorizontal: 16, gap: 8, flexDirection: 'row' },
+  catTab:        { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 13, paddingVertical: 7 },
+  catIcon:       { fontSize: 14 },
+  catLabel:      { fontSize: 12, fontFamily: 'ProductSans-Bold' },
+
+  // Emoji grid
+  gridScroll:    { maxHeight: 210, marginHorizontal: 16 },
+  grid:          { flexDirection: 'row', flexWrap: 'wrap', gap: 4 },
+  emojiCell:     { width: 46, height: 46, alignItems: 'center', justifyContent: 'center' },
+  emojiGlyph:    { fontSize: 26 },
+
+  // Save button
+  saveBtnWrap:   { marginHorizontal: 16, marginTop: 14 },
+  saveBtn:       { paddingVertical: 16, alignItems: 'center', justifyContent: 'center' },
+  saveTxt:       { fontSize: 15, fontFamily: 'ProductSans-Black' },
 });
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -358,8 +416,15 @@ function SettingRow({
 export default function MyProfilePage({ colors, insets }: { colors: AppColors; insets: any }) {
   const router = useRouter();
   const { token, refreshToken, signOut, profile, updateProfile } = useAuth();
+  const { status: subStatus, refetch: refetchSub } = useSubscription();
+  // Use live subscription status from /subscription/status if available,
+  // falling back to the profile cache so the banner is never stale.
+  const isPro = subStatus?.isPro ?? profile?.subscription_tier === 'pro';
   const { isDark, toggle } = useAppTheme();
   const { save } = useProfileSave();
+
+  // ── Refresh subscription status on mount ─────────────────────────────────
+  useEffect(() => { refetchSub(); }, []);
 
   // ── Live profile stats ────────────────────────────────────────────────────
   const [statsMatches, setStatsMatches] = useState<number | null>(null);
@@ -412,6 +477,35 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
   const [moodEmoji,        setMoodEmoji]        = useState(profile?.mood_emoji ?? '');
   const [moodText,         setMoodText]         = useState(profile?.mood_text ?? '');
   const [moodModalOpen,    setMoodModalOpen]    = useState(false);
+  const [university,            setUniversity]            = useState(profile?.university ?? '');
+  const [universityDraft,       setUniversityDraft]       = useState(profile?.university ?? '');
+  const [universityModalOpen,   setUniversityModalOpen]   = useState(false);
+  // University email verification state
+  const [uniEmail,              setUniEmail]              = useState(profile?.university_email ?? '');
+  const [uniEmailDraft,         setUniEmailDraft]         = useState(profile?.university_email ?? '');
+  const [uniEmailVerified,      setUniEmailVerified]      = useState(profile?.university_email_verified ?? false);
+  const [uniOtpStep,            setUniOtpStep]            = useState<'idle'|'sent'|'verified'>('idle');
+  const [uniOtpCode,            setUniOtpCode]            = useState('');
+  const [uniEmailSending,       setUniEmailSending]       = useState(false);
+  const [uniOtpVerifying,       setUniOtpVerifying]       = useState(false);
+  const [uniEmailError,         setUniEmailError]         = useState('');
+
+  // ── Privacy toggles ───────────────────────────────────────────────────────
+  const [hideAge,                 setHideAge]                 = useState(profile?.hide_age ?? false);
+  const [hideDistance,            setHideDistance]            = useState(profile?.hide_distance ?? false);
+  const [requireVerifiedToChat,   setRequireVerifiedToChat]   = useState(profile?.require_verified_to_chat ?? false);
+
+  // ── Pro feature toggles ───────────────────────────────────────────────────
+  const [incognito,    setIncognito]    = useState(profile?.is_incognito ?? false);
+  const [travelMode,   setTravelMode]   = useState(profile?.travel_mode_enabled ?? false);
+  const [autoZod,      setAutoZod]      = useState(profile?.auto_zod_enabled ?? false);
+
+  const saveProToggle = async (field: string, val: boolean) => {
+    try {
+      await apiFetch('/profile/me', { method: 'PATCH', token: token!, body: JSON.stringify({ [field]: val }) });
+      updateProfile({ [field]: val } as any);
+    } catch { /* silent — optimistic already applied */ }
+  };
 
   // ── Snooze Mode — backed by is_active on the server ─────────────────────
   // is_active=true  → profile visible   → snooze=false
@@ -480,6 +574,17 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
     setLanguageIds((profile.languages ?? []).map(String));
     setMoodEmoji(profile.mood_emoji ?? '');
     setMoodText(profile.mood_text ?? '');
+    setUniversity(profile.university ?? '');
+    setUniversityDraft(profile.university ?? '');
+    setUniEmail(profile.university_email ?? '');
+    setUniEmailDraft(profile.university_email ?? '');
+    setUniEmailVerified(profile.university_email_verified ?? false);
+    setHideAge(profile.hide_age ?? false);
+    setHideDistance(profile.hide_distance ?? false);
+    setRequireVerifiedToChat(profile.require_verified_to_chat ?? false);
+    setIncognito(profile.is_incognito ?? false);
+    setTravelMode(profile.travel_mode_enabled ?? false);
+    setAutoZod(profile.auto_zod_enabled ?? false);
   }, [profile?.id]);
 
   // ── Save helpers ─────────────────────────────────────────────────────────
@@ -572,13 +677,25 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
       <View style={{ paddingHorizontal: 16, marginTop: 16 }}>
         <Pressable style={[styles.subBanner, { backgroundColor: colors.surface }]} onPress={() => router.push('/subscription')}>
           <Ionicons name="star" size={14} color="#FFD60A" />
-          <Text style={[styles.subBannerPlan, { color: colors.text }]}>Zod Free</Text>
-          <Text style={[styles.subBannerSub, { color: colors.textSecondary }]}>· Unlock all features</Text>
-          <View style={{ flex: 1 }} />
-          <Text style={[styles.subBannerCta, { color: colors.text }]}>Upgrade now</Text>
+          {isPro ? (
+            <>
+              <Text style={[styles.subBannerPlan, { color: colors.text }]}>Zod Pro</Text>
+              <Text style={[styles.subBannerSub, { color: colors.textSecondary }]}>· Active</Text>
+              <View style={{ flex: 1 }} />
+              <Text style={[styles.subBannerCta, { color: colors.textSecondary }]}>Manage</Text>
+            </>
+          ) : (
+            <>
+              <Text style={[styles.subBannerPlan, { color: colors.text }]}>Zod Free</Text>
+              <Text style={[styles.subBannerSub, { color: colors.textSecondary }]}>· Unlock all features</Text>
+              <View style={{ flex: 1 }} />
+              <Text style={[styles.subBannerCta, { color: colors.text }]}>Upgrade now</Text>
+            </>
+          )}
           <Ionicons name="chevron-forward" size={13} color={colors.textSecondary} />
         </Pressable>
       </View>
+
 
       {/* ── AI Profile Score ────────────────────────────────────────────── */}
       <View style={{ paddingHorizontal: 16, marginTop: 14 }}>
@@ -675,6 +792,25 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
               onDone: ([v]) => { setEducationLevelId(v); saveField({ education_level_id: Number(v) }); },
             })} colors={colors} />
 
+          <EditRow
+            icon="school-outline"
+            label="University"
+            value={
+              university
+                ? `${university}${uniEmailVerified ? '  ✓ Verified' : ''}`
+                : '—'
+            }
+            onPress={() => {
+              setUniversityDraft(university);
+              setUniEmailDraft(uniEmail);
+              setUniOtpStep(uniEmailVerified ? 'verified' : 'idle');
+              setUniOtpCode('');
+              setUniEmailError('');
+              setUniversityModalOpen(true);
+            }}
+            colors={colors}
+          />
+
           <EditRow icon="wine-outline" label="Drinking" value={getLookupLabel('drinking', drinkingId ? Number(drinkingId) : null) || '—'}
             onPress={() => setChipPicker({
               title: 'Drinking', options: opts('drinking'), single: true,
@@ -731,23 +867,40 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
               onDone: ([v]) => { setEthnicityId(v); saveField({ ethnicity_id: Number(v) }); },
             })} colors={colors} />
 
-          {/* ── Mood Status ── */}
-          <Pressable
-            onPress={() => setMoodModalOpen(true)}
-            style={[styles.moodRow, { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, paddingTop: 12 }]}
-          >
-            <Ionicons name="happy-outline" size={18} color={colors.textSecondary} style={{ marginRight: 10 }} />
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.moodLabel, { color: colors.textSecondary }]}>Mood Status</Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                {moodEmoji ? <Text style={{ fontSize: 18 }}>{moodEmoji}</Text> : null}
-                <Text style={[{ fontSize: 14, fontFamily: 'ProductSans-Regular' }, { color: moodText ? colors.text : colors.textTertiary }]}>
-                  {moodText || 'What\'s your vibe today?'}
+          {/* ── Mood Status — GitHub-style ── */}
+          <View style={[styles.moodRow, { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border }]}>
+            {/* Emoji badge — tapping opens the modal */}
+            <Pressable onPress={() => setMoodModalOpen(true)} style={[styles.moodBadge, { backgroundColor: colors.bg, borderColor: colors.border }]}>
+              <Text style={styles.moodBadgeEmoji}>{moodEmoji || '😶'}</Text>
+            </Pressable>
+
+            {/* Text — also tappable, same modal */}
+            <Pressable onPress={() => setMoodModalOpen(true)} style={{ flex: 1 }}>
+              {moodText ? (
+                <Text style={[styles.moodStatusText, { color: colors.text }]} numberOfLines={1}>
+                  {moodText}
                 </Text>
-              </View>
-            </View>
-            <Ionicons name="chevron-forward" size={16} color={colors.textTertiary} />
-          </Pressable>
+              ) : (
+                <Text style={[styles.moodStatusText, { color: colors.textTertiary }]}>
+                  Set a status…
+                </Text>
+              )}
+              <Text style={[styles.moodStatusSub, { color: colors.textTertiary }]}>Mood Status</Text>
+            </Pressable>
+
+            {(moodEmoji || moodText) ? (
+              <Pressable
+                hitSlop={10}
+                onPress={() => {
+                  setMoodEmoji('');
+                  setMoodText('');
+                  saveField({ mood_emoji: null, mood_text: null });
+                }}
+              >
+                <Ionicons name="close-circle" size={18} color={colors.textTertiary} />
+              </Pressable>
+            ) : null}
+          </View>
 
           <MoodPickerModal
             visible={moodModalOpen}
@@ -796,6 +949,24 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
             onToggle={toggle}
           />
           <SettingRow
+            icon="eye-off-outline" label="Hide My Age"
+            subtitle={hideAge ? 'Your age is hidden from others' : 'Your age is visible on your profile'}
+            colors={colors} toggle toggleVal={hideAge}
+            onToggle={(val) => { setHideAge(val); saveField({ hide_age: val }); updateProfile({ hide_age: val }); }}
+          />
+          <SettingRow
+            icon="location-outline" label="Hide My Distance"
+            subtitle={hideDistance ? 'Your distance is hidden from others' : 'Your distance is shown on your profile'}
+            colors={colors} toggle toggleVal={hideDistance}
+            onToggle={(val) => { setHideDistance(val); saveField({ hide_distance: val }); updateProfile({ hide_distance: val }); }}
+          />
+          <SettingRow
+            icon="shield-checkmark-outline" label="Verified Photo to Chat"
+            subtitle={requireVerifiedToChat ? 'Only face-verified users can message you' : 'Anyone you match with can message you'}
+            colors={colors} toggle toggleVal={requireVerifiedToChat}
+            onToggle={(val) => { setRequireVerifiedToChat(val); saveField({ require_verified_to_chat: val }); updateProfile({ require_verified_to_chat: val }); }}
+          />
+          <SettingRow
             icon="moon-outline" label="Snooze Mode"
             subtitle={snooze ? 'Your profile is hidden from others' : 'Pause your profile visibility'}
             colors={colors} toggle toggleVal={snooze}
@@ -804,23 +975,55 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
           />
           <SettingRow
             icon="eye-off-outline" label="Incognito Mode"
-            subtitle="Browse profiles without being seen"
-            colors={colors} locked onPress={() => router.push('/subscription')}
+            subtitle={incognito ? 'Browsing without being seen' : 'Browse profiles without being seen'}
+            colors={colors}
+            locked={!isPro} onPress={() => !isPro && router.push('/subscription')}
+            toggle={isPro} toggleVal={incognito}
+            onToggle={(val) => { setIncognito(val); saveProToggle('is_incognito', val); }}
           />
           <SettingRow
             icon="sparkles-outline" label="Auto Zod (AI)"
-            subtitle="Let AI find your best matches daily"
-            colors={colors} locked onPress={() => router.push('/subscription')}
+            subtitle={autoZod ? 'AI is finding your best matches daily' : 'Let AI find your best matches daily'}
+            colors={colors}
+            locked={!isPro} onPress={() => !isPro && router.push('/subscription')}
+            toggle={isPro} toggleVal={autoZod}
+            onToggle={(val) => { setAutoZod(val); saveProToggle('auto_zod_enabled', val); }}
           />
           <SettingRow
             icon="airplane-outline" label="Travel Mode"
-            subtitle="Match with people in any city worldwide"
-            colors={colors} locked onPress={() => router.push('/subscription')}
+            subtitle={travelMode ? 'Matching with people worldwide' : 'Match with people in any city worldwide'}
+            colors={colors}
+            locked={!isPro} onPress={() => !isPro && router.push('/subscription')}
+            toggle={isPro} toggleVal={travelMode}
+            onToggle={async (val) => {
+              setTravelMode(val);
+              if (!val) {
+                // Turning off: clear travel state then restore real GPS location
+                try {
+                  await apiFetch('/profile/me', {
+                    method: 'PATCH', token: token!,
+                    body: JSON.stringify({ travel_mode_enabled: false, travel_city: null, travel_country: null }),
+                  });
+                  updateProfile({ travel_mode_enabled: false, travel_city: null, travel_country: null } as any);
+                } catch { /* silent */ }
+                // Re-fetch real GPS so feed coordinates update immediately
+                restoreRealLocation(token!, updateProfile);
+              } else {
+                saveProToggle('travel_mode_enabled', true);
+              }
+            }}
           />
           <SettingRow
             icon="location-outline" label="Change Location"
-            subtitle="Update your current city"
-            colors={colors} locked onPress={() => router.push('/subscription')}
+            subtitle={
+              profile?.travel_mode_enabled && profile?.travel_city
+                ? `✈️ Exploring ${profile.travel_city}${profile.travel_country ? `, ${profile.travel_country}` : ''}`
+                : profile?.city
+                  ? `Currently: ${profile.city}`
+                  : 'Set a city to explore profiles there'
+            }
+            colors={colors}
+            locked={!isPro} onPress={() => isPro ? router.push('/location-search?type=city') : router.push('/subscription')}
           />
         </Group>
       </View>
@@ -879,6 +1082,186 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
           colors={colors}
         />
       )}
+
+      {/* ── University text input modal ───────────────────────────────────── */}
+      {/* ── University + email verification modal ─────────────────────────── */}
+      <Modal visible={universityModalOpen} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setUniversityModalOpen(false)}>
+        <View style={{ flex: 1, backgroundColor: colors.bg }}>
+          {/* Header */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 20, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border }}>
+            <Pressable onPress={() => setUniversityModalOpen(false)}>
+              <Text style={{ fontSize: 15, fontFamily: 'ProductSans-Regular', color: colors.textSecondary }}>Cancel</Text>
+            </Pressable>
+            <Text style={{ fontSize: 16, fontFamily: 'ProductSans-Bold', color: colors.text }}>University</Text>
+            <Pressable onPress={() => {
+              const trimmed = universityDraft.trim();
+              setUniversity(trimmed);
+              saveField({ university: trimmed || null });
+              updateProfile({ university: trimmed || null });
+              setUniversityModalOpen(false);
+            }}>
+              <Text style={{ fontSize: 15, fontFamily: 'ProductSans-Bold', color: colors.text }}>Done</Text>
+            </Pressable>
+          </View>
+
+          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 20, gap: 28 }}>
+
+            {/* ── University name ──────────────────────────────────────────── */}
+            <View style={{ gap: 6 }}>
+              <Text style={{ fontSize: 12, fontFamily: 'ProductSans-Bold', color: colors.textSecondary, letterSpacing: 1 }}>UNIVERSITY NAME</Text>
+              <TextInput
+                value={universityDraft}
+                onChangeText={setUniversityDraft}
+                placeholder="e.g. University of Manchester"
+                placeholderTextColor={colors.textTertiary}
+                autoFocus
+                style={{ fontSize: 16, fontFamily: 'ProductSans-Regular', color: colors.text, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border, paddingVertical: 12 }}
+              />
+              <Text style={{ fontSize: 12, fontFamily: 'ProductSans-Regular', color: colors.textSecondary }}>
+                Shown on your public profile.
+              </Text>
+            </View>
+
+            {/* ── University email verification ─────────────────────────────── */}
+            <View style={{ gap: 10 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Text style={{ fontSize: 12, fontFamily: 'ProductSans-Bold', color: colors.textSecondary, letterSpacing: 1, flex: 1 }}>UNIVERSITY EMAIL</Text>
+                {uniEmailVerified && (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(34,197,94,0.12)', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20 }}>
+                    <Ionicons name="checkmark-circle" size={13} color="#22c55e" />
+                    <Text style={{ fontSize: 11, fontFamily: 'ProductSans-Bold', color: '#22c55e' }}>Verified</Text>
+                  </View>
+                )}
+              </View>
+
+              <Text style={{ fontSize: 13, fontFamily: 'ProductSans-Regular', color: colors.textSecondary, lineHeight: 19 }}>
+                Add your university email (e.g. .edu, .ac.uk) to be matched with fellow students.
+              </Text>
+
+              {/* Email input row */}
+              {uniOtpStep !== 'verified' && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                  <TextInput
+                    value={uniEmailDraft}
+                    onChangeText={(t) => { setUniEmailDraft(t); setUniEmailError(''); setUniOtpStep('idle'); }}
+                    placeholder="student@university.edu"
+                    placeholderTextColor={colors.textTertiary}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    style={{ flex: 1, fontSize: 15, fontFamily: 'ProductSans-Regular', color: colors.text, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border, paddingVertical: 10 }}
+                  />
+                  <Pressable
+                    disabled={!uniEmailDraft.trim() || uniEmailSending}
+                    onPress={async () => {
+                      setUniEmailError('');
+                      setUniEmailSending(true);
+                      try {
+                        await apiFetch('/university/email/send', {
+                          method: 'POST', token: token!,
+                          body: JSON.stringify({ email: uniEmailDraft.trim().toLowerCase() }),
+                        });
+                        setUniEmail(uniEmailDraft.trim().toLowerCase());
+                        setUniOtpStep('sent');
+                        setUniOtpCode('');
+                      } catch (e: any) {
+                        setUniEmailError(e?.message ?? 'Could not send code. Try again.');
+                      } finally {
+                        setUniEmailSending(false);
+                      }
+                    }}
+                    style={({ pressed }) => ({
+                      opacity: pressed || !uniEmailDraft.trim() || uniEmailSending ? 0.5 : 1,
+                      backgroundColor: colors.text,
+                      paddingHorizontal: 14,
+                      paddingVertical: 9,
+                      borderRadius: 20,
+                    })}
+                  >
+                    <Text style={{ fontSize: 13, fontFamily: 'ProductSans-Bold', color: colors.bg }}>
+                      {uniEmailSending ? '...' : uniOtpStep === 'sent' ? 'Resend' : 'Send Code'}
+                    </Text>
+                  </Pressable>
+                </View>
+              )}
+
+              {/* Already verified — show email + remove option */}
+              {uniOtpStep === 'verified' && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                  <Ionicons name="mail" size={16} color="#22c55e" />
+                  <Text style={{ flex: 1, fontSize: 14, fontFamily: 'ProductSans-Regular', color: colors.text }}>{uniEmail}</Text>
+                  <Pressable onPress={async () => {
+                    try {
+                      await apiFetch('/university/email', { method: 'DELETE', token: token! });
+                      setUniEmail(''); setUniEmailDraft(''); setUniEmailVerified(false); setUniOtpStep('idle');
+                      updateProfile({ university_email: null, university_email_verified: false } as any);
+                    } catch { /* ignore */ }
+                  }}>
+                    <Text style={{ fontSize: 13, fontFamily: 'ProductSans-Regular', color: '#ef4444' }}>Remove</Text>
+                  </Pressable>
+                </View>
+              )}
+
+              {/* OTP input row */}
+              {uniOtpStep === 'sent' && (
+                <View style={{ gap: 10 }}>
+                  <Text style={{ fontSize: 13, fontFamily: 'ProductSans-Regular', color: colors.textSecondary }}>
+                    Enter the 6-digit code sent to <Text style={{ color: colors.text }}>{uniEmail}</Text>
+                  </Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                    <TextInput
+                      value={uniOtpCode}
+                      onChangeText={(t) => { setUniOtpCode(t.replace(/[^0-9]/g, '')); setUniEmailError(''); }}
+                      placeholder="000000"
+                      placeholderTextColor={colors.textTertiary}
+                      keyboardType="number-pad"
+                      maxLength={6}
+                      style={{ flex: 1, fontSize: 22, fontFamily: 'ProductSans-Bold', color: colors.text, letterSpacing: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border, paddingVertical: 10 }}
+                    />
+                    <Pressable
+                      disabled={uniOtpCode.length !== 6 || uniOtpVerifying}
+                      onPress={async () => {
+                        setUniEmailError('');
+                        setUniOtpVerifying(true);
+                        try {
+                          await apiFetch('/university/email/verify', {
+                            method: 'POST', token: token!,
+                            body: JSON.stringify({ code: uniOtpCode }),
+                          });
+                          setUniEmailVerified(true);
+                          setUniOtpStep('verified');
+                          updateProfile({ university_email: uniEmail, university_email_verified: true } as any);
+                        } catch (e: any) {
+                          setUniEmailError(e?.message ?? 'Wrong code. Try again.');
+                        } finally {
+                          setUniOtpVerifying(false);
+                        }
+                      }}
+                      style={({ pressed }) => ({
+                        opacity: pressed || uniOtpCode.length !== 6 || uniOtpVerifying ? 0.5 : 1,
+                        backgroundColor: colors.text,
+                        paddingHorizontal: 14,
+                        paddingVertical: 9,
+                        borderRadius: 20,
+                      })}
+                    >
+                      <Text style={{ fontSize: 13, fontFamily: 'ProductSans-Bold', color: colors.bg }}>
+                        {uniOtpVerifying ? '...' : 'Verify'}
+                      </Text>
+                    </Pressable>
+                  </View>
+                </View>
+              )}
+
+              {/* Error message */}
+              {!!uniEmailError && (
+                <Text style={{ fontSize: 13, fontFamily: 'ProductSans-Regular', color: '#ef4444' }}>{uniEmailError}</Text>
+              )}
+            </View>
+
+          </ScrollView>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -900,17 +1283,22 @@ const styles = StyleSheet.create({
   actionBtn:         { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, borderRadius: 22, paddingVertical: 11 },
   actionBtnText:     { fontSize: 12, fontFamily: 'ProductSans-Bold' },
 
-  subBanner:         { flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 13 },
-  subBannerPlan:     { fontSize: 13, fontFamily: 'ProductSans-Bold' },
-  subBannerSub:      { fontSize: 12, fontFamily: 'ProductSans-Regular' },
-  subBannerCta:      { fontSize: 12, fontFamily: 'ProductSans-Bold' },
+  subBanner:            { flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 13 },
+  subBannerPlan:        { fontSize: 13, fontFamily: 'ProductSans-Bold' },
+  subBannerSub:         { fontSize: 12, fontFamily: 'ProductSans-Regular' },
+  subBannerCta:         { fontSize: 12, fontFamily: 'ProductSans-Bold' },
+
 
   section:           { paddingHorizontal: 16, marginTop: 22, gap: 6 },
   sectionLabel:      { fontSize: 12, fontFamily: 'ProductSans-Bold', letterSpacing: 1.5, marginLeft: 2, marginBottom: 2 },
   voiceSubtitle:     { fontSize: 12, fontFamily: 'ProductSans-Regular', marginBottom: 4, marginLeft: 2 },
 
-  moodRow:       { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12 },
-  moodLabel:     { fontSize: 11, fontFamily: 'ProductSans-Bold', letterSpacing: 0.8, marginBottom: 4 },
+  moodRow:          { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 10, gap: 12 },
+  moodBadge:        { width: 40, height: 40, borderRadius: 12, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
+  moodBadgeEmoji:   { fontSize: 22 },
+  moodStatusText:   { fontSize: 14, fontFamily: 'ProductSans-Medium' },
+  moodStatusSub:    { fontSize: 11, fontFamily: 'ProductSans-Regular', marginTop: 1 },
+  moodLabel:        { fontSize: 11, fontFamily: 'ProductSans-Bold', letterSpacing: 0.8, marginBottom: 4 },
 
   group:             { overflow: 'hidden' },
 

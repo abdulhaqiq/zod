@@ -7,6 +7,7 @@ import {
   Platform,
   Pressable,
   SafeAreaView,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -129,7 +130,12 @@ export default function VerifyPhone() {
           </Pressable>
         </View>
 
-        <View style={styles.body}>
+        <ScrollView
+          style={styles.body}
+          contentContainerStyle={styles.bodyContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
           <Text style={[styles.title, { color: colors.text }]}>Check your{'\n'}phone now</Text>
           <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
             We sent a 5-digit code to{'\n'}
@@ -246,7 +252,7 @@ export default function VerifyPhone() {
               </View>
             )}
           </View>
-        </View>
+        </ScrollView>
 
         <View style={styles.footer}>
           <Button
@@ -266,7 +272,8 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   topBar: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 4 },
   backBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
-  body: { flex: 1, paddingHorizontal: 24, paddingTop: 32 },
+  body: { flex: 1 },
+  bodyContent: { paddingHorizontal: 24, paddingTop: 32, paddingBottom: 12 },
   title: { fontSize: 36, fontFamily: 'ProductSans-Black', lineHeight: 42, marginBottom: 12 },
   subtitle: { fontSize: 14, fontFamily: 'ProductSans-Regular', lineHeight: 22, marginBottom: 10 },
   phoneHighlight: { fontFamily: 'ProductSans-Medium' },
