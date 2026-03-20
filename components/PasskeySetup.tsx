@@ -1,9 +1,12 @@
+import React from 'react';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useEffect, useState } from 'react';
+import { Alert, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import Button from '@/components/ui/Button';
 import Squircle from '@/components/ui/Squircle';
+import { saveRecentAccount, loadRecentAccount, type RecentAccount } from '@/context/AuthContext';
 import { useAppTheme } from '@/context/ThemeContext';
 
 const Logo = ({ color }: { color: string }) => (
@@ -15,24 +18,74 @@ const Logo = ({ color }: { color: string }) => (
   </Svg>
 );
 
-const BULLET_POINTS = [
-  { icon: 'lock-closed' as const, text: "With a passkey, we'll always remember your device, so you can log in quickly and securely." },
-  { icon: 'mail' as const, text: "To create one, we'll just need to find your email. That way, it can save to your iOS Keychain." },
-  { icon: 'phone-portrait' as const, text: 'You can use this passkey on all of your devices.' },
-  { icon: 'time' as const, text: "If you don't want to create one now, you can always do it later." },
+const BULLET_POINTS: { icon: React.ComponentProps<typeof Ionicons>['name']; text: string }[] = [
+  { icon: 'lock-closed',      text: "Saved securely to your Apple Keychain — only Face ID or Touch ID can unlock it." },
+  { icon: 'phone-portrait',   text: 'One tap to sign back in on this device, no password needed.' },
+  { icon: 'shield-checkmark', text: 'Your login details are encrypted and never leave your device.' },
+  { icon: 'time',             text: "Skip this for now — you can always enable it later in Settings." },
 ];
 
 export default function PasskeySetup() {
   const router = useRouter();
   const { colors } = useAppTheme();
+  const [saving, setSaving] = useState(false);
+  const [checking, setChecking] = useState(true);
+
+  // Account info is passed as params from OTP/Apple sign-in
+  const params = useLocalSearchParams<{
+    name?: string;
+    phone?: string;
+    photo?: string;
+    method?: 'phone' | 'apple';
+    next?: string; // where to go after this screen
+  }>();
+
+  const proceed = () => {
+    const next = params.next ?? '/(tabs)';
+    router.replace(next as any);
+  };
+
+  // If keychain is already saved for this device, skip immediately — never show twice
+  useEffect(() => {
+    loadRecentAccount().then(existing => {
+      if (existing) {
+        proceed();
+      } else {
+        setChecking(false);
+      }
+    }).catch(() => setChecking(false));
+  // proceed reference is stable (router is stable), deps intentionally empty
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const account: RecentAccount = {
+        name:   params.name   ?? null,
+        phone:  params.phone  ?? null,
+        photo:  params.photo  ?? null,
+        method: (params.method as 'phone' | 'apple') ?? 'phone',
+      };
+      await saveRecentAccount(account);
+      proceed();
+    } catch {
+      Alert.alert('Could not save', 'Please try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Render nothing while checking keychain to avoid any UI flash before auto-skipping
+  if (checking) return null;
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.bg }]}>
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <View style={styles.topBar}>
-          <Pressable onPress={() => router.back()} hitSlop={12}>
+          <Pressable onPress={proceed} hitSlop={12}>
             <Squircle style={styles.backBtn} cornerRadius={14} cornerSmoothing={1} fillColor={colors.backBtnBg}>
-              <Ionicons name="arrow-back" size={20} color={colors.text} />
+              <Ionicons name="close" size={20} color={colors.text} />
             </Squircle>
           </Pressable>
         </View>
@@ -46,7 +99,7 @@ export default function PasskeySetup() {
             <Ionicons name="key" size={32} color={colors.text} />
           </Squircle>
 
-          <Text style={[styles.title, { color: colors.text }]}>Do you want to{'\n'}create a passkey?</Text>
+          <Text style={[styles.title, { color: colors.text }]}>Save login info{'\n'}to Apple Keychain?</Text>
 
           <View style={styles.bullets}>
             {BULLET_POINTS.map((item, i) => (
@@ -62,10 +115,15 @@ export default function PasskeySetup() {
       </ScrollView>
 
       <View style={[styles.footer, { borderTopColor: colors.borderFaint }]}>
-        <Button title="Add passkey" onPress={() => router.push('/profile')} style={styles.btn} />
+        <Button
+          title={saving ? 'Saving…' : 'Save to Keychain'}
+          onPress={handleSave}
+          disabled={saving}
+          style={styles.btn}
+        />
         <Pressable
           style={({ pressed }) => [styles.notNowBtn, pressed && { opacity: 0.6 }]}
-          onPress={() => router.push('/profile')}
+          onPress={proceed}
         >
           <Text style={[styles.notNowText, { color: colors.textSecondary }]}>Not now</Text>
         </Pressable>
@@ -75,20 +133,20 @@ export default function PasskeySetup() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1 },
-  scroll: { flexGrow: 1 },
-  topBar: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 4 },
-  backBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
-  body: { paddingHorizontal: 24, paddingTop: 16, paddingBottom: 24 },
-  logoWrap: { marginBottom: 32 },
-  passkeyIcon: { width: 68, height: 68, alignItems: 'center', justifyContent: 'center', marginBottom: 24 },
-  title: { fontSize: 34, fontFamily: 'ProductSans-Black', lineHeight: 42, marginBottom: 36 },
-  bullets: { gap: 24 },
-  bulletRow: { flexDirection: 'row', gap: 14, alignItems: 'flex-start' },
+  safe:           { flex: 1 },
+  scroll:         { flexGrow: 1 },
+  topBar:         { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 4 },
+  backBtn:        { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+  body:           { paddingHorizontal: 24, paddingTop: 16, paddingBottom: 24 },
+  logoWrap:       { marginBottom: 32 },
+  passkeyIcon:    { width: 68, height: 68, alignItems: 'center', justifyContent: 'center', marginBottom: 24 },
+  title:          { fontSize: 34, fontFamily: 'ProductSans-Black', lineHeight: 42, marginBottom: 36 },
+  bullets:        { gap: 24 },
+  bulletRow:      { flexDirection: 'row', gap: 14, alignItems: 'flex-start' },
   bulletIconWrap: { width: 24, alignItems: 'center', marginTop: 2 },
-  bulletText: { flex: 1, fontSize: 15, fontFamily: 'ProductSans-Regular', lineHeight: 23 },
-  footer: { paddingHorizontal: 24, paddingBottom: 32, paddingTop: 12, gap: 12, borderTopWidth: 1 },
-  btn: { width: '100%' },
-  notNowBtn: { height: 54, alignItems: 'center', justifyContent: 'center' },
-  notNowText: { fontSize: 15, fontFamily: 'ProductSans-Medium' },
+  bulletText:     { flex: 1, fontSize: 15, fontFamily: 'ProductSans-Regular', lineHeight: 23 },
+  footer:         { paddingHorizontal: 24, paddingBottom: 32, paddingTop: 12, gap: 12, borderTopWidth: 1 },
+  btn:            { width: '100%' },
+  notNowBtn:      { height: 54, alignItems: 'center', justifyContent: 'center' },
+  notNowText:     { fontSize: 15, fontFamily: 'ProductSans-Medium' },
 });

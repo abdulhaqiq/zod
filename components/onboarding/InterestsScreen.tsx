@@ -1,3 +1,4 @@
+import { navPush, navReplace } from '@/utils/nav';
 // Step 6 — Interests (up to 5)
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
@@ -26,7 +27,7 @@ export default function InterestsScreen() {
   const handleContinue = async () => {
     if (selected.length === 0) return;
     const ok = await save({ interests: selected });
-    if (ok) router.push('/lifestyle');
+    if (ok) navPush('/lifestyle');
   };
 
   return (

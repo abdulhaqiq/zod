@@ -16,7 +16,7 @@ import {
 import Button from '@/components/ui/Button';
 import Squircle from '@/components/ui/Squircle';
 import { authedFetch, apiFetch } from '@/constants/api';
-import { useAuth } from '@/context/AuthContext';
+import { useAuth, loadRecentAccount } from '@/context/AuthContext';
 import { useAppTheme } from '@/context/ThemeContext';
 import { getDeviceInfo } from '@/utils/deviceInfo';
 
@@ -74,15 +74,36 @@ export default function VerifyPhone() {
         body: JSON.stringify({ phone, code: digits, device }),
       });
 
-      // Fetch onboarding status before saving to context so the auth guard
-      // has the correct value the moment the token state updates
-      const me = await authedFetch<{ is_onboarded: boolean }>(
-        '/profile/me',
-        data.access_token,
-      );
+      // Fetch profile before saving to context so the auth guard has the correct
+      // onboarding status the moment the token state updates
+      const me = await authedFetch<{
+        is_onboarded: boolean;
+        full_name?: string | null;
+        phone?: string | null;
+        photos?: string[] | null;
+      }>('/profile/me', data.access_token);
 
       // signIn triggers the auth guard; isOnboarded tells it where to route
-      await signIn(data.access_token, data.refresh_token, me.is_onboarded);
+      await signIn(data.access_token, data.refresh_token, me.is_onboarded, 'phone');
+
+      const dest = me.is_onboarded ? '/(tabs)' : '/gender';
+
+      // Only show passkey setup if there's no existing saved account
+      const existing = await loadRecentAccount();
+      if (existing) {
+        router.replace(dest as any);
+      } else {
+        router.push({
+          pathname: '/passkey' as any,
+          params: {
+            name:   me.full_name   ?? '',
+            phone:  me.phone       ?? '',
+            photo:  me.photos?.[0] ?? '',
+            method: 'phone',
+            next:   dest,
+          },
+        });
+      }
     } catch (err: any) {
       setError(err.message ?? 'Invalid code. Please try again.');
       setCode('');

@@ -1,3 +1,4 @@
+import { navPush, navReplace } from '@/utils/nav';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -439,7 +440,7 @@ const ProfileCard = forwardRef<ProfileCardHandle, {
       >
         {/* Photo */}
         <View style={styles.photoContainer}>
-          <Image source={{ uri: profile.images[0] }} style={styles.photo} resizeMode="cover" />
+          <ExpoImage source={{ uri: profile.images[0] }} style={styles.photo} contentFit="cover" cachePolicy="disk" />
           <LinearGradient
             colors={['transparent', 'rgba(0,0,0,0.55)', 'rgba(0,0,0,0.92)']}
             locations={[0.45, 0.75, 1]}
@@ -536,7 +537,7 @@ const ProfileCard = forwardRef<ProfileCardHandle, {
           </>}
 
           {profile.images[1] && <>
-            <Image source={{ uri: profile.images[1] }} style={styles.inlinePhoto} resizeMode="cover" />
+            <ExpoImage source={{ uri: profile.images[1] }} style={styles.inlinePhoto} contentFit="cover" cachePolicy="disk" />
             <View style={[styles.divider, { backgroundColor: colors.border }]} />
           </>}
 
@@ -575,7 +576,7 @@ const ProfileCard = forwardRef<ProfileCardHandle, {
           </>}
 
           {profile.images[2] && <>
-            <Image source={{ uri: profile.images[2] }} style={styles.inlinePhoto} resizeMode="cover" />
+            <ExpoImage source={{ uri: profile.images[2] }} style={styles.inlinePhoto} contentFit="cover" cachePolicy="disk" />
             <View style={[styles.divider, { backgroundColor: colors.border }]} />
           </>}
 
@@ -720,7 +721,7 @@ function WorkProfileCard({ profile, onSwipedLeft, onSwipedRight, colors }: {
       <ScrollView showsVerticalScrollIndicator={false} bounces={false}>
         {/* Cover photo */}
         <View style={{ height: CARD_H * 0.42, position: 'relative' }}>
-          <Image source={{ uri: profile.images[0] }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+          <ExpoImage source={{ uri: profile.images[0] }} style={{ width: '100%', height: '100%' }} contentFit="cover" cachePolicy="disk" />
           {/* Gradient */}
           <LinearGradient colors={['transparent', 'rgba(0,0,0,0.85)']} style={[StyleSheet.absoluteFill, { justifyContent: 'flex-end', padding: 16 }]}>
             {/* CONNECT / PASS badges */}
@@ -1253,7 +1254,7 @@ export default function FeedScreen() {
       Alert.alert(
         'Super Likes are Pro',
         'Upgrade to Pro to send super likes and stand out from the crowd.',
-        [{ text: 'Maybe Later', style: 'cancel' }, { text: 'Upgrade', onPress: () => router.push('/subscription' as any) }],
+        [{ text: 'Maybe Later', style: 'cancel' }, { text: 'Upgrade', onPress: () => navPush('/subscription' as any) }],
       );
       return;
     }
@@ -1380,7 +1381,17 @@ export default function FeedScreen() {
       </View>
 
       {/* Filter sheet */}
-      <DateFilterSheet visible={filterOpen} onClose={() => setFilterOpen(false)} onApply={refetchFeed} colors={colors} insets={insets} />
+      <DateFilterSheet
+        visible={filterOpen}
+        onClose={() => setFilterOpen(false)}
+        onApply={refetchFeed}
+        onNavigateToVerification={() => {
+          setFilterOpen(false);
+          router.push({ pathname: '/verification', params: { tab: 'face' } } as any);
+        }}
+        colors={colors}
+        insets={insets}
+      />
 
       {/* Explore overlay */}
       {exploreOpen && (
@@ -1406,7 +1417,7 @@ export default function FeedScreen() {
           onChat={() => {
             const p = matchedProfile;
             setMatchedProfile(null);
-            router.push({ pathname: '/chat', params: { matchId: p.id, name: p.name, image: p.image, online: 'true' } } as any);
+            navPush({ pathname: '/chat', params: { matchId: p.id, name: p.name, image: p.image, online: 'true' } } as any);
           }}
           onDismiss={() => setMatchedProfile(null)}
         />

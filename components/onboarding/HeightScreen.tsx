@@ -1,3 +1,4 @@
+import { navPush, navReplace } from '@/utils/nav';
 // Step 5 — Height
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
@@ -29,7 +30,7 @@ export default function HeightScreen() {
 
   const handleContinue = async () => {
     const ok = await save({ height_cm: heightCm });
-    if (ok) router.push('/interests');
+    if (ok) navPush('/interests');
   };
 
   return (

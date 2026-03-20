@@ -30,9 +30,10 @@ export const unstable_settings = {
   initialRouteName: 'welcome',
 };
 
-const AUTH_SCREENS = ['welcome', 'phone', 'otp', 'passkey'];
+const AUTH_SCREENS = ['welcome', 'phone', 'otp'];
 
 const ONBOARDING_SCREENS = [
+  'passkey',
   'profile', 'gender', 'purpose', 'goals', 'height',
   'interests', 'lifestyle', 'values', 'prompts', 'photos',
 ];
@@ -280,17 +281,34 @@ function RootLayoutInner() {
       didNavigate = true;
 
     } else if (isLoggedIn && isOnAuthScreen) {
-      if (isOnboarded) {
+      // If token is set but profile hasn't arrived yet (e.g. mid quick-sign-in),
+      // hold off — navigating now would flash the profile/onboarding screen.
+      if (!profile && !isOnboarded) {
+        // Don't set didNavigate — routingDone will be signalled on next fire
+        // eslint-disable-next-line no-empty
+      } else if (isOnboarded) {
         router.replace('/(tabs)' as any);
+        didNavigate = true;
       } else {
         const next = profile ? firstIncompleteStep(profile) : '/profile';
         router.replace(next as any);
+        didNavigate = true;
       }
-      didNavigate = true;
 
     } else if (isLoggedIn && !isOnboarded && isOnProtectedScreen) {
       const next = profile ? firstIncompleteStep(profile) : '/profile';
       router.replace(next as any);
+      didNavigate = true;
+
+    } else if (
+      isLoggedIn &&
+      isOnboarded &&
+      (profile?.face_scan_required || profile?.id_scan_required) &&
+      currentScreen !== 'face-scan-required'
+    ) {
+      // Account flagged for mandatory verification (face scan or ID upload).
+      // Block access to all other screens until the required scan is completed.
+      router.replace('/face-scan-required' as any);
       didNavigate = true;
     }
 
@@ -301,7 +319,7 @@ function RootLayoutInner() {
       setTimeout(() => setRoutingDone(true), didNavigate ? 100 : 0);
     }
 
-  }, [authReady, isLoggedIn, isOnboarded, isNetworkError, segments]);
+  }, [authReady, isLoggedIn, isOnboarded, isNetworkError, profile?.face_scan_required, profile?.id_scan_required, segments]);
 
   const bgColor = isDark ? darkColors.bg : lightColors.bg;
 
@@ -345,6 +363,7 @@ function RootLayoutInner() {
             <Stack.Screen name="admin-verifications"  options={{ headerShown: false }} />
             <Stack.Screen name="zod-work"             options={{ headerShown: false }} />
             <Stack.Screen name="work-edit-profile"    options={{ headerShown: false }} />
+            <Stack.Screen name="face-scan-required"   options={{ headerShown: false, gestureEnabled: false }} />
             <Stack.Screen name="modal"                options={{ presentation: 'modal', title: 'Modal' }} />
           </Stack>
         )}

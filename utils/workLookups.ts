@@ -6,7 +6,7 @@
  * ChipOption.label  = human-readable text        — displayed in the UI
  * ChipOption.emoji  = optional emoji prefix
  */
-import { API_V1 } from '@/constants/api';
+import { apiFetch } from '@/constants/api';
 import type { ChipOption } from '@/components/ui/ChipSelectorSheet';
 
 export type WorkLookupMap = Record<string, ChipOption[]>;
@@ -31,9 +31,7 @@ const WORK_CATEGORIES = [
 export async function fetchWorkLookups(): Promise<WorkLookupMap> {
   if (_cache) return _cache;
   try {
-    const res = await fetch(`${API_V1}/lookup/options`);
-    if (!res.ok) throw new Error('lookup fetch failed');
-    const data = await res.json() as Record<string, LookupRow[]>;
+    const data = await apiFetch<Record<string, LookupRow[]>>('/lookup/options');
     const map: WorkLookupMap = {};
     for (const cat of WORK_CATEGORIES) {
       const rows = data[cat] ?? [];

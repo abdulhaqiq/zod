@@ -1,11 +1,16 @@
+import { navPush, navReplace } from '@/utils/nav';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import * as WebBrowser from 'expo-web-browser';
 import { useRouter } from 'expo-router';
+import { Linking } from 'react-native';
 import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -18,6 +23,7 @@ import { Image as ExpoImage } from 'expo-image';
 import ChipSelectorSheet, { type ChipOption } from '@/components/ui/ChipSelectorSheet';
 import WheelPickerSheet from '@/components/ui/WheelPickerSheet';
 import VoiceSection from '@/components/ui/VoiceSection';
+import ScreenHeader from '@/components/ui/ScreenHeader';
 import Squircle from '@/components/ui/Squircle';
 import { API_V1, apiFetch } from '@/constants/api';
 import { useAuth } from '@/context/AuthContext';
@@ -69,9 +75,7 @@ let _cachedLookups: LookupMap | null = null;
 async function fetchAllLookups(): Promise<LookupMap> {
   if (_cachedLookups) return _cachedLookups;
   try {
-    const res = await fetch(`${API_V1}/lookup/options`);
-    if (!res.ok) throw new Error('lookup fetch failed');
-    const data = await res.json() as Record<string, Array<{ id: number; emoji?: string; label: string }>>;
+    const data = await apiFetch<Record<string, Array<{ id: number; emoji?: string; label: string }>>>('/lookup/options');
     const map: LookupMap = {};
     for (const [cat, rows] of Object.entries(data)) {
       // Store id as the `value` field so ChipSelectorSheet returns the ID (as string)
@@ -415,7 +419,7 @@ function SettingRow({
 
 export default function MyProfilePage({ colors, insets }: { colors: AppColors; insets: any }) {
   const router = useRouter();
-  const { token, refreshToken, signOut, profile, updateProfile } = useAuth();
+  const { token, signOut, profile, updateProfile } = useAuth();
   const { status: subStatus, refetch: refetchSub } = useSubscription();
   // Use live subscription status from /subscription/status if available,
   // falling back to the profile cache so the banner is never stale.
@@ -477,8 +481,6 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
   const [moodEmoji,        setMoodEmoji]        = useState(profile?.mood_emoji ?? '');
   const [moodText,         setMoodText]         = useState(profile?.mood_text ?? '');
   const [moodModalOpen,    setMoodModalOpen]    = useState(false);
-  const [university,            setUniversity]            = useState(profile?.university ?? '');
-  const [universityDraft,       setUniversityDraft]       = useState(profile?.university ?? '');
   const [universityModalOpen,   setUniversityModalOpen]   = useState(false);
   // University email verification state
   const [uniEmail,              setUniEmail]              = useState(profile?.university_email ?? '');
@@ -489,6 +491,11 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
   const [uniEmailSending,       setUniEmailSending]       = useState(false);
   const [uniOtpVerifying,       setUniOtpVerifying]       = useState(false);
   const [uniEmailError,         setUniEmailError]         = useState('');
+
+  // ── LinkedIn verification ─────────────────────────────────────────────────
+  const [linkedInVerified,    setLinkedInVerified]    = useState(profile?.linkedin_verified ?? false);
+  const [linkedInUrl,         setLinkedInUrl]         = useState(profile?.linkedin_url ?? '');
+  const [linkedInLoading,     setLinkedInLoading]     = useState(false);
 
   // ── Privacy toggles ───────────────────────────────────────────────────────
   const [hideAge,                 setHideAge]                 = useState(profile?.hide_age ?? false);
@@ -574,11 +581,11 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
     setLanguageIds((profile.languages ?? []).map(String));
     setMoodEmoji(profile.mood_emoji ?? '');
     setMoodText(profile.mood_text ?? '');
-    setUniversity(profile.university ?? '');
-    setUniversityDraft(profile.university ?? '');
     setUniEmail(profile.university_email ?? '');
     setUniEmailDraft(profile.university_email ?? '');
     setUniEmailVerified(profile.university_email_verified ?? false);
+    setLinkedInVerified(profile.linkedin_verified ?? false);
+    setLinkedInUrl(profile.linkedin_url ?? '');
     setHideAge(profile.hide_age ?? false);
     setHideDistance(profile.hide_distance ?? false);
     setRequireVerifiedToChat(profile.require_verified_to_chat ?? false);
@@ -606,6 +613,49 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
   const openWheel = (cfg: WheelState) => setWheel(cfg);
   const [showHeightWheel] = useState(false); // kept for compat — height now uses wheel too
 
+  // ── LinkedIn verification ─────────────────────────────────────────────────
+
+  const LINKEDIN_CLIENT_ID   = '86limpriduno69';
+  const LINKEDIN_REDIRECT_URI = 'https://dev.zod.ailoo.co/api/v1/linkedin/callback';
+  const LINKEDIN_DEEP_LINK    = 'zod://linkedin';
+
+  const connectLinkedIn = async () => {
+    setLinkedInLoading(true);
+    try {
+      const params = new URLSearchParams({
+        response_type: 'code',
+        client_id: LINKEDIN_CLIENT_ID,
+        redirect_uri: LINKEDIN_REDIRECT_URI,
+        scope: 'openid profile email',
+        state: Math.random().toString(36).slice(2),
+      });
+      const authUrl = `https://www.linkedin.com/oauth/v2/authorization?${params.toString()}`;
+      const result = await WebBrowser.openAuthSessionAsync(authUrl, LINKEDIN_DEEP_LINK);
+      if (result.type !== 'success' || !result.url) return;
+
+      let code: string | undefined;
+      try { code = new URL(result.url).searchParams.get('code') ?? undefined; }
+      catch { code = result.url.match(/[?&]code=([^&]+)/)?.[1]; }
+      if (!code || !token) return;
+
+      const res = await apiFetch<{ linkedin_verified: boolean; linkedin_url: string | null }>(
+        '/linkedin/verify',
+        { method: 'POST', token, body: JSON.stringify({ code, redirect_uri: LINKEDIN_REDIRECT_URI }) },
+      );
+      setLinkedInVerified(res.linkedin_verified);
+      setLinkedInUrl(res.linkedin_url ?? '');
+      Alert.alert('LinkedIn Verified ✓', 'Your LinkedIn account has been connected to your profile.');
+    } catch (e: any) {
+      Alert.alert('Error', e?.message || 'Could not connect LinkedIn. Please try again.');
+    } finally {
+      setLinkedInLoading(false);
+    }
+  };
+
+  const openLinkedInProfile = () => {
+    if (linkedInUrl) Linking.openURL(linkedInUrl);
+  };
+
   // ── Log out ───────────────────────────────────────────────────────────────
 
   const handleLogOut = () => {
@@ -614,16 +664,11 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
       {
         text: 'Log Out', style: 'destructive',
         onPress: async () => {
-          try {
-            if (refreshToken) {
-              await apiFetch('/auth/logout', {
-                method: 'POST', token: token ?? undefined,
-                body: JSON.stringify({ refresh_token: refreshToken }),
-              });
-            }
-          } catch { /* sign out locally regardless */ }
+          // Do NOT revoke the refresh token on the server — the same token is
+          // persisted as QUICK_SIGNIN_KEY so "Continue as [Name]" keeps working
+          // (biometric gate protects it). This mirrors how Facebook/Snapchat work.
           await signOut();
-          router.replace('/welcome');
+          navReplace('/welcome');
         },
       },
     ]);
@@ -654,7 +699,7 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
                 style={[styles.actionBtn, { borderWidth: 1, borderColor: colors.border }]}
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                  router.push('/edit-profile');
+                  navPush('/edit-profile');
                 }}
               >
                 <Ionicons name="create-outline" size={12} color={colors.text} />
@@ -675,7 +720,14 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
 
       {/* ── Subscription banner ─────────────────────────────────────────── */}
       <View style={{ paddingHorizontal: 16, marginTop: 16 }}>
-        <Pressable style={[styles.subBanner, { backgroundColor: colors.surface }]} onPress={() => router.push('/subscription')}>
+        <Pressable
+          onPress={() => navPush('/subscription')}
+          style={({ pressed }) => [
+            styles.subBanner,
+            { backgroundColor: colors.surface },
+            pressed && { opacity: 0.65 },
+          ]}
+        >
           <Ionicons name="star" size={14} color="#FFD60A" />
           {isPro ? (
             <>
@@ -762,7 +814,7 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
             label="Manage Zod Work"
             subtitle="Work profile, experience & preferences"
             colors={colors}
-            onPress={() => router.push('/zod-work')}
+            onPress={() => navPush('/zod-work')}
           />
         </Group>
       </View>
@@ -794,14 +846,15 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
 
           <EditRow
             icon="school-outline"
-            label="University"
+            label="University Email"
             value={
-              university
-                ? `${university}${uniEmailVerified ? '  ✓ Verified' : ''}`
-                : '—'
+              uniEmailVerified && uniEmail
+                ? uniEmail
+                : uniEmail
+                  ? `${uniEmail} · Unverified`
+                  : '—'
             }
             onPress={() => {
-              setUniversityDraft(university);
               setUniEmailDraft(uniEmail);
               setUniOtpStep(uniEmailVerified ? 'verified' : 'idle');
               setUniOtpCode('');
@@ -926,6 +979,44 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
         </Group>
       </View>
 
+      {/* ── LINKEDIN VERIFICATION ───────────────────────────────────────── */}
+      <View style={styles.section}>
+        <SectionLabel title="LINKEDIN" colors={colors} />
+        <Squircle
+          style={styles.linkedInCard}
+          cornerRadius={20}
+          cornerSmoothing={1}
+          fillColor="#0A66C2"
+        >
+          <View style={styles.linkedInInner}>
+            <View style={styles.linkedInLeft}>
+              <Squircle style={styles.linkedInIcon} cornerRadius={10} cornerSmoothing={1} fillColor="rgba(255,255,255,0.18)">
+                <Ionicons name="logo-linkedin" size={20} color="#fff" />
+              </Squircle>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.linkedInTitle}>
+                  {linkedInVerified ? 'LinkedIn Verified ✓' : 'Verify via LinkedIn'}
+                </Text>
+                <Text style={styles.linkedInSub} numberOfLines={1}>
+                  {linkedInVerified
+                    ? (linkedInUrl ? 'Tap to view your profile' : 'Account connected')
+                    : 'Connect your LinkedIn account'}
+                </Text>
+              </View>
+            </View>
+            <Pressable
+              style={[styles.linkedInBtn, linkedInVerified && styles.linkedInBtnVerified]}
+              onPress={linkedInVerified ? openLinkedInProfile : (linkedInLoading ? undefined : connectLinkedIn)}
+              disabled={linkedInLoading}
+            >
+              <Text style={[styles.linkedInBtnText, linkedInVerified && styles.linkedInBtnTextVerified]}>
+                {linkedInLoading ? '…' : linkedInVerified ? 'View' : 'Connect'}
+              </Text>
+            </Pressable>
+          </View>
+        </Squircle>
+      </View>
+
       {/* ── VOICE PROMPTS ───────────────────────────────────────────────── */}
       <View style={styles.section}>
         <SectionLabel title="VOICE PROMPTS" colors={colors} />
@@ -977,7 +1068,7 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
             icon="eye-off-outline" label="Incognito Mode"
             subtitle={incognito ? 'Browsing without being seen' : 'Browse profiles without being seen'}
             colors={colors}
-            locked={!isPro} onPress={() => !isPro && router.push('/subscription')}
+            locked={!isPro} onPress={() => !isPro && navPush('/subscription')}
             toggle={isPro} toggleVal={incognito}
             onToggle={(val) => { setIncognito(val); saveProToggle('is_incognito', val); }}
           />
@@ -985,7 +1076,7 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
             icon="sparkles-outline" label="Auto Zod (AI)"
             subtitle={autoZod ? 'AI is finding your best matches daily' : 'Let AI find your best matches daily'}
             colors={colors}
-            locked={!isPro} onPress={() => !isPro && router.push('/subscription')}
+            locked={!isPro} onPress={() => !isPro && navPush('/subscription')}
             toggle={isPro} toggleVal={autoZod}
             onToggle={(val) => { setAutoZod(val); saveProToggle('auto_zod_enabled', val); }}
           />
@@ -993,7 +1084,7 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
             icon="airplane-outline" label="Travel Mode"
             subtitle={travelMode ? 'Matching with people worldwide' : 'Match with people in any city worldwide'}
             colors={colors}
-            locked={!isPro} onPress={() => !isPro && router.push('/subscription')}
+            locked={!isPro} onPress={() => !isPro && navPush('/subscription')}
             toggle={isPro} toggleVal={travelMode}
             onToggle={async (val) => {
               setTravelMode(val);
@@ -1017,13 +1108,13 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
             icon="location-outline" label="Change Location"
             subtitle={
               profile?.travel_mode_enabled && profile?.travel_city
-                ? `✈️ Exploring ${profile.travel_city}${profile.travel_country ? `, ${profile.travel_country}` : ''}`
+                ? `Exploring ${profile.travel_city}${profile.travel_country ? `, ${profile.travel_country}` : ''}`
                 : profile?.city
                   ? `Currently: ${profile.city}`
                   : 'Set a city to explore profiles there'
             }
             colors={colors}
-            locked={!isPro} onPress={() => isPro ? router.push('/location-search?type=city') : router.push('/subscription')}
+            locked={!isPro} onPress={() => isPro ? navPush('/location-search?type=city') : navPush('/subscription')}
           />
         </Group>
       </View>
@@ -1032,11 +1123,11 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
       <View style={styles.section}>
         <SectionLabel title="ACCOUNT" colors={colors} />
         <Group colors={colors}>
-          <SettingRow icon="notifications-outline" label="Notifications"     colors={colors} onPress={() => router.push('/notifications')} />
-          <SettingRow icon="shield-outline"        label="Security"          colors={colors} onPress={() => router.push('/security')} />
-          <SettingRow icon="document-text-outline" label="Legal Information" colors={colors} onPress={() => router.push('/legal')} />
-          <SettingRow icon="help-circle-outline"   label="Get Help"          colors={colors} onPress={() => router.push('/get-help')} />
-          <SettingRow icon="card-outline"          label="Purchases"         colors={colors} onPress={() => router.push('/purchases')} />
+          <SettingRow icon="notifications-outline" label="Notifications"     colors={colors} onPress={() => navPush('/notifications')} />
+          <SettingRow icon="shield-outline"        label="Security"          colors={colors} onPress={() => navPush('/security')} />
+          <SettingRow icon="document-text-outline" label="Legal Information" colors={colors} onPress={() => navPush('/legal')} />
+          <SettingRow icon="help-circle-outline"   label="Get Help"          colors={colors} onPress={() => navPush('/get-help')} />
+          <SettingRow icon="card-outline"          label="Purchases"         colors={colors} onPress={() => navPush('/purchases')} />
         </Group>
       </View>
 
@@ -1083,183 +1174,257 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
         />
       )}
 
-      {/* ── University text input modal ───────────────────────────────────── */}
-      {/* ── University + email verification modal ─────────────────────────── */}
+      {/* ── University email modal ─────────────────────────────────────────── */}
       <Modal visible={universityModalOpen} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setUniversityModalOpen(false)}>
         <View style={{ flex: 1, backgroundColor: colors.bg }}>
-          {/* Header */}
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 20, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border }}>
-            <Pressable onPress={() => setUniversityModalOpen(false)}>
-              <Text style={{ fontSize: 15, fontFamily: 'ProductSans-Regular', color: colors.textSecondary }}>Cancel</Text>
-            </Pressable>
-            <Text style={{ fontSize: 16, fontFamily: 'ProductSans-Bold', color: colors.text }}>University</Text>
-            <Pressable onPress={() => {
-              const trimmed = universityDraft.trim();
-              setUniversity(trimmed);
-              saveField({ university: trimmed || null });
-              updateProfile({ university: trimmed || null });
-              setUniversityModalOpen(false);
-            }}>
-              <Text style={{ fontSize: 15, fontFamily: 'ProductSans-Bold', color: colors.text }}>Done</Text>
-            </Pressable>
-          </View>
+          <ScreenHeader
+            title="University Email"
+            onClose={() => setUniversityModalOpen(false)}
+            colors={colors}
+          />
 
-          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 20, gap: 28 }}>
+          <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+            <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 20, gap: 24 }} showsVerticalScrollIndicator={false}>
 
-            {/* ── University name ──────────────────────────────────────────── */}
-            <View style={{ gap: 6 }}>
-              <Text style={{ fontSize: 12, fontFamily: 'ProductSans-Bold', color: colors.textSecondary, letterSpacing: 1 }}>UNIVERSITY NAME</Text>
-              <TextInput
-                value={universityDraft}
-                onChangeText={setUniversityDraft}
-                placeholder="e.g. University of Manchester"
-                placeholderTextColor={colors.textTertiary}
-                autoFocus
-                style={{ fontSize: 16, fontFamily: 'ProductSans-Regular', color: colors.text, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border, paddingVertical: 12 }}
-              />
-              <Text style={{ fontSize: 12, fontFamily: 'ProductSans-Regular', color: colors.textSecondary }}>
-                Shown on your public profile.
-              </Text>
-            </View>
-
-            {/* ── University email verification ─────────────────────────────── */}
-            <View style={{ gap: 10 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <Text style={{ fontSize: 12, fontFamily: 'ProductSans-Bold', color: colors.textSecondary, letterSpacing: 1, flex: 1 }}>UNIVERSITY EMAIL</Text>
-                {uniEmailVerified && (
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(34,197,94,0.12)', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20 }}>
-                    <Ionicons name="checkmark-circle" size={13} color="#22c55e" />
-                    <Text style={{ fontSize: 11, fontFamily: 'ProductSans-Bold', color: '#22c55e' }}>Verified</Text>
-                  </View>
-                )}
-              </View>
-
-              <Text style={{ fontSize: 13, fontFamily: 'ProductSans-Regular', color: colors.textSecondary, lineHeight: 19 }}>
-                Add your university email (e.g. .edu, .ac.uk) to be matched with fellow students.
-              </Text>
-
-              {/* Email input row */}
-              {uniOtpStep !== 'verified' && (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                  <TextInput
-                    value={uniEmailDraft}
-                    onChangeText={(t) => { setUniEmailDraft(t); setUniEmailError(''); setUniOtpStep('idle'); }}
-                    placeholder="student@university.edu"
-                    placeholderTextColor={colors.textTertiary}
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    style={{ flex: 1, fontSize: 15, fontFamily: 'ProductSans-Regular', color: colors.text, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border, paddingVertical: 10 }}
-                  />
-                  <Pressable
-                    disabled={!uniEmailDraft.trim() || uniEmailSending}
-                    onPress={async () => {
-                      setUniEmailError('');
-                      setUniEmailSending(true);
-                      try {
-                        await apiFetch('/university/email/send', {
-                          method: 'POST', token: token!,
-                          body: JSON.stringify({ email: uniEmailDraft.trim().toLowerCase() }),
-                        });
-                        setUniEmail(uniEmailDraft.trim().toLowerCase());
-                        setUniOtpStep('sent');
-                        setUniOtpCode('');
-                      } catch (e: any) {
-                        setUniEmailError(e?.message ?? 'Could not send code. Try again.');
-                      } finally {
-                        setUniEmailSending(false);
-                      }
-                    }}
-                    style={({ pressed }) => ({
-                      opacity: pressed || !uniEmailDraft.trim() || uniEmailSending ? 0.5 : 1,
-                      backgroundColor: colors.text,
-                      paddingHorizontal: 14,
-                      paddingVertical: 9,
-                      borderRadius: 20,
-                    })}
-                  >
-                    <Text style={{ fontSize: 13, fontFamily: 'ProductSans-Bold', color: colors.bg }}>
-                      {uniEmailSending ? '...' : uniOtpStep === 'sent' ? 'Resend' : 'Send Code'}
-                    </Text>
-                  </Pressable>
-                </View>
-              )}
-
-              {/* Already verified — show email + remove option */}
-              {uniOtpStep === 'verified' && (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                  <Ionicons name="mail" size={16} color="#22c55e" />
-                  <Text style={{ flex: 1, fontSize: 14, fontFamily: 'ProductSans-Regular', color: colors.text }}>{uniEmail}</Text>
-                  <Pressable onPress={async () => {
-                    try {
-                      await apiFetch('/university/email', { method: 'DELETE', token: token! });
-                      setUniEmail(''); setUniEmailDraft(''); setUniEmailVerified(false); setUniOtpStep('idle');
-                      updateProfile({ university_email: null, university_email_verified: false } as any);
-                    } catch { /* ignore */ }
-                  }}>
-                    <Text style={{ fontSize: 13, fontFamily: 'ProductSans-Regular', color: '#ef4444' }}>Remove</Text>
-                  </Pressable>
-                </View>
-              )}
-
-              {/* OTP input row */}
-              {uniOtpStep === 'sent' && (
-                <View style={{ gap: 10 }}>
-                  <Text style={{ fontSize: 13, fontFamily: 'ProductSans-Regular', color: colors.textSecondary }}>
-                    Enter the 6-digit code sent to <Text style={{ color: colors.text }}>{uniEmail}</Text>
+              {/* Info card */}
+              <Squircle
+                style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12, padding: 16 }}
+                cornerRadius={18} cornerSmoothing={1}
+                fillColor={colors.surface}
+                strokeColor={colors.border}
+                strokeWidth={StyleSheet.hairlineWidth}
+              >
+                <Squircle style={{ width: 34, height: 34, alignItems: 'center', justifyContent: 'center' }} cornerRadius={10} cornerSmoothing={1} fillColor={colors.surface2}>
+                  <Ionicons name="school-outline" size={17} color={colors.text} />
+                </Squircle>
+                <View style={{ flex: 1, gap: 4 }}>
+                  <Text style={{ fontSize: 14, fontFamily: 'ProductSans-Bold', color: colors.text }}>Student verification</Text>
+                  <Text style={{ fontSize: 13, fontFamily: 'ProductSans-Regular', color: colors.textSecondary, lineHeight: 19 }}>
+                    Add your university email (.edu, .ac.uk, etc.) to be matched with fellow students.
                   </Text>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                    <TextInput
-                      value={uniOtpCode}
-                      onChangeText={(t) => { setUniOtpCode(t.replace(/[^0-9]/g, '')); setUniEmailError(''); }}
-                      placeholder="000000"
-                      placeholderTextColor={colors.textTertiary}
-                      keyboardType="number-pad"
-                      maxLength={6}
-                      style={{ flex: 1, fontSize: 22, fontFamily: 'ProductSans-Bold', color: colors.text, letterSpacing: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border, paddingVertical: 10 }}
-                    />
+                </View>
+              </Squircle>
+
+              {/* Verified state */}
+              {uniOtpStep === 'verified' ? (
+                <View style={{ gap: 14 }}>
+                  <Squircle
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: 12, padding: 16 }}
+                    cornerRadius={18} cornerSmoothing={1}
+                    fillColor="rgba(34,197,94,0.07)"
+                    strokeColor="rgba(34,197,94,0.3)"
+                    strokeWidth={1}
+                  >
+                    <Squircle style={{ width: 34, height: 34, alignItems: 'center', justifyContent: 'center' }} cornerRadius={10} cornerSmoothing={1} fillColor="rgba(34,197,94,0.12)">
+                      <Ionicons name="checkmark" size={17} color="#22c55e" />
+                    </Squircle>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 13, fontFamily: 'ProductSans-Bold', color: '#22c55e' }}>Verified</Text>
+                      <Text style={{ fontSize: 13, fontFamily: 'ProductSans-Regular', color: colors.text, marginTop: 1 }}>{uniEmail}</Text>
+                    </View>
+                  </Squircle>
+
+                  <Pressable
+                    onPress={async () => {
+                      try {
+                        await apiFetch('/university/email', { method: 'DELETE', token: token! });
+                        setUniEmail(''); setUniEmailDraft(''); setUniEmailVerified(false); setUniOtpStep('idle');
+                        updateProfile({ university_email: null, university_email_verified: false } as any);
+                      } catch { /* ignore */ }
+                    }}
+                    style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}
+                  >
+                    <Squircle
+                      style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 15 }}
+                      cornerRadius={50} cornerSmoothing={1}
+                      fillColor={colors.surface}
+                      strokeColor={colors.border}
+                      strokeWidth={StyleSheet.hairlineWidth}
+                    >
+                      <Ionicons name="trash-outline" size={15} color="#ef4444" />
+                      <Text style={{ fontSize: 14, fontFamily: 'ProductSans-Bold', color: '#ef4444' }}>Remove email</Text>
+                    </Squircle>
+                  </Pressable>
+                </View>
+              ) : (
+                <View style={{ gap: 16 }}>
+                  {/* Email input */}
+                  <View style={{ gap: 8 }}>
+                    <Text style={{ fontSize: 11, fontFamily: 'ProductSans-Bold', color: colors.textSecondary, letterSpacing: 0.7 }}>EMAIL ADDRESS</Text>
+                    <Squircle
+                      style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingVertical: 14 }}
+                      cornerRadius={16} cornerSmoothing={1}
+                      fillColor={colors.surface}
+                      strokeColor={colors.border}
+                      strokeWidth={StyleSheet.hairlineWidth}
+                    >
+                      <Ionicons name="mail-outline" size={16} color={colors.textSecondary} />
+                      <TextInput
+                        value={uniEmailDraft}
+                        onChangeText={(t) => { setUniEmailDraft(t); setUniEmailError(''); setUniOtpStep('idle'); }}
+                        placeholder="student@university.edu"
+                        placeholderTextColor={colors.textTertiary}
+                        keyboardType="email-address"
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        style={{ flex: 1, fontSize: 15, fontFamily: 'ProductSans-Regular', color: colors.text }}
+                      />
+                      {uniEmailDraft.length > 0 && (
+                        <Pressable onPress={() => setUniEmailDraft('')} hitSlop={8}>
+                          <Squircle style={{ width: 20, height: 20, alignItems: 'center', justifyContent: 'center' }} cornerRadius={6} cornerSmoothing={1} fillColor={colors.surface2}>
+                            <Ionicons name="close" size={11} color={colors.textSecondary} />
+                          </Squircle>
+                        </Pressable>
+                      )}
+                    </Squircle>
+                  </View>
+
+                  {/* Send code button */}
+                  {uniOtpStep !== 'sent' && (
                     <Pressable
-                      disabled={uniOtpCode.length !== 6 || uniOtpVerifying}
+                      disabled={!uniEmailDraft.trim() || uniEmailSending}
                       onPress={async () => {
                         setUniEmailError('');
-                        setUniOtpVerifying(true);
+                        setUniEmailSending(true);
                         try {
-                          await apiFetch('/university/email/verify', {
+                          await apiFetch('/university/email/send', {
                             method: 'POST', token: token!,
-                            body: JSON.stringify({ code: uniOtpCode }),
+                            body: JSON.stringify({ email: uniEmailDraft.trim().toLowerCase() }),
                           });
-                          setUniEmailVerified(true);
-                          setUniOtpStep('verified');
-                          updateProfile({ university_email: uniEmail, university_email_verified: true } as any);
+                          setUniEmail(uniEmailDraft.trim().toLowerCase());
+                          setUniOtpStep('sent');
+                          setUniOtpCode('');
                         } catch (e: any) {
-                          setUniEmailError(e?.message ?? 'Wrong code. Try again.');
+                          setUniEmailError(e?.message ?? 'Could not send code. Try again.');
                         } finally {
-                          setUniOtpVerifying(false);
+                          setUniEmailSending(false);
                         }
                       }}
-                      style={({ pressed }) => ({
-                        opacity: pressed || uniOtpCode.length !== 6 || uniOtpVerifying ? 0.5 : 1,
-                        backgroundColor: colors.text,
-                        paddingHorizontal: 14,
-                        paddingVertical: 9,
-                        borderRadius: 20,
-                      })}
+                      style={({ pressed }) => [{ opacity: pressed || !uniEmailDraft.trim() || uniEmailSending ? 0.4 : 1 }]}
                     >
-                      <Text style={{ fontSize: 13, fontFamily: 'ProductSans-Bold', color: colors.bg }}>
-                        {uniOtpVerifying ? '...' : 'Verify'}
-                      </Text>
+                      <Squircle
+                        style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 15 }}
+                        cornerRadius={50} cornerSmoothing={1}
+                        fillColor={colors.text}
+                      >
+                        <Ionicons name="paper-plane-outline" size={15} color={colors.bg} />
+                        <Text style={{ fontSize: 14, fontFamily: 'ProductSans-Black', color: colors.bg }}>
+                          {uniEmailSending ? 'Sending…' : 'Send Verification Code'}
+                        </Text>
+                      </Squircle>
                     </Pressable>
-                  </View>
+                  )}
+
+                  {/* OTP entry */}
+                  {uniOtpStep === 'sent' && (
+                    <View style={{ gap: 14 }}>
+                      <Squircle
+                        style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14 }}
+                        cornerRadius={14} cornerSmoothing={1}
+                        fillColor={colors.surface}
+                        strokeColor={colors.border}
+                        strokeWidth={StyleSheet.hairlineWidth}
+                      >
+                        <Ionicons name="mail-unread-outline" size={15} color={colors.textSecondary} />
+                        <Text style={{ flex: 1, fontSize: 13, fontFamily: 'ProductSans-Regular', color: colors.textSecondary, lineHeight: 18 }}>
+                          Code sent to <Text style={{ color: colors.text, fontFamily: 'ProductSans-Bold' }}>{uniEmail}</Text>
+                        </Text>
+                        <Pressable
+                          disabled={uniEmailSending}
+                          onPress={async () => {
+                            setUniEmailError('');
+                            setUniEmailSending(true);
+                            try {
+                              await apiFetch('/university/email/send', {
+                                method: 'POST', token: token!,
+                                body: JSON.stringify({ email: uniEmailDraft.trim().toLowerCase() }),
+                              });
+                              setUniOtpCode('');
+                            } catch (e: any) {
+                              setUniEmailError(e?.message ?? 'Could not resend.');
+                            } finally {
+                              setUniEmailSending(false);
+                            }
+                          }}
+                        >
+                          <Text style={{ fontSize: 13, fontFamily: 'ProductSans-Bold', color: colors.text }}>Resend</Text>
+                        </Pressable>
+                      </Squircle>
+
+                      <View style={{ gap: 8 }}>
+                        <Text style={{ fontSize: 11, fontFamily: 'ProductSans-Bold', color: colors.textSecondary, letterSpacing: 0.7 }}>6-DIGIT CODE</Text>
+                        <Squircle
+                          style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14 }}
+                          cornerRadius={16} cornerSmoothing={1}
+                          fillColor={colors.surface}
+                          strokeColor={!!uniEmailError ? '#ef4444' : colors.border}
+                          strokeWidth={!!uniEmailError ? 1.5 : StyleSheet.hairlineWidth}
+                        >
+                          <TextInput
+                            value={uniOtpCode}
+                            onChangeText={(t) => { setUniOtpCode(t.replace(/[^0-9]/g, '')); setUniEmailError(''); }}
+                            placeholder="000000"
+                            placeholderTextColor={colors.textTertiary}
+                            keyboardType="number-pad"
+                            maxLength={6}
+                            style={{ flex: 1, fontSize: 24, fontFamily: 'ProductSans-Black', color: colors.text, letterSpacing: 10 }}
+                          />
+                        </Squircle>
+                      </View>
+
+                      <Pressable
+                        disabled={uniOtpCode.length !== 6 || uniOtpVerifying}
+                        onPress={async () => {
+                          setUniEmailError('');
+                          setUniOtpVerifying(true);
+                          try {
+                            await apiFetch('/university/email/verify', {
+                              method: 'POST', token: token!,
+                              body: JSON.stringify({ code: uniOtpCode }),
+                            });
+                            setUniEmailVerified(true);
+                            setUniOtpStep('verified');
+                            updateProfile({ university_email: uniEmail, university_email_verified: true } as any);
+                          } catch (e: any) {
+                            setUniEmailError(e?.message ?? 'Wrong code. Try again.');
+                          } finally {
+                            setUniOtpVerifying(false);
+                          }
+                        }}
+                        style={({ pressed }) => [{ opacity: pressed || uniOtpCode.length !== 6 || uniOtpVerifying ? 0.4 : 1 }]}
+                      >
+                        <Squircle
+                          style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 15 }}
+                          cornerRadius={50} cornerSmoothing={1}
+                          fillColor={uniOtpCode.length === 6 ? colors.text : colors.surface2}
+                        >
+                          <Ionicons name="checkmark-circle-outline" size={16} color={uniOtpCode.length === 6 ? colors.bg : colors.textSecondary} />
+                          <Text style={{ fontSize: 14, fontFamily: 'ProductSans-Black', color: uniOtpCode.length === 6 ? colors.bg : colors.textSecondary }}>
+                            {uniOtpVerifying ? 'Verifying…' : 'Verify Email'}
+                          </Text>
+                        </Squircle>
+                      </Pressable>
+                    </View>
+                  )}
+
+                  {/* Error */}
+                  {!!uniEmailError && (
+                    <Squircle
+                      style={{ flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12 }}
+                      cornerRadius={12} cornerSmoothing={1}
+                      fillColor="rgba(239,68,68,0.07)"
+                      strokeColor="rgba(239,68,68,0.2)"
+                      strokeWidth={1}
+                    >
+                      <Ionicons name="alert-circle-outline" size={15} color="#ef4444" />
+                      <Text style={{ flex: 1, fontSize: 13, fontFamily: 'ProductSans-Regular', color: '#ef4444' }}>{uniEmailError}</Text>
+                    </Squircle>
+                  )}
                 </View>
               )}
 
-              {/* Error message */}
-              {!!uniEmailError && (
-                <Text style={{ fontSize: 13, fontFamily: 'ProductSans-Regular', color: '#ef4444' }}>{uniEmailError}</Text>
-              )}
-            </View>
-
-          </ScrollView>
+            </ScrollView>
+          </KeyboardAvoidingView>
         </View>
       </Modal>
     </ScrollView>
@@ -1283,7 +1448,7 @@ const styles = StyleSheet.create({
   actionBtn:         { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, borderRadius: 22, paddingVertical: 11 },
   actionBtnText:     { fontSize: 12, fontFamily: 'ProductSans-Bold' },
 
-  subBanner:            { flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 13 },
+  subBanner:            { flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 13, width: '100%' },
   subBannerPlan:        { fontSize: 13, fontFamily: 'ProductSans-Bold' },
   subBannerSub:         { fontSize: 12, fontFamily: 'ProductSans-Regular' },
   subBannerCta:         { fontSize: 12, fontFamily: 'ProductSans-Bold' },
@@ -1292,6 +1457,17 @@ const styles = StyleSheet.create({
   section:           { paddingHorizontal: 16, marginTop: 22, gap: 6 },
   sectionLabel:      { fontSize: 12, fontFamily: 'ProductSans-Bold', letterSpacing: 1.5, marginLeft: 2, marginBottom: 2 },
   voiceSubtitle:     { fontSize: 12, fontFamily: 'ProductSans-Regular', marginBottom: 4, marginLeft: 2 },
+
+  linkedInCard:      { overflow: 'hidden' },
+  linkedInInner:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 14, gap: 10 },
+  linkedInLeft:      { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 },
+  linkedInIcon:      { width: 38, height: 38, alignItems: 'center', justifyContent: 'center' },
+  linkedInTitle:     { fontSize: 14, fontFamily: 'ProductSans-Bold', color: '#fff' },
+  linkedInSub:       { fontSize: 11, fontFamily: 'ProductSans-Regular', color: 'rgba(255,255,255,0.75)', marginTop: 1 },
+  linkedInBtn:       { backgroundColor: '#fff', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8 },
+  linkedInBtnVerified: { backgroundColor: 'rgba(255,255,255,0.15)' },
+  linkedInBtnText:   { fontSize: 12, fontFamily: 'ProductSans-Bold', color: '#0A66C2' },
+  linkedInBtnTextVerified: { color: '#fff' },
 
   moodRow:          { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 10, gap: 12 },
   moodBadge:        { width: 40, height: 40, borderRadius: 12, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },

@@ -95,7 +95,7 @@ type FaceState =
   | 'passed'
   | 'failed';
 
-function FaceTab({ colors, onSwitchToId }: { colors: AppColors; onSwitchToId: () => void }) {
+export function FaceTab({ colors, onSwitchToId, onPassed, skipCheck }: { colors: AppColors; onSwitchToId: () => void; onPassed?: () => void; skipCheck?: boolean }) {
   const { token, profile } = useAuth();
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef<CameraView>(null);
@@ -110,8 +110,11 @@ function FaceTab({ colors, onSwitchToId }: { colors: AppColors; onSwitchToId: ()
 
   const CHALLENGE_MS = 3000;
 
-  // On mount: restore pending/verified; show failed if rejected (with reason)
+  // On mount: skip the status check entirely when skipCheck=true (e.g. coming
+  // from the filter — user just wants to scan now, no need to hit the API).
+  // Otherwise restore pending/verified only; rejected always resets to idle.
   useEffect(() => {
+    if (skipCheck) { setInitializing(false); return; }
     if (!token) { setInitializing(false); return; }
     fetch(`${API_V1}/upload/verify-face/status`, {
       headers: { Authorization: `Bearer ${token}` },
@@ -124,12 +127,9 @@ function FaceTab({ colors, onSwitchToId }: { colors: AppColors; onSwitchToId: ()
         } else if (s === 'verified') {
           setMatchScore(data.attempt?.face_match_score ?? null);
           setState('passed');
-        } else if (s === 'rejected') {
-          setMatchScore(data.attempt?.face_match_score ?? null);
-          setFailReason(data.attempt?.rejection_reason ?? 'Verification failed. Please try again.');
-          setState('failed');
+          onPassed?.();
         }
-        // no attempt → stay idle
+        // rejected or no attempt → stay idle (fresh start)
       })
       .catch(() => {})
       .finally(() => setInitializing(false));
@@ -169,6 +169,7 @@ function FaceTab({ colors, onSwitchToId }: { colors: AppColors; onSwitchToId: ()
         pollTimer && clearInterval(pollTimer);
         setMatchScore(data.face_match_score ?? null);
         setState('passed');
+        onPassed?.();
       } else if (data.status === 'rejected') {
         settled = true;
         pollTimer && clearInterval(pollTimer);
@@ -564,7 +565,7 @@ interface IDResult {
   rejection_reason: string | null;
 }
 
-function IDTab({ colors }: { colors: AppColors }) {
+function IDTab({ colors, active = true }: { colors: AppColors; active?: boolean }) {
   const { token, profile } = useAuth();
   const [frontUri, setFrontUri] = useState<string | null>(null);
   const [backUri,  setBackUri]  = useState<string | null>(null);
@@ -573,8 +574,10 @@ function IDTab({ colors }: { colors: AppColors }) {
   const [idInitializing, setIdInitializing] = useState(true);
   const wsIdRef = useRef<WebSocket | null>(null);
 
-  // Restore status on mount
+  // Only check status when this tab is actually active (lazy init).
+  // This prevents firing /verify-id/status when the user opens face scan only.
   useEffect(() => {
+    if (!active) return;
     if (!token) { setIdInitializing(false); return; }
     fetch(`${API_V1}/upload/verify-id/status`, {
       headers: { Authorization: `Bearer ${token}` },
@@ -594,7 +597,7 @@ function IDTab({ colors }: { colors: AppColors }) {
       })
       .catch(() => {})
       .finally(() => setIdInitializing(false));
-  }, [token]);
+  }, [token, active]);
 
   // WebSocket while pending
   useEffect(() => {
@@ -839,9 +842,16 @@ export default function VerificationPage() {
   const { profile } = useAuth();
   const params = useLocalSearchParams<{ tab?: string }>();
 
-  // Open ID tab directly if face already verified or caller requested it
-  const defaultTab = (params.tab === 'id' || profile?.is_verified) ? 'id' : 'face';
+  // Explicit ?tab=face always wins (e.g. from filter — skip ID tab entirely).
+  // Otherwise open ID tab if face is already verified or caller requested id.
+  const defaultTab: 'face' | 'id' =
+    params.tab === 'face' ? 'face' :
+    (params.tab === 'id' || profile?.verification_status === 'verified') ? 'id' : 'face';
   const [tab, setTab] = useState<'face' | 'id'>(defaultTab);
+
+  // Skip the face status check when the caller explicitly requested face tab
+  // (e.g. from the filter "Verify your face" button — go straight to idle).
+  const faceSkipCheck = params.tab === 'face';
 
   const tabs = (
     <View style={styles.tabRow}>
@@ -880,8 +890,8 @@ export default function VerificationPage() {
           showsVerticalScrollIndicator={false}
         >
           {tab === 'face'
-            ? <FaceTab colors={colors} onSwitchToId={() => setTab('id')} />
-            : <IDTab colors={colors} />
+            ? <FaceTab colors={colors} onSwitchToId={() => setTab('id')} skipCheck={faceSkipCheck} />
+            : <IDTab colors={colors} active={tab === 'id'} />
           }
         </ScrollView>
       </KeyboardAvoidingView>

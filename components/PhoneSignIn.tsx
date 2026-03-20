@@ -1,5 +1,6 @@
+import { navPush, navReplace } from '@/utils/nav';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
@@ -69,19 +70,38 @@ export default function PhoneSignIn() {
   const router = useRouter();
   const { colors } = useAppTheme();
   const inputRef = useRef<TextInput>(null);
+  const params = useLocalSearchParams<{ phone?: string }>();
 
   const [country, setCountry] = useState<Country>(US);
 
   // Detect country from IP in the background — fast (< 1 s on good network),
   // accurate, and requires no permissions. Falls back to US on timeout/error.
+  // Skip IP detection if the user came from the recent-account quick sign-in
+  // (we already know their country code from the stored phone number).
   useEffect(() => {
+    if (params.phone) {
+      // Try to extract the country code from the E.164 number and match it
+      const match = params.phone.match(/^(\+\d{1,4})/);
+      if (match) {
+        const code = match[1];
+        const found = COUNTRIES.find(c => c.code === code);
+        if (found) { setCountry(found); return; }
+      }
+    }
     let cancelled = false;
     detectCountryByIP().then((c) => {
       if (!cancelled) setCountry(c);
     });
     return () => { cancelled = true; };
   }, []);
-  const [phone, setPhone] = useState('');
+
+  // Pre-fill phone number if navigated from the recent-account quick sign-in
+  const [phone, setPhone] = useState(() => {
+    if (!params.phone) return '';
+    // Strip the country code prefix if present (e.g. "+44 7700..." → "7700...")
+    const raw = params.phone.replace(/^\+\d{1,3}\s?/, '');
+    return raw;
+  });
   const [touched, setTouched] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -117,7 +137,7 @@ export default function PhoneSignIn() {
         method: 'POST',
         body: JSON.stringify({ phone: e164, channel: 'sms', device }),
       });
-      router.push({ pathname: '/otp', params: { phone: e164, countryCode: country.code } });
+      navPush({ pathname: '/otp', params: { phone: e164, countryCode: country.code } });
     } catch (err: any) {
       Alert.alert('Could not send OTP', err.message ?? 'Please try again.');
     } finally {

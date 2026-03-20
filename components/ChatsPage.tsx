@@ -1,9 +1,10 @@
+import { navPush, navReplace } from '@/utils/nav';
 import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
   Animated,
-  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -15,6 +16,15 @@ import Squircle from '@/components/ui/Squircle';
 import { apiFetch, WS_V1 } from '@/constants/api';
 import { useAuth } from '@/context/AuthContext';
 import { useAppTheme } from '@/context/ThemeContext';
+
+// ─── Session-level conversation cache ────────────────────────────────────────
+// Persists across tab navigation so the list re-renders instantly on revisit.
+// Cleared by bustConvsCache() whenever a fresh pull is needed.
+let _convsCache: Conversation[] | null = null;
+
+export function bustConvsCache() {
+  _convsCache = null;
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -98,7 +108,7 @@ function ConvRow({
       >
         <View style={styles.avatarWrap}>
           {conv.partner_image
-            ? <Image source={{ uri: conv.partner_image }} style={styles.avatar} />
+            ? <Image source={{ uri: conv.partner_image }} style={styles.avatar} contentFit="cover" cachePolicy="memory-disk" transition={150} />
             : <View style={[styles.avatar, { backgroundColor: colors.surface2 }]} />
           }
           {conv.is_online && (
@@ -158,22 +168,33 @@ export default function ChatsPage({ insets, token }: { insets: any; token: strin
   const { profile } = useAuth();
 
   const [search, setSearch]   = useState('');
-  const [convs,  setConvs]    = useState<Conversation[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Seed state from cache so the list appears instantly on revisit
+  const [convs,  setConvs]    = useState<Conversation[]>(_convsCache ?? []);
+  const [loading, setLoading] = useState(_convsCache === null);
   const wsRef = useRef<WebSocket | null>(null);
 
   function fetchConvs() {
     if (!token) return;
     apiFetch<{ conversations: Conversation[] }>('/chat/conversations', { token })
-      .then(r => setConvs(r.conversations))
+      .then(r => { _convsCache = r.conversations; setConvs(r.conversations); })
       .catch(() => {});
   }
 
   useEffect(() => {
     if (!token) return;
+    // If we already have cached data show it immediately, then refresh silently
+    if (_convsCache) {
+      setConvs(_convsCache);
+      setLoading(false);
+      // Background refresh to pick up new conversations / message previews
+      apiFetch<{ conversations: Conversation[] }>('/chat/conversations', { token })
+        .then(r => { _convsCache = r.conversations; setConvs(r.conversations); })
+        .catch(() => {});
+      return;
+    }
     setLoading(true);
     apiFetch<{ conversations: Conversation[] }>('/chat/conversations', { token })
-      .then(r => setConvs(r.conversations))
+      .then(r => { _convsCache = r.conversations; setConvs(r.conversations); })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [token]);
@@ -213,16 +234,20 @@ export default function ChatsPage({ insets, token }: { insets: any; token: strin
               };
               conv.unread_count = (conv.unread_count ?? 0) + 1;
               updated.splice(idx, 1);
-              return [conv, ...updated];
+              const next = [conv, ...updated];
+              _convsCache = next;
+              return next;
             });
           } else if (payload.type === 'presence') {
-            setConvs(prev =>
-              prev.map(c =>
+            setConvs(prev => {
+              const next = prev.map(c =>
                 c.partner_id === payload.user_id
                   ? { ...c, is_online: payload.online }
                   : c
-              )
-            );
+              );
+              _convsCache = next;
+              return next;
+            });
           }
         } catch {}
       };
@@ -304,13 +329,13 @@ export default function ChatsPage({ insets, token }: { insets: any; token: strin
             {convs.filter(c => c.unread_count > 0 && c.last_message?.sender_id !== myId).map(m => (
               <Pressable
                 key={m.partner_id}
-                onPress={() => router.push({ pathname: '/chat', params: { partnerId: m.partner_id, name: m.partner_name, image: m.partner_image ?? '', online: m.is_online ? 'true' : 'false' } })}
+                onPress={() => navPush({ pathname: '/chat', params: { partnerId: m.partner_id, name: m.partner_name, image: m.partner_image ?? '', online: m.is_online ? 'true' : 'false' } })}
                 style={({ pressed }) => [{ alignItems: 'center', gap: 7 }, pressed && { opacity: 0.75 }]}
               >
                 <View style={styles.matchRingWrap}>
                   <View style={[styles.matchRing, { borderColor: '#6366f1' }]}>
                     {m.partner_image
-                      ? <Image source={{ uri: m.partner_image }} style={styles.matchAvatar} />
+                      ? <Image source={{ uri: m.partner_image }} style={styles.matchAvatar} contentFit="cover" cachePolicy="memory-disk" transition={150} />
                       : <View style={[styles.matchAvatar, { backgroundColor: colors.surface2 }]} />
                     }
                   </View>
@@ -389,7 +414,7 @@ export default function ChatsPage({ insets, token }: { insets: any; token: strin
                     timeStr={timeStr}
                     hasUnread={hasUnread}
                     colors={colors}
-                    onPress={() => router.push({ pathname: '/chat', params: { partnerId: c.partner_id, name: c.partner_name, image: c.partner_image ?? '', online: c.is_online ? 'true' : 'false' } })}
+                    onPress={() => navPush({ pathname: '/chat', params: { partnerId: c.partner_id, name: c.partner_name, image: c.partner_image ?? '', online: c.is_online ? 'true' : 'false' } })}
                   />
                 </Squircle>
               );

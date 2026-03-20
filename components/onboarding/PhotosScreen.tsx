@@ -1,3 +1,4 @@
+import { navPush, navReplace } from '@/utils/nav';
 // Step 10 — Photos (final step, sets is_onboarded=true)
 import * as ImagePicker from 'expo-image-picker';
 import { Image as ExpoImage } from 'expo-image';
@@ -108,7 +109,7 @@ export default function PhotosScreen() {
     const ok = await save({ photos, is_onboarded: true });
     if (ok) {
       await setOnboarded();
-      router.replace('/(tabs)' as any);
+      navReplace('/(tabs)' as any);
     }
   };
 

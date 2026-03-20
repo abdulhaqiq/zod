@@ -1,3 +1,4 @@
+import { navPush, navReplace } from '@/utils/nav';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
@@ -82,7 +83,7 @@ export default function Photos() {
   const handleContinue = () => {
     setTouched(true);
     if (photos.length < MIN_PHOTOS) return;
-    router.replace('/feed');
+    navReplace('/feed');
   };
 
   const slots = Array.from({ length: MAX_PHOTOS }, (_, i) => photos[i] ?? null);

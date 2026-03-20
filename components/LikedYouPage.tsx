@@ -1,3 +1,4 @@
+import { navPush, navReplace } from '@/utils/nav';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Image as ExpoImage } from 'expo-image';
@@ -159,7 +160,7 @@ export default function LikedYouPage({ insets, token }: { insets: any; token: st
 
         {/* Upgrade banner — only for non-Pro users */}
         {!isPro && (
-          <Pressable onPress={() => router.push('/subscription')} style={({ pressed }) => [pressed && { opacity: 0.85 }]}>
+          <Pressable onPress={() => navPush('/subscription')} style={({ pressed }) => [pressed && { opacity: 0.85 }]}>
             <Squircle style={styles.upgradeBanner} cornerRadius={20} cornerSmoothing={1}
               fillColor={colors.surface} strokeColor={colors.border} strokeWidth={StyleSheet.hairlineWidth}>
               <Squircle style={styles.upgradeIcon} cornerRadius={14} cornerSmoothing={1} fillColor={colors.surface2}>
@@ -185,7 +186,7 @@ export default function LikedYouPage({ insets, token }: { insets: any; token: st
                   <Pressable
                     key={m.id}
                     style={({ pressed }) => [styles.matchCircleWrap, pressed && { opacity: 0.75 }]}
-                    onPress={() => router.push({ pathname: '/chat', params: { matchId: m.id, name: m.name, image: m.image, online: 'true' } } as any)}
+                    onPress={() => navPush({ pathname: '/chat', params: { matchId: m.id, name: m.name, image: m.image, online: 'true' } } as any)}
                   >
                     <View style={[styles.matchCircleRing, { borderColor: expired ? colors.surface2 : colors.text }]}>
                       <ExpoImage source={{ uri: m.image }} style={styles.matchCircleAvatar} contentFit="cover" />
@@ -240,7 +241,7 @@ export default function LikedYouPage({ insets, token }: { insets: any; token: st
                     {isBlurred && (
                       <Pressable
                         style={[StyleSheet.absoluteFill, styles.lockOverlay]}
-                        onPress={() => router.push('/subscription')}
+                        onPress={() => navPush('/subscription')}
                       >
                         <Squircle style={styles.lockIcon} cornerRadius={14} cornerSmoothing={1} fillColor="rgba(0,0,0,0.45)">
                           <Ionicons name="lock-closed" size={18} color="#fff" />
@@ -306,7 +307,7 @@ export default function LikedYouPage({ insets, token }: { insets: any; token: st
           onChat={() => {
             const p = matchedProfile;
             setMatchedProfile(null);
-            router.push({ pathname: '/chat', params: { matchId: p.id, name: p.name, image: p.image, online: 'true' } } as any);
+            navPush({ pathname: '/chat', params: { matchId: p.id, name: p.name, image: p.image, online: 'true' } } as any);
           }}
           onDismiss={() => setMatchedProfile(null)}
         />

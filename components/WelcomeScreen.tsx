@@ -1,7 +1,11 @@
+import { navPush } from '@/utils/nav';
+import { Ionicons } from '@expo/vector-icons';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import { Image } from 'expo-image';
+import * as LocalAuthentication from 'expo-local-authentication';
+import * as WebBrowser from 'expo-web-browser';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -13,9 +17,17 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
+import Squircle from '@/components/ui/Squircle';
 
 import { apiFetch, authedFetch } from '@/constants/api';
-import { useAuth } from '@/context/AuthContext';
+import {
+  useAuth,
+  loadRecentAccount,
+  type RecentAccount,
+} from '@/context/AuthContext';
+
+const TERMS_URL   = 'https://zod.dhabli.com/terms';
+const PRIVACY_URL = 'https://zod.dhabli.com/privacy';
 
 interface TokenResponse {
   access_token: string;
@@ -33,12 +45,50 @@ const Logo = () => (
 );
 
 export default function WelcomeScreen() {
+  const { signIn, performQuickSignIn } = useAuth();
   const router = useRouter();
-  const { signIn } = useAuth();
-  const [expanded, setExpanded] = useState(false);
-  const [appleLoading, setAppleLoading] = useState(false);
+  const [appleLoading,  setAppleLoading]  = useState(false);
+  const [quickLoading,  setQuickLoading]  = useState(false);
+  // null = loading, undefined = no recent account, RecentAccount = has one
+  const [recentAccount, setRecentAccount] = useState<RecentAccount | null | undefined>(null);
+  const [showOtherMethods, setShowOtherMethods] = useState(false);
 
-  const handleAppleSignIn = async () => {
+  useEffect(() => {
+    loadRecentAccount()
+      .then(acc => setRecentAccount(acc ?? undefined))
+      .catch(() => setRecentAccount(undefined));
+  }, []);
+
+  const openInAppBrowser = (url: string) =>
+    WebBrowser.openBrowserAsync(url, {
+      presentationStyle: WebBrowser.WebBrowserPresentationStyle.PAGE_SHEET,
+      enableBarCollapsing: true,
+    });
+
+  /** Navigate to passkey setup passing account info so the screen can save it.
+   *  Skips the passkey screen entirely if the user already has a saved account. */
+  const goToPasskeySetup = async (
+    account: { name: string | null; phone: string | null; photo: string | null; method: 'phone' | 'apple' },
+    next: string,
+  ) => {
+    const existing = await loadRecentAccount();
+    if (existing) {
+      router.replace(next as any);
+      return;
+    }
+    router.push({
+      pathname: '/passkey' as any,
+      params: {
+        name:   account.name   ?? '',
+        phone:  account.phone  ?? '',
+        photo:  account.photo  ?? '',
+        method: account.method,
+        next,
+      },
+    });
+  };
+
+  const handleAppleSignIn = async (fromQuickSignIn = false) => {
     try {
       setAppleLoading(true);
 
@@ -50,34 +100,38 @@ export default function WelcomeScreen() {
       });
 
       const { identityToken, fullName } = credential;
-
       if (!identityToken) {
         Alert.alert('Sign In Failed', 'No identity token returned from Apple.');
         return;
       }
 
-      // Build display name from Apple's name components (only sent on first sign-in)
       const appleFullName = [fullName?.givenName, fullName?.familyName]
         .filter(Boolean)
         .join(' ') || undefined;
 
       const data = await apiFetch<TokenResponse>('/auth/apple', {
         method: 'POST',
-        body: JSON.stringify({
-          identity_token: identityToken,
-          full_name: appleFullName,
-        }),
+        body: JSON.stringify({ identity_token: identityToken, full_name: appleFullName }),
       });
 
-      // Fetch profile to check onboarding status before triggering the auth guard
-      const me = await authedFetch<{ is_onboarded: boolean }>(
-        '/profile/me',
-        data.access_token,
-      );
+      const me = await authedFetch<{
+        is_onboarded: boolean;
+        full_name?: string | null;
+        phone?: string | null;
+        photos?: string[] | null;
+      }>('/profile/me', data.access_token);
 
-      await signIn(data.access_token, data.refresh_token, me.is_onboarded);
+      await signIn(data.access_token, data.refresh_token, me.is_onboarded, 'apple');
+
+      // After signing in, offer to save to Keychain only if this was a fresh sign-in
+      if (!fromQuickSignIn) {
+        const dest = me.is_onboarded ? '/(tabs)' : '/gender';
+        goToPasskeySetup(
+          { name: me.full_name ?? null, phone: me.phone ?? null, photo: me.photos?.[0] ?? null, method: 'apple' },
+          dest,
+        );
+      }
     } catch (err: any) {
-      // User cancelled the Apple dialog — don't show an error
       if (err?.code === 'ERR_REQUEST_CANCELED') return;
       Alert.alert('Sign In Failed', err.message ?? 'Please try again.');
     } finally {
@@ -85,71 +139,162 @@ export default function WelcomeScreen() {
     }
   };
 
+  /** Quick sign-in — biometric gate → silent token refresh → direct login (no OTP) */
+  const handleQuickSignIn = async () => {
+    if (!recentAccount || quickLoading) return;
+
+    // ── 1. Device authentication gate (Face ID → Touch ID → Passcode) ────────
+    // iOS picks the best method the device supports; passcode is the fallback
+    // when Face ID/Touch ID is unavailable or permission has been denied.
+    try {
+      const enrolled = await LocalAuthentication.isEnrolledAsync();
+      if (enrolled) {
+        const result = await LocalAuthentication.authenticateAsync({
+          promptMessage: `Sign in as ${recentAccount.name ?? 'you'}`,
+          cancelLabel:   'Cancel',
+          fallbackLabel: 'Use Passcode',
+        });
+        if (!result.success) return; // user cancelled
+      }
+    } catch { /* no auth hardware — continue */ }
+
+    // ── 2. Silent re-auth using stored refresh token ───────────────────────────
+    setQuickLoading(true);
+    try {
+      const dest = await performQuickSignIn();
+      if (dest) {
+        // Success — navigate directly, no OTP needed
+        router.replace(dest as any);
+        return;
+      }
+      // Token expired — clear card and fall back to normal sign-in
+      setRecentAccount(undefined);
+      Alert.alert('Session expired', 'Please sign in again.');
+    } catch (err: any) {
+      if (err?.message === 'NETWORK_ERROR') {
+        Alert.alert('No connection', 'Check your internet and try again.');
+      } else {
+        setRecentAccount(undefined);
+        Alert.alert('Session expired', 'Please sign in again.');
+      }
+    } finally {
+      setQuickLoading(false);
+    }
+  };
+
+  // Still loading saved account from storage — render nothing to avoid flash
+  if (recentAccount === null) return null;
+
+  const hasRecent = recentAccount !== undefined;
+
   return (
     <View style={styles.container}>
-      {/* Background image */}
       <Image
         source={{ uri: 'https://i.ibb.co/RkpmdXSH/2148020007.jpg' }}
         style={styles.bg}
         contentFit="cover"
+        cachePolicy="memory-disk"
+        transition={200}
       />
-
-      {/* Dark overlay */}
       <View style={styles.overlay} />
 
-      {/* Safe content */}
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.content}>
-          {/* Logo */}
           <View style={styles.logoRow}>
             <Logo />
           </View>
 
-          {/* Tagline */}
           <Text style={styles.tagline}>Find{'\n'}True Love</Text>
 
-          {/* Bottom section */}
           <View style={styles.bottom}>
-            {expanded ? (
+            {hasRecent && !showOtherMethods ? (
+              /* ── Quick sign-in card ──────────────────────────────── */
+              <>
+                <TouchableOpacity activeOpacity={0.82} onPress={handleQuickSignIn} disabled={quickLoading}>
+                  <Squircle
+                    style={styles.recentBtn}
+                    cornerRadius={22}
+                    cornerSmoothing={1}
+                    fillColor="#fff"
+                  >
+                    <View style={styles.recentAvatar}>
+                      {recentAccount.photo ? (
+                        <Image
+                          source={{ uri: recentAccount.photo }}
+                          style={styles.recentAvatarImg}
+                          contentFit="cover"
+                          cachePolicy="memory-disk"
+                        />
+                      ) : (
+                        <View style={styles.recentAvatarPlaceholder} />
+                      )}
+                    </View>
+                    <View style={styles.recentInfo}>
+                      <Text style={styles.recentLabel}>Continue as</Text>
+                      <Text style={styles.recentName} numberOfLines={1}>
+                        {recentAccount.name ?? 'Continue'}
+                      </Text>
+                      {recentAccount.phone && (
+                        <Text style={styles.recentPhone} numberOfLines={1}>
+                          {recentAccount.phone}
+                        </Text>
+                      )}
+                    </View>
+                    {quickLoading
+                      ? <ActivityIndicator size="small" color="rgba(0,0,0,0.4)" />
+                      : <Ionicons name="chevron-forward" size={20} color="rgba(0,0,0,0.35)" />
+                    }
+                  </Squircle>
+                </TouchableOpacity>
+
+                <Pressable onPress={() => setShowOtherMethods(true)}>
+                  <Text style={styles.otherMethods}>Use another account</Text>
+                </Pressable>
+              </>
+            ) : (
+              /* ── Standard auth buttons ───────────────────────────── */
               <View style={styles.authButtons}>
-                {/* Sign in with Apple */}
                 <TouchableOpacity
                   style={styles.btnApple}
-                  onPress={handleAppleSignIn}
+                  onPress={() => handleAppleSignIn(false)}
                   disabled={appleLoading}
                   activeOpacity={0.85}
                 >
                   {appleLoading ? (
                     <ActivityIndicator color="#000" />
                   ) : (
-                    <Text style={styles.btnAppleText}>  Continue with Apple</Text>
+                    <View style={styles.btnAppleInner}>
+                      <Ionicons name="logo-apple" size={20} color="#000" />
+                      <Text style={styles.btnAppleText}>Continue with Apple</Text>
+                    </View>
                   )}
                 </TouchableOpacity>
 
-                {/* Phone number */}
                 <TouchableOpacity
                   style={styles.btnPhone}
-                  onPress={() => router.push('/phone' as any)}
+                  onPress={() => navPush('/phone' as any)}
                 >
                   <Text style={styles.btnPhoneText}>Use phone number</Text>
                 </TouchableOpacity>
-              </View>
-            ) : (
-              <>
-                <TouchableOpacity style={styles.btnPrimary} onPress={() => setExpanded(true)}>
-                  <Text style={styles.btnPrimaryText}>Quick sign in</Text>
-                </TouchableOpacity>
 
-                <Pressable onPress={() => setExpanded(true)}>
-                  <Text style={styles.otherMethods}>Continue with other methods</Text>
-                </Pressable>
-              </>
+                {hasRecent && (
+                  <Pressable onPress={() => setShowOtherMethods(false)}>
+                    <Text style={styles.otherMethods}>Back</Text>
+                  </Pressable>
+                )}
+              </View>
             )}
 
             <Text style={styles.legal}>
               By signing up, you agree to our{' '}
-              <Text style={styles.legalLink}>Terms</Text>. See how we use your data in our{' '}
-              <Text style={styles.legalLink}>Privacy Policy</Text>.
+              <Text style={styles.legalLink} onPress={() => openInAppBrowser(TERMS_URL)}>
+                Terms
+              </Text>
+              . See how we use your data in our{' '}
+              <Text style={styles.legalLink} onPress={() => openInAppBrowser(PRIVACY_URL)}>
+                Privacy Policy
+              </Text>
+              .
             </Text>
           </View>
         </View>
@@ -159,20 +304,10 @@ export default function WelcomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#000',
-  },
-  bg: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  overlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.35)',
-  },
-  safeArea: {
-    flex: 1,
-  },
+  container: { flex: 1, backgroundColor: '#000' },
+  bg: { ...StyleSheet.absoluteFillObject },
+  overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.35)' },
+  safeArea: { flex: 1 },
   content: {
     flex: 1,
     paddingHorizontal: 24,
@@ -180,9 +315,7 @@ const styles = StyleSheet.create({
     paddingBottom: 36,
     justifyContent: 'space-between',
   },
-  logoRow: {
-    alignItems: 'flex-start',
-  },
+  logoRow: { alignItems: 'flex-start' },
   tagline: {
     fontSize: 54,
     fontFamily: 'ProductSans-Black',
@@ -191,20 +324,7 @@ const styles = StyleSheet.create({
     marginTop: 'auto',
     marginBottom: 32,
   },
-  bottom: {
-    gap: 14,
-  },
-  btnPrimary: {
-    backgroundColor: '#fff',
-    borderRadius: 50,
-    paddingVertical: 18,
-    alignItems: 'center',
-  },
-  btnPrimaryText: {
-    fontSize: 16,
-    fontFamily: 'ProductSans-Bold',
-    color: '#000',
-  },
+  bottom: { gap: 14 },
   otherMethods: {
     color: '#fff',
     fontSize: 15,
@@ -212,9 +332,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     textDecorationLine: 'underline',
   },
-  authButtons: {
-    gap: 12,
-  },
+  authButtons: { gap: 12 },
   btnApple: {
     backgroundColor: '#fff',
     borderRadius: 50,
@@ -223,11 +341,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     minHeight: 56,
   },
-  btnAppleText: {
-    fontSize: 16,
-    fontFamily: 'ProductSans-Bold',
-    color: '#000',
-  },
+  btnAppleInner: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  btnAppleText: { fontSize: 16, fontFamily: 'ProductSans-Bold', color: '#000' },
   btnPhone: {
     backgroundColor: 'transparent',
     borderRadius: 50,
@@ -236,11 +351,7 @@ const styles = StyleSheet.create({
     paddingVertical: 18,
     alignItems: 'center',
   },
-  btnPhoneText: {
-    fontSize: 16,
-    fontFamily: 'ProductSans-Bold',
-    color: '#fff',
-  },
+  btnPhoneText: { fontSize: 16, fontFamily: 'ProductSans-Bold', color: '#fff' },
   legal: {
     color: 'rgba(255,255,255,0.7)',
     fontSize: 11,
@@ -249,8 +360,40 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     marginTop: 4,
   },
-  legalLink: {
-    textDecorationLine: 'underline',
-    color: '#fff',
+  legalLink: { textDecorationLine: 'underline', color: '#fff' },
+
+  // Recent account card
+  recentBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 14,
+    minHeight: 72,
+  },
+  recentAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    overflow: 'hidden',
+    backgroundColor: '#e5e5e5',
+  },
+  recentAvatarImg: { width: 48, height: 48 },
+  recentAvatarPlaceholder: { flex: 1, backgroundColor: '#d0d0d0' },
+  recentInfo: { flex: 1 },
+  recentLabel: {
+    fontSize: 10,
+    fontFamily: 'ProductSans-Regular',
+    color: 'rgba(0,0,0,0.45)',
+    marginBottom: 2,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
+  recentName: { fontSize: 16, fontFamily: 'ProductSans-Bold', color: '#000' },
+  recentPhone: {
+    fontSize: 13,
+    fontFamily: 'ProductSans-Regular',
+    color: 'rgba(0,0,0,0.5)',
+    marginTop: 1,
   },
 });

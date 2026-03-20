@@ -1,3 +1,4 @@
+import { navPush, navReplace } from '@/utils/nav';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
@@ -210,12 +211,12 @@ export default function ExplorePage({ colors, insets }: { colors: any; insets: a
   }, [token]);
 
   const handleJoin = (id: string, pro: boolean) => {
-    if (pro && !isPro) { router.push('/subscription'); return; }
+    if (pro && !isPro) { navPush('/subscription'); return; }
     setJoinedMap(p => ({ ...p, [id]: !p[id] }));
   };
 
   const handleProPress = (pro: boolean) => {
-    if (pro && !isPro) router.push('/subscription');
+    if (pro && !isPro) navPush('/subscription');
   };
 
   const featured   = feed?.featured   ?? [];
@@ -310,7 +311,7 @@ export default function ExplorePage({ colors, insets }: { colors: any; insets: a
 
           {/* ── Pro banner ──────────────────────────────────────────────────── */}
           {!isPro && (
-            <Pressable onPress={() => router.push('/subscription')} style={{ paddingHorizontal: 16, marginTop: 20 }}>
+            <Pressable onPress={() => navPush('/subscription')} style={{ paddingHorizontal: 16, marginTop: 20 }}>
               <Squircle cornerRadius={20} cornerSmoothing={1} fillColor={colors.text} style={styles.proBanner}>
                 <View style={styles.proBannerLeft}>
                   <Squircle cornerRadius={14} cornerSmoothing={1} fillColor="rgba(255,255,255,0.15)" style={styles.proBannerIcon}>

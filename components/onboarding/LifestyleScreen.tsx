@@ -1,3 +1,4 @@
+import { navPush, navReplace } from '@/utils/nav';
 // Step 7 — Lifestyle (drinking, smoking, exercise, diet)
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
@@ -30,7 +31,7 @@ export default function LifestyleScreen() {
   const handleContinue = async () => {
     if (!allAnswered) return;
     const ok = await save({ lifestyle: answers });
-    if (ok) router.push('/values');
+    if (ok) navPush('/values');
   };
 
   return (

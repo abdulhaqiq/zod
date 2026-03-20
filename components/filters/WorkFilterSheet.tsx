@@ -1,3 +1,4 @@
+import { navPush, navReplace } from '@/utils/nav';
 /**
  * WorkFilterSheet — filters for Zod Work mode.
  *
@@ -101,7 +102,7 @@ export default function WorkFilterSheet({ visible, onClose, colors, insets, onAp
 
   // Filter state — all chip arrays store DB IDs (ChipOption.value)
   const [verifiedOnly,     setVerifiedOnly]     = useState(false);
-  const [distance,         setDistance]         = useState(150);
+  const [distance,         setDistance]         = useState(80);
   const [industries,       setIndustries]       = useState<string[]>([]);
   const [skills,           setSkills]           = useState<string[]>([]);
   const [commitment,       setCommitment]       = useState<string[]>([]);
@@ -117,7 +118,7 @@ export default function WorkFilterSheet({ visible, onClose, colors, insets, onAp
     set(arr.includes(id) ? arr.filter(x => x !== id) : [...arr, id]);
 
   const reset = () => {
-    setVerifiedOnly(false); setDistance(150);
+    setVerifiedOnly(false); setDistance(80);
     setIndustries([]); setSkills([]); setCommitment([]); setWhoToSee([]);
     setWMatchGoals([]); setWEquity([]); setWStage([]); setWRole([]);
     setWHiringOnly(false); setWPriorityStartup(false);
@@ -180,20 +181,20 @@ export default function WorkFilterSheet({ visible, onClose, colors, insets, onAp
             <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
               <View style={styles.sliderLabelRow}>
                 <SecHead title="MAX DISTANCE" />
-                <Text style={[styles.sliderValue, { color: colors.text }]}>{distance >= 150 ? 'Any' : `${distance} km`}</Text>
+                <Text style={[styles.sliderValue, { color: colors.text }]}>{`${distance} km`}</Text>
               </View>
               <View style={[styles.sliderRow, { marginTop: 10 }]}>
                 <Text style={[styles.sliderSub, { color: colors.textSecondary }]}>1 km</Text>
-                <SliderRN style={{ flex: 1 }} minimumValue={1} maximumValue={150} step={1} value={distance}
+                <SliderRN style={{ flex: 1 }} minimumValue={1} maximumValue={80} step={1} value={distance}
                   onValueChange={v => setDistance(Math.round(v))}
                   minimumTrackTintColor={colors.text} maximumTrackTintColor={colors.surface2} thumbTintColor={colors.text} />
-                <Text style={[styles.sliderSub, { color: colors.textSecondary }]}>Any</Text>
+                <Text style={[styles.sliderSub, { color: colors.textSecondary }]}>80 km</Text>
               </View>
             </Squircle>
 
             {/* Verified only — requires own face scan to be verified */}
             <Pressable
-              onPress={() => !isFaceVerified && router.push('/verification' as any)}
+              onPress={() => !isFaceVerified && navPush('/verification' as any)}
               disabled={isFaceVerified}
               style={({ pressed }) => [{ opacity: pressed && !isFaceVerified ? 0.75 : 1 }]}
             >
@@ -499,7 +500,7 @@ export default function WorkFilterSheet({ visible, onClose, colors, insets, onAp
             </Squircle>
           ) : (
             <Squircle cornerRadius={18} cornerSmoothing={1} fillColor={colors.surface2} strokeColor={colors.border} strokeWidth={1} style={[styles.applyBtn, { opacity: 0.6 }]}>
-              <Pressable onPress={() => router.push('/subscription')} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+              <Pressable onPress={() => navPush('/subscription')} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
                 <Ionicons name="lock-closed" size={14} color={colors.textSecondary} />
                 <Text style={[styles.applyBtnText, { color: colors.textSecondary }]}>Unlock Pro</Text>
               </Pressable>

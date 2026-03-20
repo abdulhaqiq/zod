@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as WebBrowser from 'expo-web-browser';
 import { useState } from 'react';
-import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import ScreenHeader from '@/components/ui/ScreenHeader';
 import Squircle from '@/components/ui/Squircle';
 import { useAppTheme } from '@/context/ThemeContext';
@@ -8,11 +9,11 @@ import { useAppTheme } from '@/context/ThemeContext';
 // ─── Data ─────────────────────────────────────────────────────────────────────
 
 const LINKS = [
-  { id: 'privacy',  icon: 'shield-checkmark-outline' as const, label: 'Privacy Policy',       url: 'https://zod.ai/privacy'  },
-  { id: 'terms',    icon: 'document-text-outline'    as const, label: 'Terms of Service',      url: 'https://zod.ai/terms'    },
-  { id: 'cookies',  icon: 'nutrition-outline'        as const, label: 'Cookie Policy',         url: 'https://zod.ai/cookies'  },
-  { id: 'licenses', icon: 'code-slash-outline'       as const, label: 'Open Source Licenses',  url: 'https://zod.ai/licenses' },
-  { id: 'gdpr',     icon: 'finger-print-outline'     as const, label: 'Data & GDPR Rights',    url: 'https://zod.ai/gdpr'     },
+  { id: 'privacy',  icon: 'shield-checkmark-outline' as const, label: 'Privacy Policy',       url: 'https://zod.dhabli.com/privacy'  },
+  { id: 'terms',    icon: 'document-text-outline'    as const, label: 'Terms of Service',      url: 'https://zod.dhabli.com/terms'    },
+  { id: 'cookies',  icon: 'nutrition-outline'        as const, label: 'Cookie Policy',         url: 'https://zod.dhabli.com/cookies'  },
+  { id: 'licenses', icon: 'code-slash-outline'       as const, label: 'Open Source Licenses',  url: 'https://zod.dhabli.com/licenses' },
+  { id: 'gdpr',     icon: 'finger-print-outline'     as const, label: 'Data & GDPR Rights',    url: 'https://zod.dhabli.com/gdpr'     },
 ];
 
 const FAQS: { q: string; a: string }[] = [
@@ -81,7 +82,7 @@ export default function LegalPage() {
                   idx < LINKS.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
                   pressed && { opacity: 0.6 },
                 ]}
-                onPress={() => Linking.openURL(item.url)}
+                onPress={() => WebBrowser.openBrowserAsync(item.url, { presentationStyle: WebBrowser.WebBrowserPresentationStyle.PAGE_SHEET })}
               >
                 <Squircle style={styles.iconWrap} cornerRadius={10} cornerSmoothing={1} fillColor={colors.bg}>
                   <Ionicons name={item.icon} size={18} color={colors.text} />
@@ -105,7 +106,7 @@ export default function LegalPage() {
         </View>
 
         <Text style={[styles.footer, { color: colors.textSecondary }]}>
-          © 2025 Zod Technologies Inc. All rights reserved.{'\n'}Version 1.0.0
+          © 2026 Zevello, Inc. All rights reserved.{'\n'}Version 1.0.0
         </Text>
       </ScrollView>
     </View>

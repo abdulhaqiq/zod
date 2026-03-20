@@ -5,7 +5,14 @@
  * Each clip: { topic: string, url: string, duration_sec: number }
  */
 import { Ionicons } from '@expo/vector-icons';
-import { Audio } from 'expo-av';
+import {
+  RecordingPresets,
+  requestRecordingPermissionsAsync,
+  setAudioModeAsync,
+  useAudioPlayer,
+  useAudioPlayerStatus,
+  useAudioRecorder,
+} from 'expo-audio';
 import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -109,35 +116,23 @@ function ClipCard({
   onDelete: () => void;
   colors: AppColors;
 }) {
-  const soundRef = useRef<Audio.Sound | null>(null);
-  const [playing, setPlaying] = useState(false);
-  const [pos, setPos] = useState(0);
+  const player = useAudioPlayer({ uri: clip.url });
+  const status = useAudioPlayerStatus(player);
+  const playing = status.playing;
+  const pos = status.currentTime ?? 0;
 
   useEffect(() => {
-    return () => { soundRef.current?.unloadAsync(); };
-  }, []);
+    if (status.didJustFinish) {
+      player.seekTo(0);
+    }
+  }, [status.didJustFinish]);
 
-  const togglePlay = async () => {
+  const togglePlay = () => {
     if (playing) {
-      await soundRef.current?.pauseAsync();
-      setPlaying(false);
-      return;
-    }
-    if (!soundRef.current) {
-      const { sound } = await Audio.Sound.createAsync(
-        { uri: clip.url },
-        { shouldPlay: true },
-        status => {
-          if (!status.isLoaded) return;
-          setPos(status.positionMillis / 1000);
-          if (status.didJustFinish) { setPlaying(false); setPos(0); }
-        },
-      );
-      soundRef.current = sound;
+      player.pause();
     } else {
-      await soundRef.current.playAsync();
+      player.play();
     }
-    setPlaying(true);
   };
 
   const handleDelete = () => {
@@ -145,7 +140,7 @@ function ClipCard({
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Delete', style: 'destructive', onPress: () => {
-          soundRef.current?.unloadAsync();
+          player.remove();
           onDelete();
         },
       },
@@ -194,21 +189,32 @@ function Recorder({
   onCancel: () => void;
   colors: AppColors;
 }) {
-  const recRef = useRef<Audio.Recording | null>(null);
-  const [recording, setRecording] = useState(false);
+  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const [isActive, setIsActive] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const MAX = 30;
 
+  const stop = async () => {
+    if (timerRef.current) clearInterval(timerRef.current);
+    setIsActive(false);
+    await recorder.stop();
+    const uri = recorder.uri;
+    const duration = recorder.currentTime || elapsed;
+    if (uri) onDone(uri, duration);
+  };
+
   const start = async () => {
     try {
-      await Audio.requestPermissionsAsync();
-      await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
-      const { recording } = await Audio.Recording.createAsync(
-        Audio.RecordingOptionsPresets.HIGH_QUALITY,
-      );
-      recRef.current = recording;
-      setRecording(true);
+      const { granted } = await requestRecordingPermissionsAsync();
+      if (!granted) {
+        Alert.alert('Microphone access needed', 'Please allow microphone access in Settings.');
+        return;
+      }
+      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+      await recorder.prepareToRecordAsync();
+      recorder.record();
+      setIsActive(true);
       setElapsed(0);
       timerRef.current = setInterval(() => {
         setElapsed(e => {
@@ -221,25 +227,15 @@ function Recorder({
     }
   };
 
-  const stop = async () => {
-    if (timerRef.current) clearInterval(timerRef.current);
-    setRecording(false);
-    const rec = recRef.current;
-    if (!rec) return;
-    await rec.stopAndUnloadAsync();
-    const status = await rec.getStatusAsync();
-    const uri = rec.getURI();
-    if (uri) onDone(uri, (status as any).durationMillis / 1000 || elapsed);
-    recRef.current = null;
-  };
-
   useEffect(() => {
     start();
     return () => {
       timerRef.current && clearInterval(timerRef.current);
-      recRef.current?.stopAndUnloadAsync();
+      if (recorder.isRecording) recorder.stop();
     };
   }, []);
+
+  const recording = isActive;
 
   const remaining = MAX - elapsed;
   const pct = elapsed / MAX;

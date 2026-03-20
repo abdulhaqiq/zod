@@ -1,3 +1,4 @@
+import { navPush, navReplace } from '@/utils/nav';
 // Step 3 — Relationship intent (multi-select)
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
@@ -28,7 +29,7 @@ export default function PurposeScreen() {
   const handleContinue = async () => {
     if (selected.length === 0) return;
     const ok = await save({ purpose: selected });
-    if (ok) router.push('/goals');
+    if (ok) navPush('/goals');
   };
 
   return (

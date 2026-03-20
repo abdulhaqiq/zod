@@ -1,3 +1,4 @@
+import { navPush, navReplace } from '@/utils/nav';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
@@ -154,7 +155,7 @@ export default function HeightPickerScreen() {
       </View>
 
       <View style={styles.footer}>
-        <Button title="Continue" onPress={() => router.push('/interests')} style={styles.btn} />
+        <Button title="Continue" onPress={() => navPush('/interests')} style={styles.btn} />
       </View>
     </SafeAreaView>
   );

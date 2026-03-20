@@ -1,3 +1,4 @@
+import { navPush, navReplace } from '@/utils/nav';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useRouter } from 'expo-router';
@@ -68,7 +69,7 @@ export default function PersonalInfo() {
         {
           text: 'Yes, confirm',
           style: 'default',
-          onPress: () => router.push('/gender'),
+          onPress: () => navPush('/gender'),
         },
       ]
     );

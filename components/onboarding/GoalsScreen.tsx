@@ -1,3 +1,4 @@
+import { navPush, navReplace } from '@/utils/nav';
 // Step 4 — Life Goals (multi-select, up to 5)
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
@@ -34,7 +35,7 @@ export default function GoalsScreen() {
     const existing = profile?.values_list ?? [];
     const mergedPersonalValues = existing.filter(id => personalIds.includes(id));
     const ok = await save({ values_list: [...mergedPersonalValues, ...selected] });
-    if (ok) router.push('/height');
+    if (ok) navPush('/height');
   };
 
   return (

@@ -1,3 +1,4 @@
+import { navPush, navReplace } from '@/utils/nav';
 /**
  * WorkFeedScreen — the standalone Zod Work swipe feed.
  * Contains work profile cards, matched page, and AI insights page.
@@ -184,7 +185,7 @@ function WorkProfileCard({ profile, onSwipedLeft, onSwipedRight, colors }: {
       <ScrollView showsVerticalScrollIndicator={false} bounces={false}>
         {/* Cover photo */}
         <View style={{ height: CARD_H * 0.42, position: 'relative' }}>
-          <Image source={{ uri: profile.images[0] }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+          <ExpoImage source={{ uri: profile.images[0] }} style={{ width: '100%', height: '100%' }} contentFit="cover" cachePolicy="disk" />
           <LinearGradient colors={['transparent', 'rgba(0,0,0,0.85)']} style={[StyleSheet.absoluteFill, { justifyContent: 'flex-end', padding: 16 }]}>
             <Animated.View style={[cardStyles.likeStamp, { opacity: connectOpacity, borderColor: '#4ade80' }]}>
               <Text style={[cardStyles.likeStampText, { color: '#4ade80' }]}>CONNECT</Text>
@@ -346,7 +347,7 @@ function WorkMatchedPage({ colors, insets }: { colors: any; insets: any }) {
                       <Ionicons name="close" size={18} color={colors.text} />
                     </Squircle>
                   </Pressable>
-                  <Pressable onPress={() => router.push({ pathname: '/chat', params: { name: p.name, image: p.images[0], online: 'false' } })} style={({ pressed }) => [pressed && { opacity: 0.65 }, { flex: 1 }]} hitSlop={6}>
+                  <Pressable onPress={() => navPush({ pathname: '/chat', params: { name: p.name, image: p.images[0], online: 'false' } })} style={({ pressed }) => [pressed && { opacity: 0.65 }, { flex: 1 }]} hitSlop={6}>
                     <Squircle style={pageStyles.likedLikeBtn} cornerRadius={50} cornerSmoothing={1} fillColor={colors.text}>
                       <Ionicons name="chatbubble" size={14} color={colors.bg} />
                       <Text style={[pageStyles.likedLikeBtnText, { color: colors.bg }]}>Message</Text>
@@ -394,7 +395,7 @@ function WorkAiInsightsPage({ colors, insets }: { colors: any; insets: any }) {
         <Squircle key={profile.id} style={pageStyles.aiCard} cornerRadius={24} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={StyleSheet.hairlineWidth}>
 
           <View style={pageStyles.aiCardTop}>
-            <Image source={{ uri: profile.images[0] }} style={pageStyles.aiPhoto} resizeMode="cover" />
+            <ExpoImage source={{ uri: profile.images[0] }} style={pageStyles.aiPhoto} contentFit="cover" cachePolicy="disk" />
             <View style={pageStyles.aiInfo}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 <Text style={[pageStyles.aiName, { color: colors.text }]}>{profile.name}</Text>
@@ -589,7 +590,7 @@ export default function WorkFeedScreen({ colors, insets, activeTab }: WorkFeedSc
           onChat={() => {
             const p = matchedProfile;
             setMatchedProfile(null);
-            router.push({ pathname: '/chat', params: { name: p.name, image: p.image, online: 'true' } });
+            navPush({ pathname: '/chat', params: { name: p.name, image: p.image, online: 'true' } });
           }}
           onDismiss={() => setMatchedProfile(null)}
         />

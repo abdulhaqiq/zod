@@ -1,3 +1,4 @@
+import { navPush, navReplace } from '@/utils/nav';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
@@ -40,7 +41,7 @@ export default function Purpose() {
   const handleContinue = () => {
     setTouched(true);
     if (!purpose) return;
-    router.push('/goals');
+    navPush('/goals');
   };
 
   return (

@@ -1,10 +1,18 @@
+import { navPush, navReplace } from '@/utils/nav';
+import { checkContent } from '@/utils/contentFilter';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as MediaLibrary from 'expo-media-library';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Audio } from 'expo-av';
+import {
+  RecordingPresets,
+  createAudioPlayer,
+  requestRecordingPermissionsAsync,
+  setAudioModeAsync,
+  useAudioRecorder,
+} from 'expo-audio';
 import * as FileSystem from 'expo-file-system/legacy';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -540,6 +548,49 @@ function BubbleAvatar({ uri, size = 28 }: { uri?: string; size?: number }) {
   );
 }
 
+// ─── MsgRow: layout tracker + jump-to-reply flash highlight ─────────────────
+
+function MsgRow({
+  id, highlightedId, msgLayoutsRef, children,
+}: {
+  id: string;
+  highlightedId: string | null;
+  msgLayoutsRef: React.MutableRefObject<Record<string, number>>;
+  children: React.ReactNode;
+}) {
+  const flashAnim = useRef(new Animated.Value(0)).current;
+  const isHighlighted = highlightedId === id;
+
+  useEffect(() => {
+    if (!isHighlighted) return;
+    // Pop in quickly then fade out
+    flashAnim.setValue(0);
+    Animated.sequence([
+      Animated.timing(flashAnim, { toValue: 1, duration: 120, useNativeDriver: true }),
+      Animated.timing(flashAnim, { toValue: 0, duration: 900, delay: 300, useNativeDriver: true }),
+    ]).start();
+  }, [isHighlighted]);
+
+  return (
+    <View
+      onLayout={e => { if (id) msgLayoutsRef.current[id] = e.nativeEvent.layout.y; }}
+      style={{ position: 'relative' }}
+    >
+      {children}
+      {/* Transparent overlay that flashes purple when this message is jumped to */}
+      <Animated.View
+        pointerEvents="none"
+        style={{
+          position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: 'rgba(124,58,237,0.18)',
+          borderRadius: 16,
+          opacity: flashAnim,
+        }}
+      />
+    </View>
+  );
+}
+
 // ─── Swipeable row (WhatsApp-style swipe-to-reply) ───────────────────────────
 
 const SWIPE_THRESHOLD = 72;
@@ -623,6 +674,9 @@ const _transcriptCache  = new Map<string, string>(); // cdnUrl → transcript te
 const VOICE_CACHE_DIR   = (FileSystem.cacheDirectory ?? '') + 'voice/';
 
 async function getLocalAudioUri(cdnUrl: string): Promise<string> {
+  // Local file URIs (optimistic voice messages before CDN upload) — play directly
+  if (cdnUrl.startsWith('file://')) return cdnUrl;
+
   const cached = _audioUriCache.get(cdnUrl);
   if (cached) return cached;
 
@@ -658,15 +712,48 @@ function VoiceBubble({ msg, colors }: { msg: Msg; colors: any }) {
   const pillBg     = isMe ? 'rgba(0,0,0,0.18)' : 'rgba(255,255,255,0.18)';
 
   const { token } = useAuth();
-  const soundRef = useRef<{ sound: any } | null>(null);
+
+  // Lazy player: created only when user first taps play, avoiding a native crash
+  // when the audio session is still in record mode after sending a voice message.
+  const playerRef = useRef<ReturnType<typeof createAudioPlayer> | null>(null);
+  const [pStatus, setPStatus] = useState<{
+    isLoaded: boolean; currentTime: number; duration: number; didJustFinish: boolean;
+  }>({ isLoaded: false, currentTime: 0, duration: 0, didJustFinish: false });
+
   const [playing,      setPlaying]      = useState(false);
-  const [pos,          setPos]          = useState(0);
-  const [elapsed,      setElapsed]      = useState(0);
   const [speed,        setSpeed]        = useState<1 | 1.5 | 2>(1);
   const [transcribing, setTranscribing] = useState(false);
   const [transcript,   setTranscript]   = useState<string | null>(null);
 
+  const getOrCreatePlayer = useCallback(() => {
+    if (!playerRef.current) {
+      const p = createAudioPlayer(null, 80);
+      p.addListener('playbackStatusUpdate', (s: any) => setPStatus(s));
+      playerRef.current = p;
+    }
+    return playerRef.current;
+  }, []);
+
+  useEffect(() => {
+    setAudioModeAsync({ playsInSilentMode: true }).catch(() => {});
+    return () => {
+      if (playerRef.current) {
+        playerRef.current.release();
+        playerRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (pStatus.didJustFinish) {
+      setPlaying(false);
+      playerRef.current?.seekTo(0);
+    }
+  }, [pStatus.didJustFinish]);
+
   const totalSec = msg.audioDuration ?? 0;
+  const pos     = pStatus.duration > 0 ? pStatus.currentTime / pStatus.duration : 0;
+  const elapsed = pStatus.currentTime;
 
   const fmt = (s: number) => {
     const m = Math.floor(s / 60);
@@ -674,53 +761,33 @@ function VoiceBubble({ msg, colors }: { msg: Msg; colors: any }) {
     return `${m}:${sec.toString().padStart(2, '0')}`;
   };
 
-  // Warm up audio mode once so toggle() has no setup delay
-  useEffect(() => {
-    Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true }).catch(() => {});
-  }, []);
-
-  // Unload when audio finishes — resets to beginning
   const fullStop = () => {
-    const s = soundRef.current?.sound;
-    soundRef.current = null;
     setPlaying(false);
-    setPos(0);
-    setElapsed(0);
-    if (s) {
-      s.stopAsync().catch(() => {});
-      s.unloadAsync().catch(() => {});
-    }
+    const p = playerRef.current;
+    if (p) { p.pause(); p.seekTo(0); }
   };
 
-  // Instant: flip UI state first, fire native op in background
   const toggle = () => {
     if (playing) {
       setPlaying(false);
-      soundRef.current?.sound?.pauseAsync().catch(() => {});
+      playerRef.current?.pause();
       return;
     }
-    if (soundRef.current?.sound) {
+    const p = getOrCreatePlayer();
+    if (pStatus.isLoaded) {
       setPlaying(true);
-      soundRef.current.sound.playAsync().catch(() => {});
+      p.play();
       return;
     }
     // Fresh load — resolve local cache first, then play
     if (!msg.audioUrl) return;
     setPlaying(true);
     getLocalAudioUri(msg.audioUrl)
-      .then(localUri => Audio.Sound.createAsync(
-        { uri: localUri },
-        { shouldPlay: true, progressUpdateIntervalMillis: 80, rate: speed, shouldCorrectPitch: true },
-        (status: any) => {
-          if (!status.isLoaded) return;
-          if (status.didJustFinish) { fullStop(); return; }
-          const dur = status.durationMillis ?? (totalSec * 1000);
-          const cur = status.positionMillis ?? 0;
-          setPos(dur > 0 ? cur / dur : 0);
-          setElapsed(cur / 1000);
-        }
-      ))
-      .then(({ sound }) => { soundRef.current = { sound }; })
+      .then(localUri => {
+        p.replace({ uri: localUri });
+        p.setPlaybackRate(speed);
+        p.play();
+      })
       .catch(() => {
         setPlaying(false);
         Alert.alert('Playback error', 'Could not play voice message.');
@@ -730,7 +797,7 @@ function VoiceBubble({ msg, colors }: { msg: Msg; colors: any }) {
   const cycleSpeed = () => {
     const next: 1 | 1.5 | 2 = speed === 1 ? 1.5 : speed === 1.5 ? 2 : 1;
     setSpeed(next);
-    soundRef.current?.sound?.setRateAsync(next, true).catch(() => {});
+    playerRef.current?.setPlaybackRate(next);
   };
 
   const handleTranscribe = async () => {
@@ -778,12 +845,6 @@ function VoiceBubble({ msg, colors }: { msg: Msg; colors: any }) {
       setTranscribing(false);
     }
   };
-
-  useEffect(() => () => {
-    const s = soundRef.current?.sound;
-    soundRef.current = null;
-    s?.unloadAsync().catch(() => {});
-  }, []);
 
   // 32 deterministic bars seeded from audioUrl — unique waveform per message
   const BARS = useMemo(() => {
@@ -1325,14 +1386,10 @@ function AiPanel({ colors, matchName, onSelect, onClose, token }: {
         {/* ── Browse mode ── */}
         {mode === 'browse' && (
           <>
-            {loadingCats ? (
-              <View style={{ alignItems: 'center', paddingVertical: 10 }}>
-                <ActivityIndicator size="small" color={colors.text} />
-              </View>
-            ) : (
+            {!loadingCats && (
               <CategoryPills active={activeCategory} onSelect={setActiveCategory} />
             )}
-            {loadingLines ? (
+            {(loadingLines || loadingCats) ? (
               <ShimmerLines colors={colors} count={5} />
             ) : (
               <ScrollView
@@ -1383,15 +1440,9 @@ function AiPanel({ colors, matchName, onSelect, onClose, token }: {
 
             <Pressable onPress={generateAiLines} disabled={aiLoading}
               style={({ pressed }) => [pressed && { opacity: 0.8 }]}>
-              <Squircle style={styles.aiGenBtn} cornerRadius={16} cornerSmoothing={1} fillColor={colors.text}>
-                {aiLoading ? (
-                  <ActivityIndicator size="small" color={colors.bg} />
-                ) : (
-                  <>
-                    <Ionicons name="sparkles" size={16} color={colors.bg} />
-                    <Text style={[styles.aiGenBtnText, { color: colors.bg }]}>Generate Lines</Text>
-                  </>
-                )}
+              <Squircle style={[styles.aiGenBtn, aiLoading && { opacity: 0.5 }]} cornerRadius={16} cornerSmoothing={1} fillColor={colors.text}>
+                <Ionicons name="sparkles" size={16} color={colors.bg} />
+                <Text style={[styles.aiGenBtnText, { color: colors.bg }]}>Generate Lines</Text>
               </Squircle>
             </Pressable>
 
@@ -2611,6 +2662,12 @@ function CallBubble({
     ? `Missed ${callLabel.toLowerCase()}`
     : `${callLabel} · ${Math.floor((msg.callDuration ?? 0) / 60)}:${((msg.callDuration ?? 0) % 60).toString().padStart(2, '0')}`;
 
+  // My call bubbles → dark surface; their call bubbles → white (mirrors text bubble logic)
+  const bubbleBg    = isMe ? colors.surface    : BUBBLE_ME_BG;
+  const labelColor  = isMe ? colors.text       : BUBBLE_ME_TEXT;
+  const timeColor   = isMe ? colors.textTertiary : 'rgba(0,0,0,0.4)';
+  const arrowColor  = isMissed ? '#ef4444' : '#22c55e';
+
   const avatarUri = isMe ? myAvatar : partnerAvatar;
   const avatarSlot = (
     <View style={{ width: 36, alignItems: isMe ? 'flex-end' : 'flex-start', justifyContent: 'flex-end', paddingBottom: 2 }}>
@@ -2623,11 +2680,11 @@ function CallBubble({
       {!isMe && avatarSlot}
       <Squircle
         cornerRadius={20} cornerSmoothing={1}
-        fillColor={colors.surface}
-        strokeColor={colors.border} strokeWidth={StyleSheet.hairlineWidth}
+        fillColor={bubbleBg}
+        strokeColor={isMe ? colors.border : 'transparent'} strokeWidth={StyleSheet.hairlineWidth}
         style={styles.callBubble}
       >
-        <View style={[styles.callBubbleIcon, { backgroundColor: isMissed ? 'rgba(239,68,68,0.12)' : 'rgba(34,197,94,0.12)' }]}>
+        <View style={[styles.callBubbleIcon, { backgroundColor: isMissed ? 'rgba(239,68,68,0.15)' : 'rgba(34,197,94,0.15)' }]}>
           <Ionicons
             name={isVideo ? (isMissed ? 'videocam-off' : 'videocam') : (isMissed ? 'call' : 'call-outline')}
             size={18}
@@ -2635,10 +2692,10 @@ function CallBubble({
           />
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={[styles.callBubbleLabel, { color: colors.text }]}>{label}</Text>
-          <Text style={[styles.callBubbleTime, { color: colors.textTertiary }]}>{msg.time}</Text>
+          <Text style={[styles.callBubbleLabel, { color: labelColor }]}>{label}</Text>
+          <Text style={[styles.callBubbleTime, { color: timeColor }]}>{msg.time}</Text>
         </View>
-        <Ionicons name={isMissed ? 'arrow-down-outline' : 'arrow-up-outline'} size={14} color={isMissed ? '#ef4444' : '#22c55e'} />
+        <Ionicons name={isMissed ? 'arrow-down-outline' : 'arrow-up-outline'} size={14} color={arrowColor} />
       </Squircle>
       {isMe && avatarSlot}
     </View>
@@ -3379,6 +3436,7 @@ export default function ChatConversationPage() {
 
   const [messages,      setMessages]      = useState<Msg[]>([]);
   const [text,          setText]          = useState('');
+  const [contentWarning, setContentWarning] = useState<string | null>(null);
   const [showAi,        setShowAi]        = useState(false);
   const [showCards,     setShowCards]     = useState(false);
   const [showInsight,   setShowInsight]   = useState(false);
@@ -3443,13 +3501,19 @@ export default function ChatConversationPage() {
     }
   }, [params.pendingGame]);
   const scrollRef       = useRef<ScrollView>(null);
-  const msgLayoutsRef   = useRef<Record<string, number>>({});
-  const recordingRef    = useRef<Audio.Recording | null>(null);
+  const msgLayoutsRef      = useRef<Record<string, number>>({});
+  const [highlightedMsgId, setHighlightedMsgId] = useState<string | null>(null);
+  const chatRecorder    = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recTimerRef     = useRef<ReturnType<typeof setInterval> | null>(null);
   const scrollToMessage = React.useCallback((id: string) => {
     const y = msgLayoutsRef.current[id];
     if (y !== undefined) {
-      scrollRef.current?.scrollTo({ y: Math.max(0, y - 120), animated: true });
+      scrollRef.current?.scrollTo({ y: Math.max(0, y - 100), animated: true });
+      // Trigger the purple flash after the scroll animation lands
+      setTimeout(() => {
+        setHighlightedMsgId(id);
+        setTimeout(() => setHighlightedMsgId(null), 1500);
+      }, 350);
     }
   }, []);
   const wsRef           = useRef<WebSocket | null>(null);
@@ -3606,6 +3670,14 @@ export default function ChatConversationPage() {
           setIsOnline(Boolean(payload.online));
         } else if (payload.type === 'message_deleted') {
           setMessages(prev => prev.filter(m => m.id !== payload.message_id));
+        } else if (payload.type === 'restricted') {
+          // Backend rejected the message — remove the optimistic bubble and alert
+          const pid = pendingOptIdRef.current;
+          if (pid) {
+            setMessages(prev => prev.filter(x => x.id !== pid));
+            pendingOptIdRef.current = null;
+          }
+          Alert.alert('Message blocked', payload.detail ?? 'This content is not allowed in chat.');
         }
       } catch {}
     };
@@ -3663,6 +3735,8 @@ export default function ChatConversationPage() {
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handleTextChange = (val: string) => {
     setText(val);
+    const { blocked, reason } = checkContent(val);
+    setContentWarning(blocked ? reason : null);
     if (!safeSendRef.current) return;
     safeSendRef.current(JSON.stringify({ type: 'typing', is_typing: true }));
     if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
@@ -3696,6 +3770,7 @@ export default function ChatConversationPage() {
     pendingOptIdRef.current = optimisticId;
     setMessages(prev => [...prev, optimistic]);
     setText('');
+    setContentWarning(null);
     setAnsweringCard(null);
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 80);
 
@@ -3718,18 +3793,24 @@ export default function ChatConversationPage() {
   };
 
   const handleSend = () => {
+    if (contentWarning) {
+      Alert.alert('Message blocked', contentWarning);
+      return;
+    }
     if (answeringCard) {
       sendMessage(text, { isAnswer: true, answerTo: answeringCard });
     } else if (replyingTo) {
-      const answerTo = replyingTo.imageUrl
-        ? 'Photo'
-        : replyingTo.audioUrl
-          ? 'Voice Message'
-          : replyingTo.isGame
-            ? (replyingTo.gameMsgType?.replace(/_/g, ' ') ?? 'Game')
-            : replyingTo.isTod
-              ? 'Truth or Dare'
-              : replyingTo.text;
+      const answerTo = replyingTo.isCall
+        ? `${replyingTo.callType === 'missed' || replyingTo.callType === 'declined' ? 'Missed ' : ''}${replyingTo.callKind === 'video' ? 'Video call' : 'Voice call'}`
+        : replyingTo.imageUrl
+          ? 'Photo'
+          : replyingTo.audioUrl
+            ? 'Voice Message'
+            : replyingTo.isGame
+              ? (replyingTo.gameMsgType?.replace(/_/g, ' ') ?? 'Game')
+              : replyingTo.isTod
+                ? 'Truth or Dare'
+                : replyingTo.text;
       sendMessage(text, { isAnswer: true, answerTo, replyToId: replyingTo.id });
       setReplyingTo(null);
     } else {
@@ -3746,77 +3827,79 @@ export default function ChatConversationPage() {
       const duration = recSeconds;
       setRecSeconds(0);
 
-      const rec = recordingRef.current;
-      if (!rec) return;
+      if (!chatRecorder.isRecording) return;
 
-      setIsTranscribing(true); // reuse "busy" state while uploading
       try {
-        await rec.stopAndUnloadAsync();
-        const uri = rec.getURI();
-        recordingRef.current = null;
+        await chatRecorder.stop();
+        const uri = chatRecorder.uri;
         if (!uri) return;
 
-        // Upload audio to CDN
-        const form = new FormData();
-        form.append('file', { uri, name: 'recording.m4a', type: 'audio/m4a' } as any);
-        form.append('duration_sec', String(Math.max(duration, 1)));
-
-        const res = await fetch(`${API_V1}/upload/audio`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${token}` },
-          body: form,
-        });
-        const data = await res.json();
-        const audioUrl: string = data.url;
-        const dur: number = data.duration_sec ?? duration;
-
-        if (!audioUrl) throw new Error('No URL returned');
-
-        // Optimistic message
+        // Show message instantly using the local file URI — no waiting for CDN
         const optimisticId = `opt-voice-${Date.now()}`;
-        const optimisticMsg: Msg = {
+        setMessages(prev => [...prev, {
           id: optimisticId,
           text: '',
           from: 'me',
           time: _formatTime(new Date().toISOString()),
-          audioUrl,
-          audioDuration: dur,
+          audioUrl: uri,       // local file — playable immediately
+          audioDuration: duration,
           status: 'sending',
-        };
-        setMessages(prev => [...prev, optimisticMsg]);
+        }]);
+        setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 80);
 
-        // Send via WebSocket
-        const payload = JSON.stringify({
-          type: 'message',
-          content: audioUrl,
-          msg_type: 'voice',
-          metadata: { audioUrl, duration_sec: dur },
-        });
-        if (safeSendRef.current) {
-          safeSendRef.current(payload);
-          setMessages(prev =>
-            prev.map(x => x.id === optimisticId ? { ...x, status: 'sent' } : x)
-          );
-        }
+        // Upload to CDN in background — UI is not blocked
+        ;(async () => {
+          try {
+            const form = new FormData();
+            form.append('file', { uri, name: 'recording.m4a', type: 'audio/m4a' } as any);
+            form.append('duration_sec', String(Math.max(duration, 1)));
+
+            const res = await fetch(`${API_V1}/upload/audio`, {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${token}` },
+              body: form,
+            });
+            const data = await res.json();
+            const audioUrl: string = data.url;
+            const dur: number = data.duration_sec ?? duration;
+
+            if (!audioUrl) throw new Error('No URL returned');
+
+            // Swap local URI → CDN URL; keep status 'sending' until WS echo confirms
+            setMessages(prev =>
+              prev.map(x => x.id === optimisticId ? { ...x, audioUrl, audioDuration: dur } : x)
+            );
+
+            // Register the pending ID so the WS echo replaces (not duplicates) this bubble
+            pendingOptIdRef.current = optimisticId;
+
+            // Now send to partner via WebSocket
+            safeSendRef.current?.(JSON.stringify({
+              type: 'message',
+              content: audioUrl,
+              msg_type: 'voice',
+              metadata: { audioUrl, duration_sec: dur },
+            }));
+          } catch {
+            setMessages(prev => prev.filter(x => x.id !== optimisticId));
+            Alert.alert('Could not send voice message', 'Please try again.');
+          }
+        })();
       } catch {
         Alert.alert('Could not send voice message', 'Please try again.');
-      } finally {
-        setIsTranscribing(false);
       }
       return;
     }
 
     // ── Start recording ────────────────────────────────────────────────────
-    const { granted } = await Audio.requestPermissionsAsync();
+    const { granted } = await requestRecordingPermissionsAsync();
     if (!granted) {
       Alert.alert('Permission needed', 'Please allow microphone access to send voice messages.');
       return;
     }
-    await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
-    const { recording } = await Audio.Recording.createAsync(
-      Audio.RecordingOptionsPresets.HIGH_QUALITY,
-    );
-    recordingRef.current = recording;
+    await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+    await chatRecorder.prepareToRecordAsync();
+    chatRecorder.record();
     setRecSeconds(0);
     setIsListening(true);
     recTimerRef.current = setInterval(() => {
@@ -4136,21 +4219,24 @@ export default function ChatConversationPage() {
             // Call record bubble
             if (msg.isCall) {
               return (
-                <CallBubble
-                  key={msg.id}
-                  msg={msg}
-                  colors={colors}
-                  isLastInGroup={isLastInGroup}
-                  myAvatar={myAvatar}
-                  partnerAvatar={partnerAvatar}
-                />
+                <MsgRow key={msg.id} id={msg.id} highlightedId={highlightedMsgId} msgLayoutsRef={msgLayoutsRef}>
+                  <SwipeableRow onReply={() => { setReplyingTo(msg); setAnsweringCard(null); }} direction={msg.from === 'me' ? 'left' : 'right'}>
+                    <CallBubble
+                      msg={msg}
+                      colors={colors}
+                      isLastInGroup={isLastInGroup}
+                      myAvatar={myAvatar}
+                      partnerAvatar={partnerAvatar}
+                    />
+                  </SwipeableRow>
+                </MsgRow>
               );
             }
 
             // Mini-games bubble
             if (msg.isGame && msg.gameMsgType) {
               return (
-                <View key={msg.id} onLayout={e => { if (msg.id) msgLayoutsRef.current[msg.id] = e.nativeEvent.layout.y; }}>
+                <MsgRow key={msg.id} id={msg.id} highlightedId={highlightedMsgId} msgLayoutsRef={msgLayoutsRef}>
                   <SwipeableRow onReply={() => { setReplyingTo(msg); setAnsweringCard(null); }} direction={msg.from === 'me' ? 'left' : 'right'}>
                     <GameBubble
                       msg={msg as unknown as GameMsg}
@@ -4168,13 +4254,13 @@ export default function ChatConversationPage() {
                       )}
                     />
                   </SwipeableRow>
-                </View>
+                </MsgRow>
               );
             }
 
             if (msg.isTod) {
               return (
-                <View key={msg.id} onLayout={e => { if (msg.id) msgLayoutsRef.current[msg.id] = e.nativeEvent.layout.y; }}>
+                <MsgRow key={msg.id} id={msg.id} highlightedId={highlightedMsgId} msgLayoutsRef={msgLayoutsRef}>
                   <SwipeableRow onReply={() => { setReplyingTo(msg); setAnsweringCard(null); }} direction={msg.from === 'me' ? 'left' : 'right'}>
                     <TodBubble
                       msg={msg}
@@ -4189,7 +4275,7 @@ export default function ChatConversationPage() {
                       isLastInGroup={isLastInGroup}
                     />
                   </SwipeableRow>
-                </View>
+                </MsgRow>
               );
             }
 
@@ -4197,7 +4283,7 @@ export default function ChatConversationPage() {
             if (msg.audioUrl) {
               const isMe = msg.from === 'me';
               return (
-                <View key={msg.id} onLayout={e => { if (msg.id) msgLayoutsRef.current[msg.id] = e.nativeEvent.layout.y; }}>
+                <MsgRow key={msg.id} id={msg.id} highlightedId={highlightedMsgId} msgLayoutsRef={msgLayoutsRef}>
                   <SwipeableRow onReply={() => { setReplyingTo(msg); setAnsweringCard(null); }} direction={isMe ? 'left' : 'right'}>
                     <View style={[styles.bubbleRow, isMe ? styles.bubbleRowMe : styles.bubbleRowThem]}>
                       {!isMe && (
@@ -4213,12 +4299,12 @@ export default function ChatConversationPage() {
                       )}
                     </View>
                   </SwipeableRow>
-                </View>
+                </MsgRow>
               );
             }
 
             return (
-              <View key={msg.id} onLayout={e => { if (msg.id) msgLayoutsRef.current[msg.id] = e.nativeEvent.layout.y; }}>
+              <MsgRow key={msg.id} id={msg.id} highlightedId={highlightedMsgId} msgLayoutsRef={msgLayoutsRef}>
               <Bubble
                 msg={msg}
                 colors={colors}
@@ -4248,7 +4334,7 @@ export default function ChatConversationPage() {
                 partnerAvatar={partnerAvatar}
                 isLastInGroup={isLastInGroup}
               />
-              </View>
+              </MsgRow>
             );
           })}
 
@@ -4273,6 +4359,16 @@ export default function ChatConversationPage() {
           { borderTopColor: colors.border, backgroundColor: colors.bg, paddingBottom: keyboardShown ? 8 : insets.bottom + 8 },
         ]}>
           {/* Reply-to strip (swipe-to-reply) */}
+          {/* Content restriction warning */}
+          {contentWarning && (
+            <View style={[styles.answerStrip, { backgroundColor: 'rgba(239,68,68,0.10)', borderColor: 'rgba(239,68,68,0.35)' }]}>
+              <Ionicons name="shield-outline" size={13} color="#ef4444" />
+              <Text style={[styles.answerStripText, { color: '#ef4444', flex: 1 }]} numberOfLines={2}>
+                {contentWarning}
+              </Text>
+            </View>
+          )}
+
           {replyingTo && !answeringCard && (
             <View style={[styles.answerStrip, { backgroundColor: colors.surface2, borderColor: 'rgba(124,58,237,0.3)' }]}>
               <Ionicons name="return-down-forward" size={13} color="#a78bfa" />
@@ -4281,15 +4377,17 @@ export default function ChatConversationPage() {
                   {replyingTo.from === 'me' ? 'You' : name}
                 </Text>
                 <Text style={[styles.answerStripText, { color: colors.textSecondary, flex: 0 }]} numberOfLines={1}>
-                  {replyingTo.imageUrl
-                    ? 'Photo'
-                    : replyingTo.audioUrl
-                      ? 'Voice Message'
-                      : replyingTo.isGame
-                        ? (replyingTo.gameMsgType?.replace(/_/g, ' ') ?? 'Game')
-                        : replyingTo.isTod
-                          ? 'Truth or Dare'
-                          : replyingTo.text}
+                  {replyingTo.isCall
+                    ? `${replyingTo.callType === 'missed' || replyingTo.callType === 'declined' ? 'Missed ' : ''}${replyingTo.callKind === 'video' ? 'Video call' : 'Voice call'}`
+                    : replyingTo.imageUrl
+                      ? 'Photo'
+                      : replyingTo.audioUrl
+                        ? 'Voice Message'
+                        : replyingTo.isGame
+                          ? (replyingTo.gameMsgType?.replace(/_/g, ' ') ?? 'Game')
+                          : replyingTo.isTod
+                            ? 'Truth or Dare'
+                            : replyingTo.text}
                 </Text>
               </View>
               <Pressable onPress={() => setReplyingTo(null)} hitSlop={8}>
@@ -4319,7 +4417,7 @@ export default function ChatConversationPage() {
                 <Pressable
                   onPress={() => {
                     Keyboard.dismiss();
-                    router.push({
+                    navPush({
                       pathname: '/mini-games',
                       params: {
                         partnerId,
@@ -4376,13 +4474,11 @@ export default function ChatConversationPage() {
                   <TextInput
                     style={[styles.inputField, { color: colors.text }]}
                     placeholder={
-                      isTranscribing ? 'Sending…'
-                      : answeringCard ? 'Your answer…'
+                      answeringCard ? 'Your answer…'
                       : replyingTo ? 'Reply…'
                       : 'Message…'
                     }
-                    placeholderTextColor={isTranscribing ? '#f59e0b' : colors.placeholder}
-                    editable={!isTranscribing}
+                    placeholderTextColor={colors.placeholder}
                     value={text}
                     onChangeText={handleTextChange}
                     multiline
@@ -4408,32 +4504,27 @@ export default function ChatConversationPage() {
 
             {/* Send / mic */}
             <Pressable
-              onPress={text.trim() ? handleSend : isTranscribing ? undefined : handleMicPress}
+              onPress={text.trim() ? handleSend : handleMicPress}
               hitSlop={8}
-              disabled={isTranscribing}
               style={({ pressed }) => [pressed && { opacity: 0.7 }]}
             >
               <Squircle
                 style={styles.inputSideBtn} cornerRadius={14} cornerSmoothing={1}
                 fillColor={
-                  text.trim()
-                    ? ((answeringCard || replyingTo) ? '#7c3aed' : colors.text)
-                    : isListening
-                      ? '#ef4444'
-                      : isTranscribing
-                        ? '#f59e0b'
+                  contentWarning
+                    ? '#ef4444'
+                    : text.trim()
+                      ? ((answeringCard || replyingTo) ? '#7c3aed' : colors.text)
+                      : isListening
+                        ? '#ef4444'
                         : colors.surface2
                 }
               >
-                {isTranscribing ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Ionicons
-                    name={text.trim() ? 'send' : isListening ? 'stop-circle' : 'mic'}
-                    size={18}
-                    color={text.trim() ? ((answeringCard || replyingTo) ? '#fff' : colors.bg) : isListening ? '#fff' : colors.text}
-                  />
-                )}
+                <Ionicons
+                  name={contentWarning ? 'ban' : text.trim() ? 'send' : isListening ? 'stop-circle' : 'mic'}
+                  size={18}
+                  color={contentWarning ? '#fff' : text.trim() ? ((answeringCard || replyingTo) ? '#fff' : colors.bg) : isListening ? '#fff' : colors.text}
+                />
               </Squircle>
             </Pressable>
           </View>

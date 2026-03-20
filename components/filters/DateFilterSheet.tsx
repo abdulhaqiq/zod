@@ -1,3 +1,4 @@
+import { navPush, navReplace } from '@/utils/nav';
 /**
  * DateFilterSheet — discover filters for Date mode.
  *
@@ -146,12 +147,14 @@ interface Props {
   visible: boolean;
   onClose: () => void;
   onApply: () => void;   // called after filters saved — parent re-fetches feed
+  onNavigateToVerification?: () => void;
   colors: any;
   insets: any;
 }
 
-export default function DateFilterSheet({ visible, onClose, onApply, colors, insets }: Props) {
+export default function DateFilterSheet({ visible, onClose, onApply, onNavigateToVerification, colors, insets }: Props) {
   const router = useRouter();
+  const navGuardRef = useRef(false);
   const { profile, token, updateProfile } = useAuth();
   const isPro = profile?.subscription_tier === 'pro';
   const isFaceVerified = profile?.verification_status === 'verified';
@@ -167,7 +170,7 @@ export default function DateFilterSheet({ visible, onClose, onApply, colors, ins
   const [verifiedOnly, setVerifiedOnly] = useState(false);
   const [ageMin,       setAgeMin]       = useState(18);
   const [ageMax,       setAgeMax]       = useState(45);
-  const [distance,     setDistance]     = useState(50);   // 150 = "any"
+  const [distance,     setDistance]     = useState(50);
   const [langs,        setLangs]        = useState<number[]>([]);
   const [signs,        setSigns]        = useState<number[]>([]);
   const [interests,    setInterests]    = useState<number[]>([]);
@@ -183,14 +186,18 @@ export default function DateFilterSheet({ visible, onClose, onApply, colors, ins
   const [familyPlans,  setFamilyPlans]  = useState<number[]>([]);
   const [havingKids,   setHavingKids]   = useState<number[]>([]);
 
+  // Reset nav guard when sheet closes
+  useEffect(() => {
+    if (!visible) navGuardRef.current = false;
+  }, [visible]);
+
   // Sync from saved profile whenever the sheet opens
   useEffect(() => {
     if (!visible || !profile) return;
     setVerifiedOnly(profile.filter_verified_only ?? false);
     setAgeMin(profile.filter_age_min ?? 18);
     setAgeMax(profile.filter_age_max ?? 45);
-    // null in DB means "Any distance" — restore slider to max (150)
-    setDistance(profile.filter_max_distance_km != null ? Math.min(profile.filter_max_distance_km, 150) : 150);
+    setDistance(profile.filter_max_distance_km != null ? Math.min(profile.filter_max_distance_km, 80) : 80);
     setSigns(profile.filter_star_signs ?? []);
     setInterests(profile.filter_interests ?? []);
     setLangs(profile.filter_languages ?? []);
@@ -209,7 +216,7 @@ export default function DateFilterSheet({ visible, onClose, onApply, colors, ins
     setArr(arr.includes(val) ? arr.filter(x => x !== val) : [...arr, val]);
 
   const reset = () => {
-    setVerifiedOnly(false); setAgeMin(18); setAgeMax(45); setDistance(150);
+    setVerifiedOnly(false); setAgeMin(18); setAgeMax(45); setDistance(80);
     setSigns([]); setInterests([]); setLangs([]); setEthnicities([]);
     setExercise([]); setDrinking([]); setSmoking([]); setHeightMin(140);
     setLookingFor([]); setEducation([]); setFamilyPlans([]); setHavingKids([]);
@@ -224,8 +231,7 @@ export default function DateFilterSheet({ visible, onClose, onApply, colors, ins
       const patch: Record<string, any> = {
         filter_age_min:         ageMin,
         filter_age_max:         ageMax,
-        // distance >= 150 is the "Any" position on the slider → store null
-        filter_max_distance_km: distance >= 150 ? null : distance,
+        filter_max_distance_km: distance,
         filter_verified_only:   verifiedOnly,
         filter_star_signs:      signs.length     ? signs     : null,
         filter_interests:       interests.length ? interests : null,
@@ -328,34 +334,30 @@ export default function DateFilterSheet({ visible, onClose, onApply, colors, ins
             <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
               <View style={styles.sliderLabelRow}>
                 <SecHead title="MAX DISTANCE" />
-                <Text style={[styles.sliderValue, { color: colors.text }]}>{distance >= 150 ? 'Any' : `${distance} km`}</Text>
+                <Text style={[styles.sliderValue, { color: colors.text }]}>{`${distance} km`}</Text>
               </View>
               <View style={[styles.sliderRow, { marginTop: 10 }]}>
                 <Text style={[styles.sliderSub, { color: colors.textSecondary }]}>1 km</Text>
                 <SliderRN
                   style={{ flex: 1 }}
-                  minimumValue={1} maximumValue={150} step={1}
+                  minimumValue={1} maximumValue={80} step={1}
                   value={distance}
                   onValueChange={v => setDistance(Math.round(v))}
                   minimumTrackTintColor={colors.text}
                   maximumTrackTintColor={colors.surface2}
                   thumbTintColor={colors.text}
                 />
-                <Text style={[styles.sliderSub, { color: colors.textSecondary }]}>Any</Text>
+                <Text style={[styles.sliderSub, { color: colors.textSecondary }]}>80 km</Text>
               </View>
             </Squircle>
 
             {/* Verified only */}
-            <Pressable
-              onPress={() => !isFaceVerified && router.push('/verification' as any)}
-              disabled={isFaceVerified}
-              style={({ pressed }) => [{ opacity: pressed && !isFaceVerified ? 0.75 : 1 }]}
-            >
+            <View>
               <Squircle
                 style={[styles.filterCard, { gap: 12 }]}
                 cornerRadius={22} cornerSmoothing={1}
-                fillColor={isFaceVerified ? colors.surface : 'rgba(34,197,94,0.06)'}
-                strokeColor={isFaceVerified ? colors.border : 'rgba(34,197,94,0.3)'}
+                fillColor={colors.surface}
+                strokeColor={colors.border}
                 strokeWidth={1}
               >
                 {/* Top row */}
@@ -363,12 +365,12 @@ export default function DateFilterSheet({ visible, onClose, onApply, colors, ins
                   <Squircle
                     style={styles.filterRowIcon}
                     cornerRadius={12} cornerSmoothing={1}
-                    fillColor={isFaceVerified ? 'rgba(34,197,94,0.15)' : 'rgba(34,197,94,0.12)'}
+                    fillColor={colors.surface2}
                   >
                     <Ionicons
                       name={isFaceVerified ? 'shield-checkmark' : 'scan-outline'}
                       size={18}
-                      color="#22c55e"
+                      color={colors.textSecondary}
                     />
                   </Squircle>
                   <View style={{ flex: 1 }}>
@@ -389,32 +391,45 @@ export default function DateFilterSheet({ visible, onClose, onApply, colors, ins
 
                 {/* Verification prompt banner — only shown when NOT verified */}
                 {!isFaceVerified && (
-                  <View style={{
-                    flexDirection: 'row', alignItems: 'center', gap: 10,
-                    backgroundColor: 'rgba(34,197,94,0.1)',
-                    borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10,
-                  }}>
-                    <Ionicons name="camera-outline" size={16} color="#22c55e" />
+                  <Pressable
+                    onPress={() => {
+                      if (navGuardRef.current) return;
+                      navGuardRef.current = true;
+                      if (onNavigateToVerification) {
+                        onNavigateToVerification();
+                      } else {
+                        onClose();
+                        setTimeout(() => { router.push({ pathname: '/verification', params: { tab: 'face' } } as any); navGuardRef.current = false; }, 350);
+                      }
+                    }}
+                    style={({ pressed }) => [{
+                      flexDirection: 'row', alignItems: 'center', gap: 10,
+                      backgroundColor: colors.surface2,
+                      borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10,
+                      opacity: pressed ? 0.75 : 1,
+                    }]}
+                  >
+                    <Ionicons name="camera-outline" size={16} color={colors.textSecondary} />
                     <View style={{ flex: 1 }}>
-                      <Text style={{ fontSize: 13, fontFamily: 'ProductSans-Bold', color: '#22c55e' }}>
+                      <Text style={{ fontSize: 13, fontFamily: 'ProductSans-Bold', color: colors.text }}>
                         Verify your face to unlock
                       </Text>
-                      <Text style={{ fontSize: 11, fontFamily: 'ProductSans-Regular', color: 'rgba(34,197,94,0.75)', marginTop: 1 }}>
+                      <Text style={{ fontSize: 11, fontFamily: 'ProductSans-Regular', color: colors.textSecondary, marginTop: 1 }}>
                         Takes 30 seconds · Your face is never stored
                       </Text>
                     </View>
                     <View style={{
                       flexDirection: 'row', alignItems: 'center', gap: 4,
-                      backgroundColor: '#22c55e', borderRadius: 20,
+                      backgroundColor: colors.text, borderRadius: 20,
                       paddingHorizontal: 12, paddingVertical: 6,
                     }}>
-                      <Text style={{ fontSize: 12, fontFamily: 'ProductSans-Bold', color: '#000' }}>Start</Text>
-                      <Ionicons name="arrow-forward" size={12} color="#000" />
+                      <Text style={{ fontSize: 12, fontFamily: 'ProductSans-Bold', color: colors.bg }}>Start</Text>
+                      <Ionicons name="arrow-forward" size={12} color={colors.bg} />
                     </View>
-                  </View>
+                  </Pressable>
                 )}
               </Squircle>
-            </Pressable>
+            </View>
 
             {/* Interests */}
             <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
@@ -695,7 +710,7 @@ export default function DateFilterSheet({ visible, onClose, onApply, colors, ins
             </Squircle>
           ) : (
             <Squircle cornerRadius={18} cornerSmoothing={1} fillColor={colors.surface2} strokeColor={colors.border} strokeWidth={1} style={[styles.applyBtn, { opacity: 0.6 }]}>
-              <Pressable onPress={() => router.push('/subscription')} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+              <Pressable onPress={() => navPush('/subscription')} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
                 <Ionicons name="lock-closed" size={14} color={colors.textSecondary} />
                 <Text style={[styles.applyBtnText, { color: colors.textSecondary }]}>Unlock Pro</Text>
               </Pressable>

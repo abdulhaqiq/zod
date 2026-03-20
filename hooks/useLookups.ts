@@ -4,7 +4,7 @@
  * the exact same data that lives in the database.
  */
 import { useEffect, useState } from 'react';
-import { API_V1 } from '@/constants/api';
+import { apiFetch } from '@/constants/api';
 
 export interface LookupOption {
   id: number;
@@ -29,9 +29,7 @@ export async function fetchLookups(): Promise<LookupMap> {
   if (_inflight) return _inflight;
   _inflight = (async () => {
     try {
-      const res = await fetch(`${API_V1}/lookup/options`);
-      if (!res.ok) throw new Error('lookup fetch failed');
-      const data = await res.json() as Record<string, Array<{ id: number; emoji?: string; label: string }>>;
+      const data = await apiFetch<Record<string, Array<{ id: number; emoji?: string; label: string }>>>('/lookup/options');
       const map: LookupMap = {};
       for (const [cat, rows] of Object.entries(data)) {
         map[cat] = rows.map(r => ({ id: r.id, emoji: r.emoji ?? undefined, label: r.label }));

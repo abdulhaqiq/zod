@@ -1,3 +1,4 @@
+import { navPush, navReplace } from '@/utils/nav';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { ActivityIndicator, Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -97,7 +98,7 @@ export default function PurchasesPage() {
           </View>
           {!isPro && (
             <Pressable
-              onPress={() => router.push('/subscription')}
+              onPress={() => navPush('/subscription')}
               style={[styles.upgradeBtn, { backgroundColor: colors.text }]}
             >
               <Text style={[styles.upgradeTxt, { color: colors.bg }]}>Upgrade</Text>
@@ -139,7 +140,7 @@ export default function PurchasesPage() {
             <ActionRow
               icon="star-outline" label={isPro ? 'View Zod Pro Benefits' : 'Explore Zod Pro'}
               sub={isPro ? "See what's included in your plan" : 'Unlock all premium features'}
-              onPress={() => router.push('/subscription')}
+              onPress={() => navPush('/subscription')}
               colors={colors} last={!isPro}
             />
             {isPro && (

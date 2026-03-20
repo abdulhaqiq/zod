@@ -1,3 +1,4 @@
+import { navPush, navReplace } from '@/utils/nav';
 // Step 1 — Full name + email + date of birth
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -115,7 +116,7 @@ export default function ProfileScreen() {
       fields.email = email.trim().toLowerCase();
     }
     const ok = await save(fields);
-    if (ok) router.push('/gender');
+    if (ok) navPush('/gender');
   };
 
   // Build the label manually to guarantee Gregorian English — avoids device Hijri calendar

@@ -1,3 +1,4 @@
+import { navPush, navReplace } from '@/utils/nav';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
@@ -29,7 +30,7 @@ export default function RelationshipGoals() {
   const handleContinue = () => {
     setTouched(true);
     if (!goal) return;
-    router.push('/height');
+    navPush('/height');
   };
 
   return (

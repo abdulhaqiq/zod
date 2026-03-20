@@ -69,7 +69,7 @@
       "expo-secure-store",
       "expo-localization",
       [
-        "expo-av",
+        "expo-audio",
         {
           "microphonePermission": "Allow Zod to record your voice prompts."
         }
@@ -79,6 +79,16 @@
         {
           "locationAlwaysAndWhenInUsePermission": "Allow Zod to show you relevant matches nearby.",
           "locationWhenInUsePermission": "Allow Zod to show you relevant matches nearby."
+        }
+      ],
+      "expo-font",
+      "expo-image",
+      "expo-web-browser",
+      "expo-audio",
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Allow Zod to use Face ID to securely sign you in."
         }
       ]
     ],
@@ -90,7 +100,8 @@
       "router": {},
       "eas": {
         "projectId": "47479a1e-a314-455f-ae89-56cb2234d873"
-      }
+      },
+      "APP_API_KEY": "33de4e446cdbe7697036c871477f3c54bef1a4832f4a4b4ff6bb2d5475f65207"
     },
     "owner": "abdulkum"
   }

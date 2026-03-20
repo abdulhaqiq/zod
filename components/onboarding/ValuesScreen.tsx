@@ -1,3 +1,4 @@
+import { navPush, navReplace } from '@/utils/nav';
 // Step 8 — Values (multi-select, up to 5)
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
@@ -34,7 +35,7 @@ export default function ValuesScreen() {
     const existing = profile?.values_list ?? [];
     const mergedGoals = existing.filter(id => goalIds.includes(id));
     const ok = await save({ values_list: [...selected, ...mergedGoals] });
-    if (ok) router.push('/prompts');
+    if (ok) navPush('/prompts');
   };
 
   return (

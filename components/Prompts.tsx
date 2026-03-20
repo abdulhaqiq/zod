@@ -1,3 +1,4 @@
+import { navPush, navReplace } from '@/utils/nav';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
@@ -94,7 +95,7 @@ export default function Prompts() {
   const handleContinue = () => {
     setTouched(true);
     if (filledCount === 0) return;
-    router.push('/photos');
+    navPush('/photos');
   };
 
   const unusedTemplates = PROMPT_TEMPLATES.filter(

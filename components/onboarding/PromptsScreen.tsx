@@ -1,3 +1,4 @@
+import { navPush, navReplace } from '@/utils/nav';
 // Step 9 — Bio / prompt
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
@@ -21,7 +22,7 @@ export default function PromptsScreen() {
     const trimmed = bio.trim();
     if (trimmed.length < 10) return;
     const ok = await save({ bio: trimmed });
-    if (ok) router.push('/photos');
+    if (ok) navPush('/photos');
   };
 
   return (

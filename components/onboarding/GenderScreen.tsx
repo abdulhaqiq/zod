@@ -1,3 +1,4 @@
+import { navPush, navReplace } from '@/utils/nav';
 // Step 2 — Gender
 import { Dimensions } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -28,7 +29,7 @@ export default function GenderScreen() {
   const handleContinue = async () => {
     if (!selectedId) return;
     const ok = await save({ gender_id: selectedId });
-    if (ok) router.push('/purpose');
+    if (ok) navPush('/purpose');
   };
 
   return (

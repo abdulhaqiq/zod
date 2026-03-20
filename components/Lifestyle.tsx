@@ -1,3 +1,4 @@
+import { navPush, navReplace } from '@/utils/nav';
 import { Ionicons } from '@expo/vector-icons';
 import type { ComponentProps } from 'react';
 import { useRouter } from 'expo-router';
@@ -140,7 +141,7 @@ export default function Lifestyle() {
       </ScrollView>
 
       <View style={styles.footer}>
-        <Button title="Continue" onPress={() => router.push('/values')} style={styles.btn} />
+        <Button title="Continue" onPress={() => navPush('/values')} style={styles.btn} />
       </View>
     </SafeAreaView>
   );

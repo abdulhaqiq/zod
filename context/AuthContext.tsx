@@ -3,8 +3,36 @@ import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { Platform } from 'react-native';
 import { API_V1, WS_V1, registerAuthHandlers } from '@/constants/api';
 
-const ACCESS_KEY  = 'auth_token';
-const REFRESH_KEY = 'refresh_token';
+export const RECENT_ACCOUNT_KEY = 'recent_account';
+export interface RecentAccount {
+  name: string | null;
+  phone: string | null;
+  photo: string | null;
+  method: 'phone' | 'apple';
+}
+
+/**
+ * Saves login info to the iOS Keychain (SecureStore) — protected by
+ * Face ID / Touch ID on supported devices. Call only after the user agrees.
+ */
+export async function saveRecentAccount(account: RecentAccount): Promise<void> {
+  await SecureStore.setItemAsync(RECENT_ACCOUNT_KEY, JSON.stringify(account));
+}
+
+/** Loads the saved recent account from SecureStore. */
+export async function loadRecentAccount(): Promise<RecentAccount | null> {
+  try {
+    const raw = await SecureStore.getItemAsync(RECENT_ACCOUNT_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+const ACCESS_KEY        = 'auth_token';
+const REFRESH_KEY       = 'refresh_token';
+// Survives explicit logout — used for biometric quick sign-in (like Snapchat/Facebook "Continue as")
+const QUICK_SIGNIN_KEY  = 'quick_signin_refresh';
 
 // Mirrors backend MeResponse schema.
 // All categorical single-value fields use lookup_options integer IDs.
@@ -74,7 +102,7 @@ export interface UserProfile {
   // Discover filter preferences
   filter_age_min:         number | null;
   filter_age_max:         number | null;
-  filter_max_distance_km: number | null;   // null = any
+  filter_max_distance_km: number | null;   // null treated as 80 km max
   filter_verified_only:   boolean;
   filter_star_signs:      number[] | null;
   filter_interests:       number[] | null;
@@ -109,6 +137,9 @@ export interface UserProfile {
   is_onboarded: boolean;
   is_active: boolean;
   created_at: string;
+
+  face_scan_required: boolean;
+  id_scan_required:   boolean;
 }
 
 interface AuthContextValue {
@@ -118,12 +149,15 @@ interface AuthContextValue {
   isLoading: boolean;
   isNetworkError: boolean;
   profile: UserProfile | null;
-  signIn: (accessToken: string, refreshToken: string, isOnboarded: boolean) => Promise<void>;
+  signIn: (accessToken: string, refreshToken: string, isOnboarded: boolean, method?: 'phone' | 'apple') => Promise<void>;
   signOut: () => Promise<void>;
   setOnboarded: () => Promise<void>;
   updateProfile: (patch: Partial<UserProfile>) => void;
   tryRefresh: () => Promise<string | null>;
   retryBootstrap: () => void;
+  /** Silently re-authenticates using the persisted quick-sign-in refresh token.
+   *  Returns the destination route on success, or null if the token has expired. */
+  performQuickSignIn: () => Promise<string | null>;
 }
 
 const AuthContext = createContext<AuthContextValue>({
@@ -133,12 +167,13 @@ const AuthContext = createContext<AuthContextValue>({
   isLoading: true,
   isNetworkError: false,
   profile: null,
-  signIn: async () => {},
+  signIn: async (_a: string, _b: string, _c: boolean, _d?: 'phone' | 'apple') => {},
   signOut: async () => {},
   setOnboarded: async () => {},
   updateProfile: () => {},
   tryRefresh: async () => null,
   retryBootstrap: () => {},
+  performQuickSignIn: async () => null,
 });
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -190,6 +225,56 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       presenceWsRef.current = null;
     };
   }, [token]);
+
+  // ── Face-scan-required WebSocket ─────────────────────────────────────────────
+  // Listens for server-push events that flag an account as requiring a new
+  // face scan (e.g. after receiving N catfishing / false-gender reports).
+  const faceScanWsRef    = useRef<WebSocket | null>(null);
+  const faceScanRetryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (!token || !profile?.id) {
+      faceScanWsRef.current?.close();
+      faceScanWsRef.current = null;
+      return;
+    }
+
+    let disposed = false;
+
+    function connectFaceScan(t: string, userId: string) {
+      if (disposed) return;
+      const ws = new WebSocket(`${WS_V1}/ws/face-scan-required/${userId}?token=${t}`);
+      faceScanWsRef.current = ws;
+
+      ws.onmessage = (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          if (data.type === 'heartbeat') return;
+          if (typeof data.required === 'boolean') {
+            setProfile(prev => prev ? { ...prev, face_scan_required: data.required } : prev);
+          }
+        } catch {}
+      };
+
+      ws.onclose = () => {
+        faceScanWsRef.current = null;
+        if (!disposed) {
+          faceScanRetryRef.current = setTimeout(() => connectFaceScan(t, userId), 5000);
+        }
+      };
+
+      ws.onerror = () => ws.close();
+    }
+
+    connectFaceScan(token, profile.id);
+
+    return () => {
+      disposed = true;
+      if (faceScanRetryRef.current) clearTimeout(faceScanRetryRef.current);
+      faceScanWsRef.current?.close();
+      faceScanWsRef.current = null;
+    };
+  }, [token, profile?.id]);
 
   async function _fetchProfile(accessToken: string): Promise<UserProfile | null | 'network_error'> {
     try {
@@ -281,6 +366,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   async function _clearSession() {
     await SecureStore.deleteItemAsync(ACCESS_KEY);
     await SecureStore.deleteItemAsync(REFRESH_KEY);
+    // QUICK_SIGNIN_KEY is intentionally NOT deleted here — it persists across
+    // logouts so the user can tap "Continue as [Name]" next time they open the app.
   }
 
   async function _doRefresh(refresh: string): Promise<string | null> {
@@ -303,10 +390,66 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const newRefresh = data.refresh_token;
     await SecureStore.setItemAsync(ACCESS_KEY,  newAccess);
     await SecureStore.setItemAsync(REFRESH_KEY, newRefresh);
+    // Keep quick-sign-in token up to date with the latest refresh token
+    await SecureStore.setItemAsync(QUICK_SIGNIN_KEY, newRefresh);
     setToken(newAccess);
     setRefresh(newRefresh);
     return newAccess;
   }
+
+  /** Silently re-authenticates using the persisted quick-sign-in refresh token.
+   *  All HTTP work is done before any state is touched so the auth guard never
+   *  fires with a half-initialised session (which would briefly show the profile
+   *  screen before landing on the feed).
+   *  Returns the destination route on success, null if the token has expired. */
+  const performQuickSignIn = async (): Promise<string | null> => {
+    const quickRefresh = await SecureStore.getItemAsync(QUICK_SIGNIN_KEY);
+    if (!quickRefresh) return null;
+
+    // ── Step 1: refresh token (no state changes yet) ──────────────────────────
+    let newAccess: string;
+    let newRefresh: string;
+    try {
+      const res = await fetch(`${API_V1}/auth/refresh`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ refresh_token: quickRefresh }),
+      });
+      if (!res.ok) {
+        // Token expired or revoked — clear quick-sign-in data
+        await SecureStore.deleteItemAsync(QUICK_SIGNIN_KEY);
+        await SecureStore.deleteItemAsync(RECENT_ACCOUNT_KEY);
+        return null;
+      }
+      const data: { access_token: string; refresh_token: string } = await res.json();
+      newAccess  = data.access_token;
+      newRefresh = data.refresh_token;
+    } catch {
+      throw new Error('NETWORK_ERROR');
+    }
+
+    // ── Step 2: fetch profile (still no state changes) ────────────────────────
+    const me = await _fetchProfile(newAccess);
+    if (!me || me === 'network_error') {
+      await SecureStore.deleteItemAsync(QUICK_SIGNIN_KEY);
+      await SecureStore.deleteItemAsync(RECENT_ACCOUNT_KEY);
+      return null;
+    }
+
+    // ── Step 3: persist tokens then update ALL state in one batch ─────────────
+    // Doing this last prevents the auth guard from firing with profile = null
+    // (which would briefly flash the profile/onboarding screen).
+    await SecureStore.setItemAsync(ACCESS_KEY,       newAccess);
+    await SecureStore.setItemAsync(REFRESH_KEY,      newRefresh);
+    await SecureStore.setItemAsync(QUICK_SIGNIN_KEY, newRefresh);
+    setToken(newAccess);
+    setRefresh(newRefresh);
+    setProfile(me);
+    setIsOnboarded(me.is_onboarded);
+    _registerPushToken(newAccess);
+
+    return me.is_onboarded ? '/(tabs)' : '/gender';
+  };
 
   const tryRefresh = async (): Promise<string | null> => {
     const refresh = refreshTokenRef.current;
@@ -351,17 +494,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  const signIn = async (accessToken: string, newRefresh: string, onboarded: boolean) => {
+  const signIn = async (
+    accessToken: string,
+    newRefresh: string,
+    onboarded: boolean,
+    _method: 'phone' | 'apple' = 'phone',
+  ) => {
     await SecureStore.setItemAsync(ACCESS_KEY, accessToken);
     await SecureStore.setItemAsync(REFRESH_KEY, newRefresh);
+    // Keep quick-sign-in token current so future one-tap logins always work
+    await SecureStore.setItemAsync(QUICK_SIGNIN_KEY, newRefresh);
     setToken(accessToken);
     setRefresh(newRefresh);
     setIsOnboarded(onboarded);
     // Fetch fresh profile immediately after login
     const me = await _fetchProfile(accessToken);
-    if (me) setProfile(me);
+    if (me && me !== 'network_error') setProfile(me);
     // Register push token in the background — non-blocking
     _registerPushToken(accessToken);
+    // NOTE: saving the recent account is intentionally NOT done here.
+    // The caller (OTP screen / Apple sign-in) asks the user first, then
+    // calls saveRecentAccount() if they agree.
   };
 
   const signOut = async () => {
@@ -398,6 +551,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     <AuthContext.Provider value={{
       token, refreshToken, isOnboarded, isLoading, isNetworkError, profile,
       signIn, signOut, setOnboarded, updateProfile, tryRefresh, retryBootstrap,
+      performQuickSignIn,
     }}>
       {children}
     </AuthContext.Provider>

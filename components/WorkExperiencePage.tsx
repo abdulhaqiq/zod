@@ -1,6 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import * as WebBrowser from 'expo-web-browser';
 import { useState } from 'react';
 import {
   Alert,
@@ -16,32 +15,10 @@ import {
 } from 'react-native';
 import ScreenHeader from '@/components/ui/ScreenHeader';
 import Squircle from '@/components/ui/Squircle';
-import { API_V1, apiFetch } from '@/constants/api';
+import { apiFetch } from '@/constants/api';
 import { useAuth } from '@/context/AuthContext';
 import { useAppTheme } from '@/context/ThemeContext';
 import type { AppColors } from '@/constants/appColors';
-
-WebBrowser.maybeCompleteAuthSession();
-
-// ─── LinkedIn OAuth config ────────────────────────────────────────────────────
-
-const LINKEDIN_CLIENT_ID = '86limpriduno69';
-// This URL is pre-registered by LinkedIn in every app — no portal config needed.
-// After auth, LinkedIn redirects here; WebBrowser intercepts the page load and
-// returns the full URL (including ?code=...) back to the app.
-const LINKEDIN_REDIRECT_URI = 'https://www.linkedin.com/developers/tools/oauth/redirect';
-const LINKEDIN_SCOPE = 'openid profile email';
-
-function buildLinkedInAuthUrl(): string {
-  const params = new URLSearchParams({
-    response_type: 'code',
-    client_id: LINKEDIN_CLIENT_ID,
-    redirect_uri: LINKEDIN_REDIRECT_URI,
-    scope: LINKEDIN_SCOPE,
-    state: Math.random().toString(36).slice(2),
-  });
-  return `https://www.linkedin.com/oauth/v2/authorization?${params.toString()}`;
-}
 
 // ─── Job title suggestions ────────────────────────────────────────────────────
 
@@ -321,8 +298,6 @@ export default function WorkExperiencePage() {
   const router = useRouter();
   const { colors } = useAppTheme();
   const { profile, token, updateProfile } = useAuth();
-  const [linkedInLoading, setLinkedInLoading] = useState(false);
-  const [linkedInConnected, setLinkedInConnected] = useState(false);
   const [saving, setSaving] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, EntryErrors>>({});
 
@@ -340,75 +315,6 @@ export default function WorkExperiencePage() {
     }
     return [{ id: '1', jobTitle: '', company: '', startYear: '', endYear: '', current: false }];
   });
-
-  // ── LinkedIn OAuth result handler ─────────────────────────────────────────
-  // No deep-link listener needed — WebBrowser.openAuthSessionAsync intercepts
-  // the redirect directly and returns result.url with the code.
-
-  const handleLinkedInRedirect = async (url: string) => {
-    if (!url.includes('code=')) return;
-
-    // Extract code from URL query params (works for both https:// and deep links)
-    let code: string | undefined;
-    try {
-      const urlObj = new URL(url);
-      code = urlObj.searchParams.get('code') ?? undefined;
-    } catch {
-      // Fallback for non-standard URLs
-      const match = url.match(/[?&]code=([^&]+)/);
-      code = match?.[1];
-    }
-
-    if (!code || !token) return;
-
-    setLinkedInLoading(true);
-    try {
-      const imported = await apiFetch<{
-        job_title: string; company: string; start_year: string;
-        end_year: string; current: boolean;
-      }[]>('/linkedin/import-work', {
-        method: 'POST',
-        token,
-        body: JSON.stringify({ code, redirect_uri: LINKEDIN_REDIRECT_URI }),
-      });
-
-      if (imported.length === 0) {
-        Alert.alert('No Experience Found', 'LinkedIn returned no work experience. Make sure your profile is public and has positions listed.');
-        return;
-      }
-
-      const mapped: WorkEntry[] = imported.map((e, i) => ({
-        id: Date.now().toString() + i,
-        jobTitle: e.job_title,
-        company: e.company,
-        startYear: e.start_year,
-        endYear: e.end_year,
-        current: e.current,
-      }));
-      setEntries(mapped);
-      setLinkedInConnected(true);
-      Alert.alert('Imported!', `${mapped.length} experience${mapped.length > 1 ? 's' : ''} imported from LinkedIn.`);
-    } catch (e: any) {
-      Alert.alert('Import Failed', e.message ?? 'Could not import from LinkedIn.');
-    } finally {
-      setLinkedInLoading(false);
-    }
-  };
-
-  const connectLinkedIn = async () => {
-    setLinkedInLoading(true);
-    try {
-      const url = buildLinkedInAuthUrl();
-      const result = await WebBrowser.openAuthSessionAsync(url, LINKEDIN_REDIRECT_URI);
-      if (result.type === 'success' && result.url) {
-        await handleLinkedInRedirect(result.url);
-      }
-    } catch {
-      Alert.alert('Error', 'Could not open LinkedIn. Please try again.');
-    } finally {
-      setLinkedInLoading(false);
-    }
-  };
 
   // ── Entry management ───────────────────────────────────────────────────────
   const addEntry = () => {
@@ -477,37 +383,6 @@ export default function WorkExperiencePage() {
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          {/* LinkedIn import banner */}
-          <Squircle
-            style={styles.linkedInBanner}
-            cornerRadius={20}
-            cornerSmoothing={1}
-            fillColor="#0A66C2"
-          >
-            <View style={styles.linkedInInner}>
-              <View style={styles.linkedInLeft}>
-                <Squircle style={styles.linkedInIcon} cornerRadius={10} cornerSmoothing={1} fillColor="rgba(255,255,255,0.18)">
-                  <Ionicons name="logo-linkedin" size={20} color="#fff" />
-                </Squircle>
-                <View>
-                  <Text style={styles.linkedInTitle}>Import from LinkedIn</Text>
-                  <Text style={styles.linkedInSub}>
-                    {linkedInConnected ? 'Imported · tap to refresh' : 'Auto-fill your experience'}
-                  </Text>
-                </View>
-              </View>
-              <Pressable
-                style={[styles.linkedInBtn, linkedInConnected && { backgroundColor: 'rgba(255,255,255,0.15)' }]}
-                onPress={linkedInLoading ? undefined : connectLinkedIn}
-                disabled={linkedInLoading}
-              >
-                <Text style={[styles.linkedInBtnText, linkedInConnected && { color: '#fff' }]}>
-                  {linkedInLoading ? '…' : linkedInConnected ? 'Connected' : 'Connect'}
-                </Text>
-              </Pressable>
-            </View>
-          </Squircle>
-
           {/* Entry cards */}
           {entries.map(entry => (
             <WorkCard
@@ -564,16 +439,6 @@ const styles = StyleSheet.create({
   safe:             { flex: 1 },
   flex:             { flex: 1 },
   scroll:           { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 48, gap: 14 },
-
-  // LinkedIn
-  linkedInBanner:   { overflow: 'hidden' },
-  linkedInInner:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 14, gap: 10 },
-  linkedInLeft:     { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 },
-  linkedInIcon:     { width: 38, height: 38, alignItems: 'center', justifyContent: 'center' },
-  linkedInTitle:    { fontSize: 14, fontFamily: 'ProductSans-Bold', color: '#fff' },
-  linkedInSub:      { fontSize: 11, fontFamily: 'ProductSans-Regular', color: 'rgba(255,255,255,0.7)' },
-  linkedInBtn:      { backgroundColor: '#fff', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8 },
-  linkedInBtnText:  { fontSize: 12, fontFamily: 'ProductSans-Bold', color: '#0A66C2' },
 
   // Card
   card:             { overflow: 'hidden' },

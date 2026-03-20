@@ -1,6 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import * as WebBrowser from 'expo-web-browser';
 import { useState } from 'react';
 import {
   Alert,
@@ -19,25 +18,6 @@ import { apiFetch } from '@/constants/api';
 import { useAuth } from '@/context/AuthContext';
 import { useAppTheme } from '@/context/ThemeContext';
 import type { AppColors } from '@/constants/appColors';
-
-WebBrowser.maybeCompleteAuthSession();
-
-// ─── LinkedIn OAuth config ────────────────────────────────────────────────────
-
-const LINKEDIN_CLIENT_ID  = '86limpriduno69';
-const LINKEDIN_REDIRECT_URI = 'https://www.linkedin.com/developers/tools/oauth/redirect';
-const LINKEDIN_SCOPE = 'openid profile email r_fullprofile';
-
-function buildLinkedInAuthUrl(): string {
-  const params = new URLSearchParams({
-    response_type: 'code',
-    client_id: LINKEDIN_CLIENT_ID,
-    redirect_uri: LINKEDIN_REDIRECT_URI,
-    scope: LINKEDIN_SCOPE,
-    state: Math.random().toString(36).slice(2),
-  });
-  return `https://www.linkedin.com/oauth/v2/authorization?${params.toString()}`;
-}
 
 // ─── Degree options ───────────────────────────────────────────────────────────
 
@@ -194,8 +174,6 @@ export default function EducationPage() {
   const { colors } = useAppTheme();
   const { profile, token, updateProfile } = useAuth();
   const [saving, setSaving] = useState(false);
-  const [linkedInConnected, setLinkedInConnected] = useState(false);
-  const [linkedInLoading, setLinkedInLoading]     = useState(false);
 
   const [entries, setEntries] = useState<EduEntry[]>(() => {
     const ed = profile?.education;
@@ -224,61 +202,6 @@ export default function EducationPage() {
 
   const removeEntry = (id: string) =>
     setEntries(prev => prev.filter(e => e.id !== id));
-
-  const handleLinkedInImport = async (url: string) => {
-    if (!url.includes('code=')) return;
-    let code: string | undefined;
-    try {
-      code = new URL(url).searchParams.get('code') ?? undefined;
-    } catch {
-      code = url.match(/[?&]code=([^&]+)/)?.[1];
-    }
-    if (!code || !token) return;
-
-    setLinkedInLoading(true);
-    try {
-      const imported = await apiFetch<{
-        institution: string; course: string; degree: string; grad_year: string;
-      }[]>('/linkedin/import-education', {
-        method: 'POST',
-        token,
-        body: JSON.stringify({ code, redirect_uri: LINKEDIN_REDIRECT_URI }),
-      });
-
-      if (imported.length === 0) {
-        Alert.alert('No Education Found', 'LinkedIn returned no education. Make sure your profile is public and has education listed.');
-        return;
-      }
-
-      setEntries(imported.map((e, i) => ({
-        id: Date.now().toString() + i,
-        institution: e.institution,
-        course: e.course,
-        degree: e.degree,
-        gradYear: e.grad_year,
-      })));
-      setLinkedInConnected(true);
-      Alert.alert('Imported!', `${imported.length} education entr${imported.length > 1 ? 'ies' : 'y'} imported from LinkedIn.`);
-    } catch (e: any) {
-      Alert.alert('Import Failed', e.message ?? 'Could not import from LinkedIn.');
-    } finally {
-      setLinkedInLoading(false);
-    }
-  };
-
-  const connectLinkedIn = async () => {
-    setLinkedInLoading(true);
-    try {
-      const result = await WebBrowser.openAuthSessionAsync(buildLinkedInAuthUrl(), LINKEDIN_REDIRECT_URI);
-      if (result.type === 'success' && result.url) {
-        await handleLinkedInImport(result.url);
-      }
-    } catch {
-      Alert.alert('Error', 'Could not open LinkedIn. Please try again.');
-    } finally {
-      setLinkedInLoading(false);
-    }
-  };
 
   const handleSave = async () => {
     setSaving(true);
@@ -320,37 +243,6 @@ export default function EducationPage() {
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          {/* LinkedIn import banner */}
-          <Squircle
-            style={styles.linkedInBanner}
-            cornerRadius={20}
-            cornerSmoothing={1}
-            fillColor="#0A66C2"
-          >
-            <View style={styles.linkedInInner}>
-              <View style={styles.linkedInLeft}>
-                <Squircle style={styles.linkedInIcon} cornerRadius={10} cornerSmoothing={1} fillColor="rgba(255,255,255,0.18)">
-                  <Ionicons name="logo-linkedin" size={20} color="#fff" />
-                </Squircle>
-                <View>
-                  <Text style={styles.linkedInTitle}>Import from LinkedIn</Text>
-                  <Text style={styles.linkedInSub}>
-                    {linkedInConnected ? 'Imported · tap to refresh' : 'Auto-fill your education'}
-                  </Text>
-                </View>
-              </View>
-              <Pressable
-                style={[styles.linkedInBtn, linkedInConnected && { backgroundColor: 'rgba(255,255,255,0.15)' }]}
-                onPress={linkedInLoading ? undefined : connectLinkedIn}
-                disabled={linkedInLoading}
-              >
-                <Text style={[styles.linkedInBtnText, linkedInConnected && { color: '#fff' }]}>
-                  {linkedInLoading ? '…' : linkedInConnected ? 'Connected' : 'Connect'}
-                </Text>
-              </Pressable>
-            </View>
-          </Squircle>
-
           {entries.map((entry, i) => (
             <EduCard
               key={entry.id}
@@ -417,13 +309,4 @@ const styles = StyleSheet.create({
   addBtn:         { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 16 },
   addBtnText:     { fontSize: 15, fontFamily: 'ProductSans-Bold' },
 
-  // LinkedIn
-  linkedInBanner:  { overflow: 'hidden' },
-  linkedInInner:   { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 14, gap: 10 },
-  linkedInLeft:    { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 },
-  linkedInIcon:    { width: 38, height: 38, alignItems: 'center', justifyContent: 'center' },
-  linkedInTitle:   { fontSize: 14, fontFamily: 'ProductSans-Bold', color: '#fff' },
-  linkedInSub:     { fontSize: 11, fontFamily: 'ProductSans-Regular', color: 'rgba(255,255,255,0.7)' },
-  linkedInBtn:     { backgroundColor: '#fff', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8 },
-  linkedInBtnText: { fontSize: 12, fontFamily: 'ProductSans-Bold', color: '#0A66C2' },
 });

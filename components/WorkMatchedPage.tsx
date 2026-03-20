@@ -1,3 +1,4 @@
+import { navPush, navReplace } from '@/utils/nav';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Image as ExpoImage } from 'expo-image';
@@ -86,7 +87,7 @@ export default function WorkMatchedPage({ insets }: { insets: any }) {
                     </Squircle>
                   </Pressable>
                   <Pressable
-                    onPress={() => router.push({ pathname: '/chat', params: { name: p.name, image: p.images[0], online: 'false' } })}
+                    onPress={() => navPush({ pathname: '/chat', params: { name: p.name, image: p.images[0], online: 'false' } })}
                     style={({ pressed }) => [pressed && { opacity: 0.65 }, { flex: 1 }]}
                     hitSlop={6}
                   >

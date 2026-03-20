@@ -1,3 +1,4 @@
+import { navPush, navReplace } from '@/utils/nav';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
@@ -549,7 +550,7 @@ export default function EditProfilePage() {
               />
               {profile?.is_verified ? (
                 <Pressable
-                  onPress={() => router.push({ pathname: '/verification', params: { tab: 'id' } })}
+                  onPress={() => navPush({ pathname: '/verification', params: { tab: 'id' } })}
                   style={({ pressed }) => [
                     styles.editRow,
                     pressed && { opacity: 0.65 },
@@ -573,7 +574,7 @@ export default function EditProfilePage() {
                   icon="checkmark-circle-outline"
                   label="Verification"
                   value="Get Verified"
-                  onPress={() => router.push('/verification')}
+                  onPress={() => navPush('/verification')}
                   colors={colors}
                   last
                 />
@@ -743,7 +744,7 @@ export default function EditProfilePage() {
                 label="Work"
                 value={workLabel}
                 preview={workLabel ? undefined : 'Tap to add'}
-                onPress={() => router.push('/work-experience')}
+                onPress={() => navPush('/work-experience')}
                 colors={colors}
               />
               <EditRow
@@ -751,7 +752,7 @@ export default function EditProfilePage() {
                 label="Education"
                 value={eduLabel}
                 preview={eduLabel ? undefined : 'Tap to add'}
-                onPress={() => router.push('/education')}
+                onPress={() => navPush('/education')}
                 colors={colors}
                 last
               />
@@ -767,7 +768,7 @@ export default function EditProfilePage() {
                 label="Living Now"
                 value={profile?.city ?? undefined}
                 preview={profile?.city ? undefined : 'Tap to set'}
-                onPress={() => router.push('/location-search?type=living')}
+                onPress={() => navPush('/location-search?type=living')}
                 colors={colors}
               />
               <EditRow
@@ -775,7 +776,7 @@ export default function EditProfilePage() {
                 label="Hometown"
                 value={profile?.hometown ?? undefined}
                 preview={profile?.hometown ? undefined : 'Tap to set'}
-                onPress={() => router.push('/location-search?type=hometown')}
+                onPress={() => navPush('/location-search?type=hometown')}
                 colors={colors}
                 last
               />

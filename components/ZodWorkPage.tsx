@@ -1,3 +1,4 @@
+import { navPush, navReplace } from '@/utils/nav';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
@@ -193,7 +194,7 @@ export default function ZodWorkPage() {
               preview="Work photos & prompts"
               colors={colors}
               last
-              onPress={() => router.push('/work-edit-profile')}
+              onPress={() => navPush('/work-edit-profile')}
             />
           </Group>
         </View>
@@ -316,7 +317,7 @@ export default function ZodWorkPage() {
                   : 'Import from LinkedIn · up to 10 entries'
               }
               colors={colors}
-              onPress={() => router.push('/work-experience')}
+              onPress={() => navPush('/work-experience')}
             />
             <Row
               icon="school-outline"
@@ -328,7 +329,7 @@ export default function ZodWorkPage() {
               }
               colors={colors}
               last
-              onPress={() => router.push('/education')}
+              onPress={() => navPush('/education')}
             />
           </Group>
         </View>
