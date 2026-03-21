@@ -1175,7 +1175,7 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
       )}
 
       {/* ── University email modal ─────────────────────────────────────────── */}
-      <Modal visible={universityModalOpen} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setUniversityModalOpen(false)}>
+      <Modal visible={universityModalOpen} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setUniversityModalOpen(false)}>
         <View style={{ flex: 1, backgroundColor: colors.bg }}>
           <ScreenHeader
             title="University Email"

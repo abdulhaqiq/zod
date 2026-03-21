@@ -5,14 +5,16 @@ import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as MediaLibrary from 'expo-media-library';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import {
   RecordingPresets,
   createAudioPlayer,
   requestRecordingPermissionsAsync,
   setAudioModeAsync,
   useAudioRecorder,
+  useAudioRecorderState,
 } from 'expo-audio';
+import * as Haptics from 'expo-haptics';
 import * as FileSystem from 'expo-file-system/legacy';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -37,6 +39,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Squircle from '@/components/ui/Squircle';
 import { apiFetch, API_V1, WS_V1 } from '@/constants/api';
+import { takePendingGame } from '@/constants/gameQueue';
 import { useAuth } from '@/context/AuthContext';
 import { useCall } from '@/context/CallContext';
 import { useAppTheme } from '@/context/ThemeContext';
@@ -593,7 +596,14 @@ function MsgRow({
 
 // ─── Swipeable row (WhatsApp-style swipe-to-reply) ───────────────────────────
 
+// How far the bubble translates before hitting the cap
 const SWIPE_THRESHOLD = 72;
+// How far the raw gesture must travel to fire reply (lower = easier to trigger)
+const REPLY_THRESHOLD = 48;
+// Minimum dx before we claim the gesture (high enough to let iOS back-swipe win)
+const CLAIM_THRESHOLD = 18;
+// Left-edge dead zone: don't steal from iOS back-swipe when starting near edge
+const EDGE_DEAD_ZONE  = 30;
 
 // direction='right' → their messages (left side), drag left→right to reply
 // direction='left'  → my messages (right side), drag right→left to reply
@@ -619,26 +629,32 @@ function SwipeableRow({ onReply, direction = 'right', children }: {
 
   const pan = useRef(
     PanResponder.create({
-      onMoveShouldSetPanResponder: (_, gs) =>
-        isLeftSwipe
-          ? gs.dx < -6  && Math.abs(gs.dx) > Math.abs(gs.dy) * 1.5
-          : gs.dx >  6  && Math.abs(gs.dx) > Math.abs(gs.dy) * 1.5,
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_, gs) => {
+        const hDominant = Math.abs(gs.dx) > Math.abs(gs.dy) * 2.5;
+        if (isLeftSwipe) {
+          return gs.dx < -CLAIM_THRESHOLD && hDominant;
+        } else {
+          // Right-direction: guard against iOS left-edge back swipe
+          return gs.dx > CLAIM_THRESHOLD && hDominant && gs.x0 > EDGE_DEAD_ZONE;
+        }
+      },
       onPanResponderGrant: () => { triggered.current = false; },
       onPanResponderMove: (_, gs) => {
         if (isLeftSwipe) {
           if (gs.dx < 0) {
             translateX.setValue(Math.max(gs.dx * 0.5, -SWIPE_THRESHOLD));
-            if (gs.dx < -SWIPE_THRESHOLD && !triggered.current) triggered.current = true;
+            if (gs.dx < -REPLY_THRESHOLD && !triggered.current) triggered.current = true;
           }
         } else {
           if (gs.dx > 0) {
             translateX.setValue(Math.min(gs.dx * 0.5, SWIPE_THRESHOLD));
-            if (gs.dx > SWIPE_THRESHOLD && !triggered.current) triggered.current = true;
+            if (gs.dx > REPLY_THRESHOLD && !triggered.current) triggered.current = true;
           }
         }
       },
       onPanResponderRelease: (_, gs) => {
-        const fired = isLeftSwipe ? gs.dx < -SWIPE_THRESHOLD : gs.dx > SWIPE_THRESHOLD;
+        const fired = isLeftSwipe ? gs.dx < -REPLY_THRESHOLD : gs.dx > REPLY_THRESHOLD;
         if (fired && onReply) onReply();
         triggered.current = false;
         Animated.spring(translateX, { toValue: 0, useNativeDriver: true, tension: 120, friction: 10 }).start();
@@ -669,37 +685,75 @@ function SwipeableRow({ onReply, direction = 'right', children }: {
 
 // ─── Voice caches (module-level, persist for the app session) ────────────────
 
-const _audioUriCache    = new Map<string, string>(); // cdnUrl → localFileUri
-const _transcriptCache  = new Map<string, string>(); // cdnUrl → transcript text
-const VOICE_CACHE_DIR   = (FileSystem.cacheDirectory ?? '') + 'voice/';
+const _audioUriCache    = new Map<string, string>();         // cdnUrl → localFileUri (memory)
+const _audioDownloading = new Map<string, Promise<string>>(); // in-flight dedup
+const _transcriptCache  = new Map<string, string>();         // cdnUrl → transcript text
+
+// Permanent storage — not cleared by iOS like cacheDirectory
+const VOICE_CACHE_DIR      = (FileSystem.documentDirectory ?? '') + 'voice_cache/';
+const TRANSCRIPT_CACHE_FILE = (FileSystem.documentDirectory ?? '') + 'transcript_cache.json';
+
+// ── Transcript disk persistence ───────────────────────────────────────────────
+let _transcriptCacheLoaded = false;
+async function ensureTranscriptCacheLoaded(): Promise<void> {
+  if (_transcriptCacheLoaded) return;
+  _transcriptCacheLoaded = true;
+  try {
+    const info = await FileSystem.getInfoAsync(TRANSCRIPT_CACHE_FILE);
+    if (!info.exists) return;
+    const raw  = await FileSystem.readAsStringAsync(TRANSCRIPT_CACHE_FILE);
+    const data: Record<string, string> = JSON.parse(raw);
+    for (const [k, v] of Object.entries(data)) _transcriptCache.set(k, v);
+  } catch {}
+}
+async function persistTranscriptCache(): Promise<void> {
+  try {
+    const obj: Record<string, string> = {};
+    _transcriptCache.forEach((v, k) => { obj[k] = v; });
+    await FileSystem.writeAsStringAsync(TRANSCRIPT_CACHE_FILE, JSON.stringify(obj));
+  } catch {}
+}
 
 async function getLocalAudioUri(cdnUrl: string): Promise<string> {
-  // Local file URIs (optimistic voice messages before CDN upload) — play directly
-  if (cdnUrl.startsWith('file://')) return cdnUrl;
+  // Local file URIs (own optimistic messages before CDN upload) — play directly
+  if (!cdnUrl || cdnUrl.startsWith('file://')) return cdnUrl;
 
-  const cached = _audioUriCache.get(cdnUrl);
-  if (cached) return cached;
+  // Memory hit — already resolved this session
+  const memCached = _audioUriCache.get(cdnUrl);
+  if (memCached) return memCached;
 
-  try {
-    await FileSystem.makeDirectoryAsync(VOICE_CACHE_DIR, { intermediates: true }).catch(() => {});
+  // Deduplicate concurrent callers for the same URL
+  const inflight = _audioDownloading.get(cdnUrl);
+  if (inflight) return inflight;
 
-    const rawName = cdnUrl.split('?')[0].split('/').pop() ?? 'audio';
-    const fileName = rawName.includes('.') ? rawName : rawName + '.m4a';
-    const localPath = VOICE_CACHE_DIR + fileName;
+  const work = (async (): Promise<string> => {
+    try {
+      await FileSystem.makeDirectoryAsync(VOICE_CACHE_DIR, { intermediates: true }).catch(() => {});
 
-    const info = await FileSystem.getInfoAsync(localPath);
-    if (info.exists) {
-      _audioUriCache.set(cdnUrl, localPath);
-      return localPath;
+      const rawName = cdnUrl.split('?')[0].split('/').pop() ?? 'audio';
+      const fileName = rawName.includes('.') ? rawName : rawName + '.m4a';
+      const localPath = VOICE_CACHE_DIR + fileName;
+
+      // Already on disk from a previous session — no re-download
+      const info = await FileSystem.getInfoAsync(localPath);
+      if (info.exists) {
+        _audioUriCache.set(cdnUrl, localPath);
+        return localPath;
+      }
+
+      const { uri } = await FileSystem.downloadAsync(cdnUrl, localPath);
+      _audioUriCache.set(cdnUrl, uri);
+      return uri;
+    } catch {
+      // Network/permission error — fall back to streaming from CDN
+      return cdnUrl;
+    } finally {
+      _audioDownloading.delete(cdnUrl);
     }
+  })();
 
-    const { uri } = await FileSystem.downloadAsync(cdnUrl, localPath);
-    _audioUriCache.set(cdnUrl, uri);
-    return uri;
-  } catch {
-    // Download failed (timeout, network error, etc.) — play directly from CDN
-    return cdnUrl;
-  }
+  _audioDownloading.set(cdnUrl, work);
+  return work;
 }
 
 // ─── VoiceBubble ─────────────────────────────────────────────────────────────
@@ -713,9 +767,13 @@ function VoiceBubble({ msg, colors }: { msg: Msg; colors: any }) {
 
   const { token } = useAuth();
 
-  // Lazy player: created only when user first taps play, avoiding a native crash
-  // when the audio session is still in record mode after sending a voice message.
-  const playerRef = useRef<ReturnType<typeof createAudioPlayer> | null>(null);
+  const soundRef   = useRef<any>(null);
+  const subsRef    = useRef<any[]>([]);
+  // Resolved local file path — set as soon as download completes
+  const localUriRef = useRef<string | null>(
+    msg.audioUrl?.startsWith('file://') ? msg.audioUrl : null
+  );
+
   const [pStatus, setPStatus] = useState<{
     isLoaded: boolean; currentTime: number; duration: number; didJustFinish: boolean;
   }>({ isLoaded: false, currentTime: 0, duration: 0, didJustFinish: false });
@@ -724,30 +782,54 @@ function VoiceBubble({ msg, colors }: { msg: Msg; colors: any }) {
   const [speed,        setSpeed]        = useState<1 | 1.5 | 2>(1);
   const [transcribing, setTranscribing] = useState(false);
   const [transcript,   setTranscript]   = useState<string | null>(null);
-
-  const getOrCreatePlayer = useCallback(() => {
-    if (!playerRef.current) {
-      const p = createAudioPlayer(null, 80);
-      p.addListener('playbackStatusUpdate', (s: any) => setPStatus(s));
-      playerRef.current = p;
-    }
-    return playerRef.current;
-  }, []);
+  const shimmerAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    setAudioModeAsync({ playsInSilentMode: true }).catch(() => {});
+    if (!transcribing) { shimmerAnim.stopAnimation(); shimmerAnim.setValue(0); return; }
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(shimmerAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
+        Animated.timing(shimmerAnim, { toValue: 0, duration: 600, useNativeDriver: true }),
+      ])
+    ).start();
+  }, [transcribing]);
+
+  // expo-audio status — currentTime/duration already in seconds
+  const onPlaybackStatus = useCallback((s: any) => {
+    setPStatus({
+      isLoaded: true,
+      currentTime: s.currentTime ?? 0,
+      duration: s.duration ?? 0,
+      didJustFinish: false,
+    });
+  }, []);
+
+  // ── Download the file to disk as soon as the bubble appears ─────────────────
+  // Only downloads once (getLocalAudioUri deduplicates & checks disk cache).
+  // No AudioPlayer is created here — players are expensive; we create one on tap.
+  useEffect(() => {
+    if (!msg.audioUrl || msg.audioUrl.startsWith('file://')) return;
+    let cancelled = false;
+    getLocalAudioUri(msg.audioUrl).then(uri => {
+      if (!cancelled) localUriRef.current = uri;
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [msg.audioUrl]);
+
+  // ── Tear down the player when the bubble unmounts ────────────────────────────
+  useEffect(() => {
     return () => {
-      if (playerRef.current) {
-        playerRef.current.release();
-        playerRef.current = null;
-      }
+      subsRef.current.forEach(s => s.remove());
+      subsRef.current = [];
+      soundRef.current?.remove();
+      soundRef.current = null;
     };
   }, []);
 
   useEffect(() => {
     if (pStatus.didJustFinish) {
       setPlaying(false);
-      playerRef.current?.seekTo(0);
+      soundRef.current?.seekTo(0);
     }
   }, [pStatus.didJustFinish]);
 
@@ -763,41 +845,50 @@ function VoiceBubble({ msg, colors }: { msg: Msg; colors: any }) {
 
   const fullStop = () => {
     setPlaying(false);
-    const p = playerRef.current;
-    if (p) { p.pause(); p.seekTo(0); }
+    soundRef.current?.pause();
+    soundRef.current?.seekTo(0);
   };
 
-  const toggle = () => {
+  const toggle = async () => {
     if (playing) {
       setPlaying(false);
-      playerRef.current?.pause();
+      soundRef.current?.pause();
       return;
     }
-    const p = getOrCreatePlayer();
-    if (pStatus.isLoaded) {
+    // Ensure the audio session is in playback mode (not recording mode)
+    await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
+    try {
+      // Player already exists from a previous tap — just resume
+      if (soundRef.current) {
+        setPlaying(true);
+        soundRef.current.playbackRate = speed;
+        soundRef.current.play();
+        return;
+      }
+      // First tap — use cached local file if download finished, otherwise await it
+      if (!msg.audioUrl) return;
       setPlaying(true);
-      p.play();
-      return;
+      const uri = localUriRef.current ?? await getLocalAudioUri(msg.audioUrl);
+      localUriRef.current = uri; // cache for next time
+      const player = createAudioPlayer({ uri });
+      subsRef.current = [
+        player.addListener('playbackStatusUpdate', onPlaybackStatus),
+        player.addListener('playToEnd', () =>
+          setPStatus(prev => ({ ...prev, didJustFinish: true }))
+        ),
+      ];
+      soundRef.current = player;
+      player.playbackRate = speed;
+      player.play();
+    } catch {
+      setPlaying(false);
     }
-    // Fresh load — resolve local cache first, then play
-    if (!msg.audioUrl) return;
-    setPlaying(true);
-    getLocalAudioUri(msg.audioUrl)
-      .then(localUri => {
-        p.replace({ uri: localUri });
-        p.setPlaybackRate(speed);
-        p.play();
-      })
-      .catch(() => {
-        setPlaying(false);
-        Alert.alert('Playback error', 'Could not play voice message.');
-      });
   };
 
   const cycleSpeed = () => {
     const next: 1 | 1.5 | 2 = speed === 1 ? 1.5 : speed === 1.5 ? 2 : 1;
     setSpeed(next);
-    playerRef.current?.setPlaybackRate(next);
+    if (soundRef.current) soundRef.current.playbackRate = next;
   };
 
   const handleTranscribe = async () => {
@@ -805,13 +896,13 @@ function VoiceBubble({ msg, colors }: { msg: Msg; colors: any }) {
     // Tap again to toggle off the shown transcript
     if (transcript) { setTranscript(null); return; }
 
-    // Return cached result instantly — no API call
+    // Load disk cache on first tap (lazy) then check memory cache
+    await ensureTranscriptCacheLoaded();
     const cached = _transcriptCache.get(msg.audioUrl);
     if (cached) { setTranscript(cached); return; }
 
     setTranscribing(true);
     try {
-      // Upload the locally cached file directly to Whisper endpoint (more reliable than CDN download)
       const localUri = await getLocalAudioUri(msg.audioUrl).catch(() => null);
       let text = '';
 
@@ -826,7 +917,6 @@ function VoiceBubble({ msg, colors }: { msg: Msg; colors: any }) {
         const data = await res.json();
         text = data.text?.trim() ?? '';
       } else {
-        // Fallback: pass CDN URL to backend
         const res = await fetch(`${API_V1}/upload/transcribe-url`, {
           method: 'POST',
           headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -837,8 +927,9 @@ function VoiceBubble({ msg, colors }: { msg: Msg; colors: any }) {
       }
 
       const result = text || '(no speech detected)';
-      _transcriptCache.set(msg.audioUrl, result); // cache so Aa never re-calls API
+      _transcriptCache.set(msg.audioUrl, result);
       setTranscript(result);
+      persistTranscriptCache(); // fire-and-forget — write to disk in background
     } catch {
       Alert.alert('Transcription failed', 'Could not transcribe voice message.');
     } finally {
@@ -922,18 +1013,18 @@ function VoiceBubble({ msg, colors }: { msg: Msg; colors: any }) {
             </Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
               <Pressable onPress={handleTranscribe} hitSlop={6} disabled={transcribing}>
-                <View style={{
+                <Animated.View style={{
                   paddingHorizontal: 5, paddingVertical: 2, borderRadius: 6,
                   backgroundColor: transcript ? fgColor : pillBg,
+                  opacity: transcribing
+                    ? shimmerAnim.interpolate({ inputRange: [0, 1], outputRange: [0.35, 1] })
+                    : 1,
                 }}>
-                  {transcribing
-                    ? <ActivityIndicator size="small" color={fgColor} style={{ width: 16, height: 10 }} />
-                    : <Text style={{
-                        fontSize: 9, fontFamily: 'ProductSans-Bold',
-                        color: transcript ? bgColor : fgColor,
-                      }}>Aa</Text>
-                  }
-                </View>
+                  <Text style={{
+                    fontSize: 9, fontFamily: 'ProductSans-Bold',
+                    color: transcript ? bgColor : fgColor,
+                  }}>Aa</Text>
+                </Animated.View>
               </Pressable>
               <Text style={{ fontSize: 10, fontFamily: 'ProductSans-Regular', color: mutedColor }}>{msg.time}</Text>
               {isMe && <MsgTicks status={msg.status} />}
@@ -2662,11 +2753,14 @@ function CallBubble({
     ? `Missed ${callLabel.toLowerCase()}`
     : `${callLabel} · ${Math.floor((msg.callDuration ?? 0) / 60)}:${((msg.callDuration ?? 0) % 60).toString().padStart(2, '0')}`;
 
-  // My call bubbles → dark surface; their call bubbles → white (mirrors text bubble logic)
-  const bubbleBg    = isMe ? colors.surface    : BUBBLE_ME_BG;
-  const labelColor  = isMe ? colors.text       : BUBBLE_ME_TEXT;
-  const timeColor   = isMe ? colors.textTertiary : 'rgba(0,0,0,0.4)';
-  const arrowColor  = isMissed ? '#ef4444' : '#22c55e';
+  // My calls → neutral gray (distinct, not the white message bubble)
+  // Their calls → same surface as their regular text bubbles
+  const bubbleBg   = isMe ? colors.surface2  : colors.surface;
+  const labelColor = colors.text;
+  const timeColor  = colors.textTertiary;
+  const arrowColor = isMissed ? '#ef4444' : '#22c55e';
+  // Arrow direction = call direction: outgoing (me) = up, incoming (them) = down
+  const arrowIcon  = isMe ? 'arrow-up-outline' : 'arrow-down-outline';
 
   const avatarUri = isMe ? myAvatar : partnerAvatar;
   const avatarSlot = (
@@ -2681,7 +2775,7 @@ function CallBubble({
       <Squircle
         cornerRadius={20} cornerSmoothing={1}
         fillColor={bubbleBg}
-        strokeColor={isMe ? colors.border : 'transparent'} strokeWidth={StyleSheet.hairlineWidth}
+        strokeColor={colors.border} strokeWidth={StyleSheet.hairlineWidth}
         style={styles.callBubble}
       >
         <View style={[styles.callBubbleIcon, { backgroundColor: isMissed ? 'rgba(239,68,68,0.15)' : 'rgba(34,197,94,0.15)' }]}>
@@ -2695,7 +2789,7 @@ function CallBubble({
           <Text style={[styles.callBubbleLabel, { color: labelColor }]}>{label}</Text>
           <Text style={[styles.callBubbleTime, { color: timeColor }]}>{msg.time}</Text>
         </View>
-        <Ionicons name={isMissed ? 'arrow-down-outline' : 'arrow-up-outline'} size={14} color={arrowColor} />
+        <Ionicons name={arrowIcon} size={14} color={arrowColor} />
       </Squircle>
       {isMe && avatarSlot}
     </View>
@@ -3427,7 +3521,7 @@ export default function ChatConversationPage() {
   const insets  = useSafeAreaInsets();
   const { colors } = useAppTheme();
   const { token, profile } = useAuth();
-  const params  = useLocalSearchParams<{ partnerId?: string; name?: string; image?: string; online?: string; pendingGame?: string }>();
+  const params  = useLocalSearchParams<{ partnerId?: string; name?: string; image?: string; online?: string }>();
 
   const partnerId = params.partnerId ?? '';
   const name      = params.name   ?? 'Match';
@@ -3450,7 +3544,7 @@ export default function ChatConversationPage() {
   const [showUnmatch,     setShowUnmatch]     = useState(false);
   const [isListening,     setIsListening]     = useState(false);
   const [isTranscribing,  setIsTranscribing]  = useState(false);
-  const [recSeconds,      setRecSeconds]      = useState(0);
+  const recStartingRef  = useRef(false);
 
   // Track keyboard visibility to remove safe-area bottom padding when it's up
   useEffect(() => {
@@ -3492,19 +3586,12 @@ export default function ChatConversationPage() {
 
   // ── Mini-games state ──────────────────────────────────────────────────────
   const [showGames, setShowGames] = useState(false);
-  const pendingGameRef = useRef<string | null>(null);
-
-  // Store pendingGame param in ref so the effect after handleGameSend can read it
-  useEffect(() => {
-    if (params.pendingGame) {
-      pendingGameRef.current = params.pendingGame;
-    }
-  }, [params.pendingGame]);
   const scrollRef       = useRef<ScrollView>(null);
   const msgLayoutsRef      = useRef<Record<string, number>>({});
   const [highlightedMsgId, setHighlightedMsgId] = useState<string | null>(null);
   const chatRecorder    = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
-  const recTimerRef     = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Drive the recording timer directly from native recorder (1 s poll) — no setInterval flicker
+  const recState        = useAudioRecorderState(chatRecorder, 1000);
   const scrollToMessage = React.useCallback((id: string) => {
     const y = msgLayoutsRef.current[id];
     if (y !== undefined) {
@@ -3797,6 +3884,7 @@ export default function ChatConversationPage() {
       Alert.alert('Message blocked', contentWarning);
       return;
     }
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     if (answeringCard) {
       sendMessage(text, { isAnswer: true, answerTo: answeringCard });
     } else if (replyingTo) {
@@ -3822,37 +3910,53 @@ export default function ChatConversationPage() {
   const handleMicPress = async () => {
     if (isListening) {
       // ── Stop recording, upload, and send as voice message ─────────────────
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       setIsListening(false);
-      if (recTimerRef.current) { clearInterval(recTimerRef.current); recTimerRef.current = null; }
-      const duration = recSeconds;
-      setRecSeconds(0);
 
       if (!chatRecorder.isRecording) return;
 
+      // Capture duration from native recorder — no manual counter drift
+      const duration = Math.max(1, Math.round(recState.durationMillis / 1000));
+
       try {
         await chatRecorder.stop();
+        // Release iOS audio session so playback / next recording can reclaim it
+        await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
         const uri = chatRecorder.uri;
         if (!uri) return;
 
-        // Show message instantly using the local file URI — no waiting for CDN
+        // Copy to persistent local cache dir so file survives temp-dir cleanup
+        // and can be served from cache even after the CDN URL is swapped in.
+        const cachedLocalUri = await (async () => {
+          try {
+            await FileSystem.makeDirectoryAsync(VOICE_CACHE_DIR, { intermediates: true }).catch(() => {});
+            const dest = `${VOICE_CACHE_DIR}rec_${Date.now()}.m4a`;
+            await FileSystem.copyAsync({ from: uri, to: dest });
+            return dest;
+          } catch {
+            return uri;
+          }
+        })();
+
+        // Show the message instantly with the local file — playable with zero wait
         const optimisticId = `opt-voice-${Date.now()}`;
         setMessages(prev => [...prev, {
           id: optimisticId,
           text: '',
           from: 'me',
           time: _formatTime(new Date().toISOString()),
-          audioUrl: uri,       // local file — playable immediately
+          audioUrl: cachedLocalUri,
           audioDuration: duration,
           status: 'sending',
         }]);
         setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 80);
 
-        // Upload to CDN in background — UI is not blocked
+        // Upload in background — does not block the UI
         ;(async () => {
           try {
             const form = new FormData();
-            form.append('file', { uri, name: 'recording.m4a', type: 'audio/m4a' } as any);
-            form.append('duration_sec', String(Math.max(duration, 1)));
+            form.append('file', { uri: cachedLocalUri, name: 'recording.m4a', type: 'audio/m4a' } as any);
+            form.append('duration_sec', String(duration));
 
             const res = await fetch(`${API_V1}/upload/audio`, {
               method: 'POST',
@@ -3865,15 +3969,17 @@ export default function ChatConversationPage() {
 
             if (!audioUrl) throw new Error('No URL returned');
 
-            // Swap local URI → CDN URL; keep status 'sending' until WS echo confirms
+            // Map CDN URL → local file so VoiceBubble never re-downloads for sender
+            _audioUriCache.set(audioUrl, cachedLocalUri);
+
+            // Swap local URI → CDN URL in the message
             setMessages(prev =>
               prev.map(x => x.id === optimisticId ? { ...x, audioUrl, audioDuration: dur } : x)
             );
 
-            // Register the pending ID so the WS echo replaces (not duplicates) this bubble
+            // Register so WS echo replaces rather than duplicates this bubble
             pendingOptIdRef.current = optimisticId;
 
-            // Now send to partner via WebSocket
             safeSendRef.current?.(JSON.stringify({
               type: 'message',
               content: audioUrl,
@@ -3892,27 +3998,31 @@ export default function ChatConversationPage() {
     }
 
     // ── Start recording ────────────────────────────────────────────────────
-    const { granted } = await requestRecordingPermissionsAsync();
-    if (!granted) {
-      Alert.alert('Permission needed', 'Please allow microphone access to send voice messages.');
-      return;
+    if (recStartingRef.current) return; // guard against double-tap
+    recStartingRef.current = true;
+    try {
+      const { granted } = await requestRecordingPermissionsAsync();
+      if (!granted) {
+        Alert.alert('Permission needed', 'Please allow microphone access to send voice messages.');
+        return;
+      }
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+      await chatRecorder.prepareToRecordAsync(RecordingPresets.HIGH_QUALITY);
+      chatRecorder.record();
+      setIsListening(true);
+    } finally {
+      recStartingRef.current = false;
     }
-    await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
-    await chatRecorder.prepareToRecordAsync();
-    chatRecorder.record();
-    setRecSeconds(0);
-    setIsListening(true);
-    recTimerRef.current = setInterval(() => {
-      setRecSeconds(s => {
-        if (s >= 59) {
-          // Auto-stop at 60s
-          handleMicPress();
-          return s;
-        }
-        return s + 1;
-      });
-    }, 1000);
   };
+
+  // Auto-stop at 60 s — driven by native recorder state, no setInterval needed
+  useEffect(() => {
+    if (isListening && recState.durationMillis >= 60_000) {
+      handleMicPress();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isListening, recState.durationMillis]);
 
   const handleUnmatch = async (reason: string, custom?: string) => {
     // Navigate away immediately — screen unmount closes all modals cleanly
@@ -3928,6 +4038,7 @@ export default function ChatConversationPage() {
   };
 
   const handlePhotoSend = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
       Alert.alert('Permission needed', 'Please allow photo library access to send images.');
@@ -4054,6 +4165,7 @@ export default function ChatConversationPage() {
       category,
       senderName: profile?.full_name ?? 'Me',
     });
+    setShowTodPicker(false);
   };
 
   // Receiver answers a turn card
@@ -4070,7 +4182,7 @@ export default function ChatConversationPage() {
   };
 
   // ── Mini-game send handler ──────────────────────────────────────────────────
-  const handleGameSend = (gameMsgType: string, content: string, extra: Record<string, any>) => {
+  const handleGameSend = useCallback((gameMsgType: string, content: string, extra: Record<string, any>) => {
     if (!safeSendRef.current) return;
     const optimisticId = `opt-game-${Date.now()}`;
     const newMsg: Msg = {
@@ -4093,7 +4205,7 @@ export default function ChatConversationPage() {
       receiver_id: partnerId,
     });
     safeSendRef.current(payload);
-  };
+  }, [myId, partnerId]);
 
   // ── Mini-game respond handler (receiver tapping in a bubble) ───────────────
   const handleGameRespond = (originalMsg: Msg, newExtra: Record<string, any>) => {
@@ -4125,17 +4237,18 @@ export default function ChatConversationPage() {
     }
   };
 
-  // ── Fire pending game from MiniGamesPage navigation ───────────────────────
-  useEffect(() => {
-    const raw = pendingGameRef.current;
-    if (!raw) return;
-    pendingGameRef.current = null;
-    try {
-      const { msgType, content, extra } = JSON.parse(raw);
+  // ── Fire pending game from MiniGamesPage when this screen regains focus ─────
+  // Using useFocusEffect + a module-level queue is more reliable than
+  // router.setParams() after router.back(), which suffers a focus-animation
+  // race condition that silently drops the payload.
+  useFocusEffect(
+    useCallback(() => {
+      const pending = takePendingGame();
+      if (!pending) return;
+      const { msgType, content, extra } = pending;
       handleGameSend(msgType, content, extra);
-      router.setParams({ pendingGame: undefined });
-    } catch (_) {}
-  }, [params.pendingGame]);
+    }, [handleGameSend]),
+  );
 
 
   useEffect(() => {
@@ -4197,6 +4310,7 @@ export default function ChatConversationPage() {
           contentContainerStyle={[styles.messageList, { paddingBottom: 16 }]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
         >
           {/* Date separator */}
           <View style={styles.dateSep}>
@@ -4416,6 +4530,7 @@ export default function ChatConversationPage() {
                 {/* Games button (full-screen hub) */}
                 <Pressable
                   onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                     Keyboard.dismiss();
                     navPush({
                       pathname: '/mini-games',
@@ -4463,7 +4578,7 @@ export default function ChatConversationPage() {
                 <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 4 }}>
                   <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#ef4444' }} />
                   <Text style={{ fontFamily: 'ProductSans-Bold', fontSize: 15, color: '#ef4444' }}>
-                    {`${Math.floor(recSeconds / 60)}:${(recSeconds % 60).toString().padStart(2, '0')}`}
+                    {(() => { const s = Math.floor(recState.durationMillis / 1000); return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`; })()}
                   </Text>
                   <Text style={{ fontFamily: 'ProductSans-Regular', fontSize: 13, color: colors.textSecondary }}>
                     Recording…

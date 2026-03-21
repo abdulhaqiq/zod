@@ -1,0 +1,22 @@
+diff --git a/node_modules/expo-audio/build/ExpoAudio.js b/node_modules/expo-audio/build/ExpoAudio.js
+index 98eca9f..dc5ba80 100644
+--- a/node_modules/expo-audio/build/ExpoAudio.js
++++ b/node_modules/expo-audio/build/ExpoAudio.js
+@@ -79,7 +79,7 @@ export function useAudioPlayer(source = null, options = {}) {
+     const initialSource = useMemo(() => {
+         return downloadFirst ? null : resolveSource(source);
+     }, [JSON.stringify(source), downloadFirst]);
+-    const player = useReleasingSharedObject(() => new AudioModule.AudioPlayer(initialSource, updateInterval, keepAudioSessionActive, preferredForwardBufferDuration), [
++    const player = useReleasingSharedObject(() => new AudioModule.AudioPlayer(initialSource, updateInterval, keepAudioSessionActive), [
+         JSON.stringify(initialSource),
+         updateInterval,
+         keepAudioSessionActive,
+@@ -386,7 +386,7 @@ export function createAudioPlaylist(options = {}) {
+ export function createAudioPlayer(source = null, options = {}) {
+     const { updateInterval = 500, downloadFirst = false, keepAudioSessionActive = false, preferredForwardBufferDuration = 0, } = options;
+     const initialSource = downloadFirst ? null : resolveSource(source);
+-    const player = new AudioModule.AudioPlayer(initialSource, updateInterval, keepAudioSessionActive, preferredForwardBufferDuration);
++    const player = new AudioModule.AudioPlayer(initialSource, updateInterval, keepAudioSessionActive);
+     if (downloadFirst && source) {
+         resolveSourceWithDownload(source)
+             .then((resolved) => {
