@@ -353,7 +353,7 @@ function RootLayoutInner() {
             <Stack.Screen name="education"       options={{ headerShown: false }} />
             <Stack.Screen name="location-search" options={{ headerShown: false }} />
             <Stack.Screen name="subscription"    options={{ headerShown: false, presentation: 'fullScreenModal' }} />
-            <Stack.Screen name="chat"            options={{ headerShown: false }} />
+            <Stack.Screen name="chat"            options={{ headerShown: false, gestureEnabled: false }} />
             <Stack.Screen name="mini-games"     options={{ headerShown: false }} />
             <Stack.Screen name="notifications"   options={{ headerShown: false }} />
             <Stack.Screen name="security"        options={{ headerShown: false }} />

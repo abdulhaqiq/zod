@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   Dimensions,
   Image,
   KeyboardAvoidingView,
@@ -430,6 +431,25 @@ export default function EditProfilePage() {
   const [bio, setBio] = useState(profile?.bio ?? '');
   const MAX_BIO = 300;
   const [bioHeight, setBioHeight] = useState(120);
+  const [bioSaving, setBioSaving] = useState(false);
+  const bioDirty = bio !== (profile?.bio ?? '');
+  const bioSaveBtnAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.spring(bioSaveBtnAnim, {
+      toValue: bioDirty ? 1 : 0,
+      useNativeDriver: true,
+      tension: 180,
+      friction: 12,
+    }).start();
+  }, [bioDirty]);
+
+  const saveBioInline = async () => {
+    if (bioSaving) return;
+    setBioSaving(true);
+    await patch({ bio: bio.trim() || null });
+    setBioSaving(false);
+  };
 
   // ── Chip selections (stored as string ID keys matching ChipOption.value) ──
   const [interests, setInterests]   = useState<string[]>((profile?.interests ?? []).map(String));
@@ -621,7 +641,7 @@ export default function EditProfilePage() {
               <Squircle
                 style={[styles.bioBox, { height: bioHeight }]}
                 cornerRadius={18} cornerSmoothing={1}
-                fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1.5}
+                fillColor={colors.surface} strokeColor={bioDirty ? colors.text : colors.border} strokeWidth={bioDirty ? 1.5 : 1.5}
               >
                 <TextInput
                   style={[styles.bioInput, { color: colors.text }]}
@@ -637,6 +657,40 @@ export default function EditProfilePage() {
                   }}
                 />
               </Squircle>
+
+              {/* Floating Done button */}
+              <Animated.View
+                pointerEvents={bioDirty ? 'auto' : 'none'}
+                style={[
+                  styles.bioDoneBtn,
+                  {
+                    opacity: bioSaveBtnAnim,
+                    transform: [
+                      { scale: bioSaveBtnAnim.interpolate({ inputRange: [0, 1], outputRange: [0.7, 1] }) },
+                      { translateY: bioSaveBtnAnim.interpolate({ inputRange: [0, 1], outputRange: [6, 0] }) },
+                    ],
+                  },
+                ]}
+              >
+                <Pressable
+                  onPress={saveBioInline}
+                  disabled={bioSaving}
+                  style={({ pressed }) => [
+                    styles.bioDonePressable,
+                    { backgroundColor: colors.text, opacity: pressed ? 0.8 : 1 },
+                  ]}
+                >
+                  {bioSaving ? (
+                    <ActivityIndicator size="small" color={colors.bg} />
+                  ) : (
+                    <>
+                      <Ionicons name="checkmark" size={13} color={colors.bg} />
+                      <Text style={[styles.bioDoneText, { color: colors.bg }]}>Done</Text>
+                    </>
+                  )}
+                </Pressable>
+              </Animated.View>
+
               <Text style={[styles.bioCount, { color: colors.textTertiary }]}>
                 {bio.length}/{MAX_BIO}
               </Text>
@@ -866,6 +920,17 @@ const styles = StyleSheet.create({
   bioBox:         { padding: 14 },
   bioInput:       { fontSize: 15, fontFamily: 'ProductSans-Regular', lineHeight: 22, textAlignVertical: 'top' },
   bioCount:       { fontSize: 11, fontFamily: 'ProductSans-Regular', textAlign: 'right', marginRight: 4 },
+
+  bioDoneBtn:     { position: 'absolute', bottom: 28, right: 10 },
+  bioDonePressable: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    paddingHorizontal: 14, paddingVertical: 8,
+    borderRadius: 20,
+    minWidth: 64,
+    justifyContent: 'center',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.18, shadowRadius: 6, elevation: 4,
+  },
+  bioDoneText:    { fontSize: 13, fontFamily: 'ProductSans-Black' },
 
   emailBtn:       { borderRadius: 12, paddingVertical: 10, paddingHorizontal: 16, alignItems: 'center', justifyContent: 'center' },
   emailBtnText:   { fontSize: 14, fontFamily: 'ProductSans-Bold' },

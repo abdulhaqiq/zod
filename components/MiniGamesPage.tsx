@@ -278,21 +278,32 @@ const SHIMMER_BG = 'rgba(255,255,255,0.06)';
 
 function LoadingSkeleton() {
   return (
-    <View style={{ gap: 24 }}>
-      {/* Hero card skeleton */}
-      <Shimmer width={W - 28} height={210} borderRadius={28} bgColor={SHIMMER_BG} />
-      {/* Horizontal row skeleton */}
-      <View style={{ paddingHorizontal: 14, gap: 8 }}>
-        <Shimmer width={90} height={14} borderRadius={7} bgColor={SHIMMER_BG} />
-        <View style={{ flexDirection: 'row', gap: 10, marginTop: 4 }}>
-          {[0, 1, 2, 3].map(i => (
-            <View key={i} style={{ width: 118, gap: 10, padding: 14, borderRadius: 22, backgroundColor: SHIMMER_BG }}>
-              <Shimmer width={56} height={56} borderRadius={16} bgColor="rgba(255,255,255,0.05)" />
-              <Shimmer width="80%" height={12} borderRadius={6} bgColor="rgba(255,255,255,0.05)" />
-              <Shimmer width="60%" height={10} borderRadius={5} bgColor="rgba(255,255,255,0.05)" />
+    <View style={{ gap: 24, paddingTop: 16 }}>
+      {/* Featured card skeleton — matches FeaturedGameCard marginHorizontal: 14 */}
+      <View style={{ marginHorizontal: 14 }}>
+        <Shimmer width="100%" height={204} borderRadius={26} bgColor={SHIMMER_BG} />
+      </View>
+
+      {/* List section skeleton — matches s.listSection paddingHorizontal: 14 */}
+      <View style={{ paddingHorizontal: 14, gap: 10 }}>
+        {/* "All Games" label */}
+        <Shimmer width={88} height={14} borderRadius={7} bgColor={SHIMMER_BG} />
+        {/* Vertical game list rows */}
+        {[0, 1, 2, 3].map(i => (
+          <View key={i} style={{
+            flexDirection: 'row', alignItems: 'center', gap: 14,
+            paddingVertical: 12, paddingHorizontal: 14,
+            borderRadius: 20, backgroundColor: SHIMMER_BG,
+          }}>
+            {/* Icon squircle */}
+            <Shimmer width={50} height={50} borderRadius={16} bgColor="rgba(255,255,255,0.05)" />
+            {/* Text lines */}
+            <View style={{ flex: 1, gap: 8 }}>
+              <Shimmer width="55%" height={13} borderRadius={6} bgColor="rgba(255,255,255,0.05)" />
+              <Shimmer width="75%" height={10} borderRadius={5} bgColor="rgba(255,255,255,0.05)" />
             </View>
-          ))}
-        </View>
+          </View>
+        ))}
       </View>
     </View>
   );
@@ -1277,9 +1288,9 @@ export default function MiniGamesPage() {
               <Text style={s.hubTitle}>Games</Text>
               <Text style={s.hubSub}>with {partnerName}</Text>
             </View>
-            {/* Right — gamepad icon */}
+            {/* Right — recent/history icon */}
             <Pressable hitSlop={12} style={s.headerBtn}>
-              <Ionicons name="game-controller-outline" size={22} color="rgba(220,218,255,0.5)" />
+              <Ionicons name="time-outline" size={22} color="rgba(220,218,255,0.5)" />
             </Pressable>
           </View>
         </View>

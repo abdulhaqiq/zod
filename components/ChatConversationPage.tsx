@@ -45,6 +45,18 @@ import { useCall } from '@/context/CallContext';
 import { useAppTheme } from '@/context/ThemeContext';
 import { GAME_MSG_TYPES, GameBubble } from '@/components/MiniGames';
 import type { GameMsg } from '@/components/MiniGames';
+import {
+  loadCache,
+  setCache,
+  appendToCache,
+  prependToCache,
+  patchCacheMessage,
+  removeCacheMessage,
+  getLatestCachedTime,
+  getOldestCachedTime,
+  evictCache,
+  type CachedMsg,
+} from '@/utils/messageCache';
 
 const { width: W, height: SCREEN_H } = Dimensions.get('window');
 const CARD_W  = W - 72;
@@ -58,6 +70,7 @@ interface Msg {
   text: string;
   from: 'me' | 'them';
   time: string;
+  rawTime?: string;   // ISO 8601 — pagination cursor
   isCard?: boolean;
   isAnswer?: boolean;
   answerTo?: string;
@@ -595,88 +608,129 @@ function MsgRow({
 }
 
 // ─── Swipeable row (WhatsApp-style swipe-to-reply) ───────────────────────────
+//
+// Key design:
+//  • onMoveShouldSetPanResponderCapture (top-down/capture phase) steals ANY
+//    horizontal drag from inner Pressables — this is what makes VoiceBubble
+//    (and any bubble with interactive children) work.
+//  • onTouchStart on the wrapper View records t0 BEFORE the responder system
+//    so we can detect "held too long → long-press intent, skip swipe".
+//  • gestureEnabled=false on the screen means no iOS back-swipe competition.
+// ─────────────────────────────────────────────────────────────────────────────
 
-// How far the bubble translates before hitting the cap
-const SWIPE_THRESHOLD = 72;
-// How far the raw gesture must travel to fire reply (lower = easier to trigger)
-const REPLY_THRESHOLD = 48;
-// Minimum dx before we claim the gesture (high enough to let iOS back-swipe win)
-const CLAIM_THRESHOLD = 18;
-// Left-edge dead zone: don't steal from iOS back-swipe when starting near edge
-const EDGE_DEAD_ZONE  = 30;
+const SWIPE_CAP     = 70;
+const REPLY_TRIGGER = 38;
+const HOLD_MS       = 180;   // ms held before drag → treated as long-press, not swipe
+const START_PX      = 4;     // min px in reply direction before animation begins
 
-// direction='right' → their messages (left side), drag left→right to reply
-// direction='left'  → my messages (right side), drag right→left to reply
+let _openAnim: Animated.Value | null = null;
+
+// direction='right' → partner msg, drag right to reply
+// direction='left'  → my msg,      drag left  to reply
 function SwipeableRow({ onReply, direction = 'right', children }: {
   onReply?: () => void;
   direction?: 'left' | 'right';
   children: React.ReactNode;
 }) {
-  const translateX = useRef(new Animated.Value(0)).current;
-  const triggered  = useRef(false);
-  const isLeftSwipe = direction === 'left';
+  const tx       = useRef(new Animated.Value(0)).current;
+  const active   = useRef(false);
+  const notified = useRef(false);
+  const t0       = useRef(0);  // set by onTouchStart (raw event, before responders)
+  const isLeft   = direction === 'left';
 
-  const iconOpacity = translateX.interpolate({
-    inputRange:  isLeftSwipe ? [-SWIPE_THRESHOLD, -40, 0] : [0, 40, SWIPE_THRESHOLD],
-    outputRange: [1, 0.5, 0],
+  const reset = () => {
+    active.current   = false;
+    notified.current = false;
+    Animated.spring(tx, { toValue: 0, useNativeDriver: true, tension: 200, friction: 18 }).start();
+  };
+
+  const iconOpacity = tx.interpolate({
+    inputRange:  isLeft ? [-SWIPE_CAP, -20, 0] : [0, 20, SWIPE_CAP],
+    outputRange: [1, 0.3, 0],
     extrapolate: 'clamp',
   });
-  const iconScale = translateX.interpolate({
-    inputRange:  isLeftSwipe ? [-SWIPE_THRESHOLD, 0] : [0, SWIPE_THRESHOLD],
-    outputRange: [1, 0.5],
+  const iconScale = tx.interpolate({
+    inputRange:  isLeft ? [-SWIPE_CAP, -REPLY_TRIGGER, 0] : [0, REPLY_TRIGGER, SWIPE_CAP],
+    outputRange: [1.2, 1.0, 0.4],
     extrapolate: 'clamp',
   });
 
-  const pan = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => false,
-      onMoveShouldSetPanResponder: (_, gs) => {
-        const hDominant = Math.abs(gs.dx) > Math.abs(gs.dy) * 2.5;
-        if (isLeftSwipe) {
-          return gs.dx < -CLAIM_THRESHOLD && hDominant;
-        } else {
-          // Right-direction: guard against iOS left-edge back swipe
-          return gs.dx > CLAIM_THRESHOLD && hDominant && gs.x0 > EDGE_DEAD_ZONE;
+  // Helper: should we claim this gesture state?
+  const _shouldClaim = (gs: { dx: number; dy: number }) => {
+    if (Date.now() - t0.current > HOLD_MS) return false;       // held too long
+    if (Math.abs(gs.dy) >= Math.abs(gs.dx) * 0.8) return false; // too vertical
+    if (isLeft)  return gs.dx < -START_PX;
+    return gs.dx > START_PX;
+  };
+
+  const pan = useRef(PanResponder.create({
+    // Don't claim on touch-start — let inner Pressables handle taps normally.
+    onStartShouldSetPanResponder:        () => false,
+    onStartShouldSetPanResponderCapture: () => false,
+
+    // ── Capture phase (top-down): fires BEFORE inner Pressables ──────────────
+    // This is the key for VoiceBubble — steals the gesture from play/speed
+    // buttons the moment a horizontal swipe is detected.
+    onMoveShouldSetPanResponderCapture: (_, gs) => _shouldClaim(gs),
+
+    // ── Bubble phase (bottom-up): fallback when no inner view claimed ─────────
+    onMoveShouldSetPanResponder: (_, gs) => _shouldClaim(gs),
+
+    onPanResponderGrant: () => {
+      if (_openAnim && _openAnim !== tx) {
+        Animated.spring(_openAnim, { toValue: 0, useNativeDriver: true, tension: 200, friction: 18 }).start();
+      }
+      _openAnim      = tx;
+      active.current = true;   // already confirmed horizontal when granted via move
+      notified.current = false;
+    },
+
+    onPanResponderMove: (_, gs) => {
+      if (!active.current) return;
+      if (isLeft && gs.dx < 0) {
+        tx.setValue(Math.max(gs.dx * 0.7, -SWIPE_CAP));
+        if (!notified.current && gs.dx < -REPLY_TRIGGER) {
+          notified.current = true;
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         }
-      },
-      onPanResponderGrant: () => { triggered.current = false; },
-      onPanResponderMove: (_, gs) => {
-        if (isLeftSwipe) {
-          if (gs.dx < 0) {
-            translateX.setValue(Math.max(gs.dx * 0.5, -SWIPE_THRESHOLD));
-            if (gs.dx < -REPLY_THRESHOLD && !triggered.current) triggered.current = true;
-          }
-        } else {
-          if (gs.dx > 0) {
-            translateX.setValue(Math.min(gs.dx * 0.5, SWIPE_THRESHOLD));
-            if (gs.dx > REPLY_THRESHOLD && !triggered.current) triggered.current = true;
-          }
+      } else if (!isLeft && gs.dx > 0) {
+        tx.setValue(Math.min(gs.dx * 0.7, SWIPE_CAP));
+        if (!notified.current && gs.dx > REPLY_TRIGGER) {
+          notified.current = true;
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         }
-      },
-      onPanResponderRelease: (_, gs) => {
-        const fired = isLeftSwipe ? gs.dx < -REPLY_THRESHOLD : gs.dx > REPLY_THRESHOLD;
-        if (fired && onReply) onReply();
-        triggered.current = false;
-        Animated.spring(translateX, { toValue: 0, useNativeDriver: true, tension: 120, friction: 10 }).start();
-      },
-      onPanResponderTerminate: () => {
-        triggered.current = false;
-        Animated.spring(translateX, { toValue: 0, useNativeDriver: true }).start();
-      },
-    })
-  ).current;
+      }
+    },
+
+    onPanResponderRelease: (_, gs) => {
+      const fired = isLeft ? gs.dx < -REPLY_TRIGGER : gs.dx > REPLY_TRIGGER;
+      if (fired && active.current && onReply) onReply();
+      _openAnim = null;
+      reset();
+    },
+
+    onPanResponderTerminate: () => { _openAnim = null; reset(); },
+
+    // While actively swiping never yield; otherwise let long-press Pressables win.
+    onPanResponderTerminationRequest: () => !active.current,
+  })).current;
 
   return (
-    <View style={{ position: 'relative' }}>
-      {/* Reply icon: left side for right-swipe, right side for left-swipe */}
+    // onTouchStart is a raw event — fires before the responder system, so t0 is
+    // always set accurately even when a Pressable child claims the gesture first.
+    <View
+      style={{ position: 'relative' }}
+      onTouchStart={() => { t0.current = Date.now(); }}
+    >
+      {/* Reply icon — appears on the exposed side as the bubble slides */}
       <Animated.View style={[
-        { position: 'absolute', top: 0, bottom: 0, alignItems: 'center', justifyContent: 'center', width: 32 },
-        isLeftSwipe ? { right: 8 } : { left: 40 },
+        { position: 'absolute', top: 0, bottom: 0, alignItems: 'center', justifyContent: 'center', width: 36 },
+        isLeft ? { right: 6 } : { left: 36 },
         { opacity: iconOpacity, transform: [{ scale: iconScale }] },
       ]}>
-        <Ionicons name="return-down-forward-outline" size={20} color="#7c3aed" />
+        <Ionicons name="return-down-forward-outline" size={22} color="#7c3aed" />
       </Animated.View>
-      <Animated.View style={{ transform: [{ translateX }] }} {...pan.panHandlers}>
+      <Animated.View style={{ transform: [{ translateX: tx }] }} {...pan.panHandlers}>
         {children}
       </Animated.View>
     </View>
@@ -3536,8 +3590,15 @@ export default function ChatConversationPage() {
   const [showInsight,   setShowInsight]   = useState(false);
   const [answeringCard, setAnsweringCard] = useState<string | null>(null);
   const [replyingTo,    setReplyingTo]    = useState<Msg | null>(null);
-  const [isPartnerTyping, setIsPartnerTyping] = useState(false);
-  const [loadingHistory,  setLoadingHistory]  = useState(true);
+  const [isPartnerTyping,  setIsPartnerTyping]  = useState(false);
+  // true only when the cache is empty AND we haven't fetched yet
+  const [loadingHistory,   setLoadingHistory]   = useState(true);
+  // true while catching up missed messages after cache restore
+  const [catchingUp,       setCatchingUp]       = useState(false);
+  // true while loading an older page (scroll-to-top pagination)
+  const [loadingOlder,     setLoadingOlder]     = useState(false);
+  // false once the server returns fewer than PAGE_SIZE messages
+  const [hasOlderMessages, setHasOlderMessages] = useState(true);
   const [isOnline,        setIsOnline]        = useState(online);
   const [keyboardShown,   setKeyboardShown]   = useState(false);
   const [showProfile,     setShowProfile]     = useState(false);
@@ -3611,6 +3672,8 @@ export default function ChatConversationPage() {
   const seenMsgIdsRef   = useRef<Set<string>>(new Set());
   const myId      = profile?.id ?? '';
 
+  // (cache writes now happen directly at each setMessages call-site — no debounce needed)
+
   // Register for call_record events so call bubbles appear in this chat
   useEffect(() => {
     return onCallRecord((rec) => {
@@ -3645,6 +3708,7 @@ export default function ChatConversationPage() {
       text:    (isImage || isVoice || isCall) ? '' : m.content,
       from:    m.sender_id === myId ? 'me' : 'them',
       time:    _formatTime(m.created_at),
+      rawTime: m.created_at,
       isCard:  m.msg_type === 'card',
       isAnswer: m.msg_type === 'answer',
       answerTo: m.metadata?.answerTo,
@@ -3666,20 +3730,102 @@ export default function ChatConversationPage() {
     };
   }, [myId]);
 
-  // ── Load message history ──────────────────────────────────────────────────
+  // ── Load message history ───────────────────────────────────────────────────
+  // Strategy:
+  //  A) Cache hit  → show instantly, then catch-up (only messages after lastCachedTime)
+  //  B) Cache miss → show spinner, fetch last PAGE_SIZE messages, set cache, done
+  // ─────────────────────────────────────────────────────────────────────────────
+  const PAGE_SIZE = 60;
+
   useEffect(() => {
     if (!token || !partnerId) { setLoadingHistory(false); return; }
-    apiFetch<{ messages: ApiMessage[] }>(`/chat/${partnerId}/messages`, { token })
-      .then(r => {
+    let cancelled = false;
+
+    const init = async () => {
+      // ── A: try cache first ───────────────────────────────────────────────
+      const cached = await loadCache(partnerId);
+
+      if (cached.length > 0 && !cancelled) {
+        seenMsgIdsRef.current = new Set(cached.map(m => m.id));
+        setMessages(cached as Msg[]);
+        setLoadingHistory(false);
+        setTimeout(() => scrollRef.current?.scrollToEnd({ animated: false }), 80);
+
+        // Catch-up: only fetch messages newer than latest cached message
+        const lastTime = getLatestCachedTime(partnerId);
+        if (lastTime) {
+          setCatchingUp(true);
+          try {
+            const r = await apiFetch<{ messages: ApiMessage[]; has_more: boolean }>(
+              `/chat/${partnerId}/messages?after=${encodeURIComponent(lastTime)}&limit=${PAGE_SIZE}`,
+              { token },
+            );
+            if (cancelled) return;
+            if (r.messages.length > 0) {
+              const newMsgs = r.messages.map(apiMsgToMsg);
+              const newIds  = newMsgs.map(m => m.id).filter(id => !seenMsgIdsRef.current.has(id));
+              if (newIds.length > 0) {
+                appendToCache(partnerId, newMsgs as CachedMsg[]);
+                newMsgs.forEach(m => seenMsgIdsRef.current.add(m.id));
+                setMessages(prev => {
+                  const existingIds = new Set(prev.map(m => m.id));
+                  const toAdd = newMsgs.filter(m => !existingIds.has(m.id));
+                  return toAdd.length > 0 ? [...prev, ...toAdd] : prev;
+                });
+                setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 80);
+              }
+            }
+          } catch { /* network — cached view is fully usable */ }
+          finally { if (!cancelled) setCatchingUp(false); }
+        }
+        return;
+      }
+
+      // ── B: no cache — full load ──────────────────────────────────────────
+      try {
+        const r = await apiFetch<{ messages: ApiMessage[]; has_more: boolean }>(
+          `/chat/${partnerId}/messages?limit=${PAGE_SIZE}`,
+          { token },
+        );
+        if (cancelled) return;
         const msgs = r.messages.map(apiMsgToMsg);
-        // Seed the dedup set so WS events don't re-add history messages
         seenMsgIdsRef.current = new Set(msgs.map(m => m.id));
+        setCache(partnerId, msgs as CachedMsg[]);
         setMessages(msgs);
-        setTimeout(() => scrollRef.current?.scrollToEnd({ animated: false }), 100);
-      })
-      .catch(() => {})
-      .finally(() => setLoadingHistory(false));
+        setHasOlderMessages(r.has_more ?? msgs.length === PAGE_SIZE);
+        setTimeout(() => scrollRef.current?.scrollToEnd({ animated: false }), 80);
+      } catch { /* show empty state */ }
+      finally { if (!cancelled) setLoadingHistory(false); }
+    };
+
+    init();
+    return () => { cancelled = true; };
   }, [token, partnerId]);
+
+  // ── Load older messages (scroll-to-top pagination) ─────────────────────────
+  const loadOlderMessages = useCallback(async () => {
+    if (!token || !partnerId || loadingOlder || !hasOlderMessages) return;
+    const oldest = getOldestCachedTime(partnerId) ?? messages[0]?.rawTime;
+    if (!oldest) return;
+    setLoadingOlder(true);
+    try {
+      const r = await apiFetch<{ messages: ApiMessage[]; has_more: boolean }>(
+        `/chat/${partnerId}/messages?before=${encodeURIComponent(oldest)}&limit=${PAGE_SIZE}`,
+        { token },
+      );
+      if (!r.messages.length) { setHasOlderMessages(false); return; }
+      const older = r.messages.map(apiMsgToMsg);
+      older.forEach(m => seenMsgIdsRef.current.add(m.id));
+      prependToCache(partnerId, older as CachedMsg[]);
+      setMessages(prev => {
+        const existingIds = new Set(prev.map(m => m.id));
+        const toAdd = older.filter(m => !existingIds.has(m.id));
+        return [...toAdd, ...prev];
+      });
+      setHasOlderMessages(r.has_more ?? older.length === PAGE_SIZE);
+    } catch { /* silent */ }
+    finally { setLoadingOlder(false); }
+  }, [token, partnerId, loadingOlder, hasOlderMessages, messages]);
 
   // ── WebSocket connection ──────────────────────────────────────────────────
   useEffect(() => {
@@ -3718,30 +3864,42 @@ export default function ChatConversationPage() {
       if (disposed) return;
       try {
         const payload = JSON.parse(e.data);
+
         if (payload.type === 'message') {
           const m: ApiMessage = payload;
           const msg = apiMsgToMsg({ ...m, content: payload.content });
+
           setMessages(prev => {
             const pendingId = pendingOptIdRef.current;
             if (pendingId && msg.from === 'me') {
               pendingOptIdRef.current = null;
               seenMsgIdsRef.current.add(msg.id);
-              // Echo back = confirmed sent; mark as 'sent'
-              return prev.map(x => x.id === pendingId ? { ...msg, status: 'sent' } : x);
+              const confirmed = { ...msg, status: 'sent' as const };
+              // Replace optimistic bubble with confirmed one in cache
+              patchCacheMessage(partnerId, pendingId, { id: msg.id, status: 'sent', rawTime: msg.rawTime });
+              return prev.map(x => x.id === pendingId ? confirmed : x);
             }
             if (seenMsgIdsRef.current.has(msg.id)) return prev;
             seenMsgIdsRef.current.add(msg.id);
+            appendToCache(partnerId, [msg as CachedMsg]);
             return [...prev, msg];
           });
           setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 80);
           ws.send(JSON.stringify({ type: 'read' }));
+
         } else if (payload.type === 'read') {
-          // Partner has read our messages — mark all my sent messages as 'read'
-          setMessages(prev =>
-            prev.map(m => m.from === 'me' && m.status !== 'read' ? { ...m, status: 'read' } : m)
-          );
+          setMessages(prev => {
+            const updated = prev.map(m =>
+              m.from === 'me' && m.status !== 'read' ? { ...m, status: 'read' as const } : m
+            );
+            // Persist read status to cache
+            updated.filter(m => m.from === 'me').forEach(m =>
+              patchCacheMessage(partnerId, m.id, { status: 'read' })
+            );
+            return updated;
+          });
+
         } else if (payload.type === 'game_response') {
-          // Receiver answered a game bubble — update the original bubble in-place
           const { ref_msg_id, extra: responseExtra } = payload;
           if (ref_msg_id) {
             setMessages(prev => prev.map(m =>
@@ -3749,18 +3907,24 @@ export default function ChatConversationPage() {
                 ? { ...m, gameExtra: { ...m.gameExtra, ...(responseExtra ?? {}) } }
                 : m
             ));
+            patchCacheMessage(partnerId, ref_msg_id, { gameExtra: responseExtra });
           }
+
         } else if (payload.type === 'typing') {
           setIsPartnerTyping(Boolean(payload.is_typing));
           if (payload.is_typing) setTimeout(() => setIsPartnerTyping(false), 3000);
+
         } else if (payload.type === 'presence' && payload.user_id === partnerId) {
           setIsOnline(Boolean(payload.online));
+
         } else if (payload.type === 'message_deleted') {
+          removeCacheMessage(partnerId, payload.message_id);
           setMessages(prev => prev.filter(m => m.id !== payload.message_id));
+
         } else if (payload.type === 'restricted') {
-          // Backend rejected the message — remove the optimistic bubble and alert
           const pid = pendingOptIdRef.current;
           if (pid) {
+            removeCacheMessage(partnerId, pid);
             setMessages(prev => prev.filter(x => x.id !== pid));
             pendingOptIdRef.current = null;
           }
@@ -4317,9 +4481,44 @@ export default function ChatConversationPage() {
             <Text style={[styles.dateText, { color: colors.textTertiary }]}>Today</Text>
           </View>
 
-          {loadingHistory && (
-            <View style={{ alignItems: 'center', padding: 24 }}>
+          {/* Full-screen spinner — only when cache is empty and network not yet back */}
+          {loadingHistory && messages.length === 0 && (
+            <View style={{ alignItems: 'center', padding: 28 }}>
+              <ActivityIndicator size="small" color={colors.textSecondary} style={{ marginBottom: 8 }} />
               <Text style={{ color: colors.textSecondary, fontFamily: 'ProductSans-Regular', fontSize: 13 }}>Loading messages…</Text>
+            </View>
+          )}
+
+          {/* Load-older button at the very top — tapping fetches the previous page */}
+          {!loadingHistory && messages.length > 0 && (
+            <View style={{ alignItems: 'center', paddingVertical: 10 }}>
+              {loadingOlder ? (
+                <ActivityIndicator size="small" color={colors.textTertiary} />
+              ) : hasOlderMessages ? (
+                <Pressable
+                  onPress={loadOlderMessages}
+                  style={({ pressed }) => [{
+                    paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20,
+                    backgroundColor: colors.surface, borderWidth: StyleSheet.hairlineWidth,
+                    borderColor: colors.border, opacity: pressed ? 0.6 : 1,
+                  }]}
+                >
+                  <Text style={{ fontSize: 12, fontFamily: 'ProductSans-Bold', color: colors.textSecondary }}>
+                    Load earlier messages
+                  </Text>
+                </Pressable>
+              ) : (
+                <Text style={{ fontSize: 11, fontFamily: 'ProductSans-Regular', color: colors.textTertiary }}>
+                  Beginning of conversation
+                </Text>
+              )}
+            </View>
+          )}
+
+          {/* Subtle catch-up indicator — shown when refreshing after cache restore */}
+          {catchingUp && (
+            <View style={{ alignItems: 'center', paddingBottom: 4 }}>
+              <ActivityIndicator size="small" color={colors.textTertiary} />
             </View>
           )}
 

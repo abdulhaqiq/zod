@@ -25,8 +25,8 @@
     "production": {
       "ios": {
         "appleId": "ak.kumshey@gmail.com",
-        "ascAppId": "com.zod.ai",
-        "appleTeamId": "REPLACE_WITH_YOUR_TEAM_ID"
+        "ascAppId": "REPLACE_WITH_NUMERIC_ASC_APP_ID",
+        "appleTeamId": "Y5L86C8F9F"
       }
     }
   }
