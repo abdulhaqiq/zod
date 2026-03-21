@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "scripts": {
     "start": "lsof -ti:8081 | xargs kill -9 2>/dev/null; expo start --port 8081 --clear",
+    "tunnel": "lsof -ti:8081 | xargs kill -9 2>/dev/null; expo start --port 8081 --clear --tunnel",
     "reset-project": "node ./scripts/reset-project.js",
     "android": "expo run:android",
     "ios": "expo run:ios",
@@ -12,6 +13,7 @@
     "postinstall": "patch-package"
   },
   "dependencies": {
+    "@expo/ngrok": "^4.1.0",
     "@expo/vector-icons": "^15.0.3",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-community/datetimepicker": "8.6.0",
@@ -24,7 +26,6 @@
     "expo-apple-authentication": "~55.0.9",
     "expo-application": "~55.0.10",
     "expo-audio": "55.0.9",
-    "expo-av": "^16.0.8",
     "expo-camera": "~55.0.10",
     "expo-constants": "~55.0.9",
     "expo-device": "~55.0.10",
