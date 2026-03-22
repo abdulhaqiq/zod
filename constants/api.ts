@@ -6,7 +6,7 @@ const PROD_API_URL = 'https://dev.zod.ailoo.co';
 // Set to false to use the local dev server at LOCAL_DEV_IP.
 const USE_PROD_API = false;
 
-const LOCAL_DEV_IP = '10.44.0.216'; // only used when USE_PROD_API is false
+const LOCAL_DEV_IP = '192.168.1.5'; // only used when USE_PROD_API is false
 
 const APP_API_KEY: string =
   (Constants.expoConfig?.extra as any)?.APP_API_KEY ?? '';

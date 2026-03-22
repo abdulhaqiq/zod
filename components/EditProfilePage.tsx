@@ -1,6 +1,8 @@
 import { navPush, navReplace } from '@/utils/nav';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImageManipulator from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
+import { Image as ExpoImage } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -8,7 +10,6 @@ import {
   Alert,
   Animated,
   Dimensions,
-  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -112,18 +113,30 @@ function PhotoGrid({
       mediaTypes: ['images'],
       allowsEditing: true,
       aspect: [1, 1],
-      quality: 0.85,
+      quality: 1, // pick full quality, we compress ourselves below
     });
     if (result.canceled) return;
 
     const asset = result.assets[0];
     setUploading(index);
     try {
+      // Resize to max 1100px on the longest side, then JPEG compress at 0.78.
+      // This keeps visual quality high while cutting file size from ~1-3 MB down to ~200-400 KB.
+      const MAX_DIM = 1100;
+      const srcW = asset.width ?? MAX_DIM;
+      const srcH = asset.height ?? MAX_DIM;
+      const scale = Math.min(1, MAX_DIM / Math.max(srcW, srcH));
+      const manipResult = await ImageManipulator.manipulateAsync(
+        asset.uri,
+        scale < 1 ? [{ resize: { width: Math.round(srcW * scale), height: Math.round(srcH * scale) } }] : [],
+        { compress: 0.78, format: ImageManipulator.SaveFormat.JPEG },
+      );
+
       const form = new FormData();
       form.append('file', {
-        uri: asset.uri,
-        name: asset.fileName ?? 'photo.jpg',
-        type: asset.mimeType ?? 'image/jpeg',
+        uri: manipResult.uri,
+        name: 'photo.jpg',
+        type: 'image/jpeg',
       } as any);
 
       const res = await fetch(`${API_V1}/upload/photo`, {
@@ -190,7 +203,13 @@ function PhotoGrid({
             <ActivityIndicator size="small" color={colors.text} />
           ) : uri ? (
             <>
-              <Image source={{ uri }} style={styles.photoImg} resizeMode="cover" />
+              <ExpoImage
+                source={{ uri }}
+                style={styles.photoImg}
+                contentFit="cover"
+                cachePolicy="memory-disk"
+                transition={150}
+              />
               <Pressable style={styles.photoRemoveBtn} onPress={() => removePhoto(i)} hitSlop={4}>
                 <View style={styles.photoRemoveBg}>
                   <Ionicons name="close" size={12} color="#fff" />

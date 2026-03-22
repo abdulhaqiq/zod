@@ -25,7 +25,9 @@ import {
   Dimensions,
   Easing,
   FlatList,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -815,39 +817,34 @@ function AiCard({ accent, gameType, token, onSend }: {
 
 
 
-// ─── Truth / Dare segmented tabs ─────────────────────────────────────────────
+// ─── Truth / Dare badge pills ─────────────────────────────────────────────────
 
 function TruthDareTabs({ active, onChange }: { active: string; onChange: (v: string) => void }) {
   return (
-    <View style={td.wrap}>
-      <View style={td.track}>
-        {(['Truth', 'Dare'] as const).map(tab => {
-          const isActive  = active.toLowerCase() === tab.toLowerCase();
-          const fillColor = tab === 'Dare' ? 'rgba(224,83,39,0.28)' : 'rgba(208,165,62,0.24)';
-          const textColor = tab === 'Dare' ? '#E05327' : '#D0A53E';
-          return (
-            <Pressable key={tab} style={{ flex: 1 }}
-              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onChange(tab); }}>
-              <Squircle style={td.tab} cornerRadius={12} cornerSmoothing={1}
-                fillColor={isActive ? fillColor : 'transparent'} strokeWidth={0}>
-                <Text style={[td.tabText, { color: isActive ? textColor : 'rgba(255,255,255,0.35)' }]}>
-                  {tab === 'Truth' ? '🤔  Truth' : '🎲  Dare'}
-                </Text>
-              </Squircle>
-            </Pressable>
-          );
-        })}
-      </View>
-    </View>
+    <ScrollView horizontal showsHorizontalScrollIndicator={false}
+      contentContainerStyle={{ gap: 8, paddingHorizontal: 14, paddingBottom: 12 }}>
+      {(['Truth', 'Dare'] as const).map(tab => {
+        const isActive = active.toLowerCase() === tab.toLowerCase();
+        const accent   = tab === 'Dare' ? '#E05327' : '#D0A53E';
+        return (
+          <Pressable key={tab} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onChange(tab); }}
+            style={({ pressed }) => [{ opacity: pressed ? 0.75 : 1 }]}>
+            <Squircle style={{ paddingHorizontal: 16, paddingVertical: 8 }}
+              cornerRadius={50} cornerSmoothing={1}
+              fillColor={isActive ? accent : 'transparent'}
+              strokeColor={isActive ? accent : 'rgba(255,255,255,0.18)'}
+              strokeWidth={1.5}>
+              <Text style={{ fontSize: 13, fontFamily: 'ProductSans-Black',
+                color: isActive ? '#ffffff' : 'rgba(255,255,255,0.45)' }}>
+                {tab === 'Truth' ? '🤔  Truth' : '🎲  Dare'}
+              </Text>
+            </Squircle>
+          </Pressable>
+        );
+      })}
+    </ScrollView>
   );
 }
-
-const td = StyleSheet.create({
-  wrap:    { paddingHorizontal: 14, paddingBottom: 10 },
-  track:   { flexDirection: 'row', gap: 8, padding: 4, borderRadius: 16, backgroundColor: 'rgba(255,255,255,0.07)' },
-  tab:     { paddingVertical: 10, alignItems: 'center', justifyContent: 'center' },
-  tabText: { fontSize: 14, fontFamily: 'ProductSans-Black', letterSpacing: 0.2 },
-});
 
 // ─── Card list row — no icon, category-tinted dark bg ────────────────────────
 
@@ -935,40 +932,36 @@ function GameDetailScreen({ game, token, partnerId, partnerName, roomId, onBack,
   };
 
   return (
-    <View style={[s.detailRoot, { backgroundColor: '#060608' }]}>
+    <View style={[s.detailRoot, { backgroundColor: '#000000' }]}>
 
-      {/* ── Global-style header ── */}
-      <View style={[s.detailHeader, { paddingTop: insets.top + 10 }]}>
-        <LinearGradient
-          colors={['#18182E', '#10101E', '#0C0C1A']}
-          start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }}
-          style={StyleSheet.absoluteFill}
-        />
+      {/* ── ScreenHeader-style header ── */}
+      <LinearGradient
+        colors={['#1a1a1a', '#111111', '#000000']}
+        start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }}
+        style={[s.detailHeader, { paddingTop: insets.top + 10 }]}
+      >
         <View style={s.detailHeaderRow}>
           {/* Back */}
           <Pressable onPress={onBack} hitSlop={12}
             style={({ pressed }) => [s.headerBtn, pressed && { opacity: 0.6 }]}>
-            <Ionicons name="arrow-back" size={22} color="#EEEEFF" />
+            <Ionicons name="close" size={22} color="#fff" />
           </Pressable>
-          {/* Centre */}
-          <View style={{ alignItems: 'center', gap: 2 }}>
-            <Text style={s.previewGameEmoji}>{game.emoji}</Text>
-            <Text style={s.previewTitle}>{game.name}</Text>
-          </View>
+          {/* Centre — title only, no emoji */}
+          <Text style={s.previewTitle}>{game.name}</Text>
           {/* Right actions */}
           <View style={{ flexDirection: 'row', gap: 2 }}>
             <Pressable onPress={() => setWriteModal(true)} hitSlop={10}
               style={({ pressed }) => [s.headerBtn, pressed && { opacity: 0.6 }]}>
-              <Ionicons name="create-outline" size={21} color="#EEEEFF" />
+              <Ionicons name="create-outline" size={21} color="#fff" />
             </Pressable>
             <Pressable onPress={() => setAiModal(true)} hitSlop={10}
               style={({ pressed }) => [s.headerBtn, pressed && { opacity: 0.6 }]}>
-              <Ionicons name="sparkles" size={20} color="#EEEEFF" />
+              <Ionicons name="sparkles" size={20} color="#fff" />
             </Pressable>
           </View>
         </View>
 
-        {/* Truth / Dare tabs — only for truth_or_dare */}
+        {/* Truth / Dare badge pills — only for truth_or_dare */}
         {isTod && (
           <TruthDareTabs active={activeCategory} onChange={setActiveCategory} />
         )}
@@ -976,7 +969,7 @@ function GameDetailScreen({ game, token, partnerId, partnerName, roomId, onBack,
         {/* Category pills — other games */}
         {!isTod && game.categories.length > 1 && (
           <ScrollView horizontal showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ gap: 8, paddingHorizontal: 14, paddingBottom: 10 }}>
+            contentContainerStyle={{ gap: 8, paddingHorizontal: 14, paddingBottom: 12 }}>
             <CategoryPill label="All" isActive={activeCategory === ''} accent={game.accent_color} onPress={() => setActiveCategory('')} />
             {game.categories.map(cat => (
               <CategoryPill key={cat} label={cat} isActive={activeCategory === cat}
@@ -984,7 +977,7 @@ function GameDetailScreen({ game, token, partnerId, partnerName, roomId, onBack,
             ))}
           </ScrollView>
         )}
-      </View>
+      </LinearGradient>
 
       {/* ── Card list ── */}
       {loading ? (
@@ -1040,8 +1033,12 @@ function GameDetailScreen({ game, token, partnerId, partnerName, roomId, onBack,
 
       {/* ── Write Your Own Modal ── */}
       <Modal visible={writeModal} animationType="slide" transparent onRequestClose={() => setWriteModal(false)}>
-        <Pressable style={s.modalBackdrop} onPress={() => setWriteModal(false)}>
-          <Pressable style={s.modalSheet} onPress={e => e.stopPropagation()}>
+        <KeyboardAvoidingView
+          style={s.modalBackdrop}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setWriteModal(false)} />
+          <Pressable style={[s.modalSheet, { paddingBottom: insets.bottom + 24 }]} onPress={e => e.stopPropagation()}>
             <LinearGradient colors={['#0E0E1C', '#06060E']} style={StyleSheet.absoluteFill} />
             <View style={[s.modalHandle, { backgroundColor: `${game.accent_color}60` }]} />
             <Text style={[s.modalTitle, { color: game.accent_color }]}>Write Your Own</Text>
@@ -1052,13 +1049,17 @@ function GameDetailScreen({ game, token, partnerId, partnerName, roomId, onBack,
               onSend={text => { setWriteModal(false); onSend(game, null, text); }}
             />
           </Pressable>
-        </Pressable>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* ── Create with AI Modal ── */}
       <Modal visible={aiModal} animationType="slide" transparent onRequestClose={() => setAiModal(false)}>
-        <Pressable style={s.modalBackdrop} onPress={() => setAiModal(false)}>
-          <Pressable style={s.modalSheet} onPress={e => e.stopPropagation()}>
+        <KeyboardAvoidingView
+          style={s.modalBackdrop}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setAiModal(false)} />
+          <Pressable style={[s.modalSheet, { paddingBottom: insets.bottom + 24 }]} onPress={e => e.stopPropagation()}>
             <LinearGradient colors={['#0E0E1C', '#06060E']} style={StyleSheet.absoluteFill} />
             <View style={[s.modalHandle, { backgroundColor: `${game.accent_color}60` }]} />
             <Text style={[s.modalTitle, { color: game.accent_color }]}>Create with AI</Text>
@@ -1069,7 +1070,7 @@ function GameDetailScreen({ game, token, partnerId, partnerName, roomId, onBack,
               onSend={text => { setAiModal(false); onSend(game, null, text); }}
             />
           </Pressable>
-        </Pressable>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
@@ -1219,7 +1220,10 @@ export default function MiniGamesPage() {
     if (game.game_type === 'truth_or_dare') msgType = 'tod_invite';
     if (game.game_type === 'question_cards') msgType = 'card';
 
-    let extra: Record<string, any> = { phase: 'invite', cardId: card?.id };
+    let extra: Record<string, any> = {
+      phase: 'invite',
+      cardId: card?.id,
+    };
 
     if (game.game_type === 'wyr') {
       const optA = card ? card.option_a : (customText?.split('|||')[0] ?? customText);
@@ -1238,9 +1242,12 @@ export default function MiniGamesPage() {
     }
 
     const label = card ? card.question : (customText ?? '');
-    const content = card
-      ? `${game.emoji} ${game.name}: ${label.slice(0, 60)}`
-      : `${game.emoji} ${game.name}`;
+    // Truth or Dare always sends a generic invite — partner picks T/D in chat
+    const content = game.game_type === 'truth_or_dare'
+      ? '🎲 Truth or Dare — want to play?'
+      : card
+        ? `${game.emoji} ${game.name}: ${label.slice(0, 60)}`
+        : `${game.emoji} ${game.name}`;
 
     // Store payload in a module-level slot, then navigate back.
     // router.setParams() after router.back() is unreliable (race with focus
@@ -1303,7 +1310,17 @@ export default function MiniGamesPage() {
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: insets.bottom + 32, gap: 24 }}>
           {/* Featured card */}
           {featuredGame && (
-            <FeaturedGameCard game={featuredGame} onPress={() => setSelected(featuredGame)} />
+            <FeaturedGameCard
+              game={featuredGame}
+              onPress={() => {
+                // T&D: send invite immediately — no card detail screen needed
+                if (featuredGame.game_type === 'truth_or_dare') {
+                  handleSend(featuredGame, null);
+                } else {
+                  setSelected(featuredGame);
+                }
+              }}
+            />
           )}
 
           {/* Vertical game list — individual squircle cards */}
@@ -1314,7 +1331,13 @@ export default function MiniGamesPage() {
                 <GameListItem
                   key={game.id} game={game} index={i}
                   isLast={i === games.length - 1}
-                  onPress={() => setSelected(game)}
+                  onPress={() => {
+                    if (game.game_type === 'truth_or_dare') {
+                      handleSend(game, null);
+                    } else {
+                      setSelected(game);
+                    }
+                  }}
                 />
               ))}
             </View>
@@ -1377,12 +1400,12 @@ const s = StyleSheet.create({
 
   // Detail screen
   detailRoot:      { flex: 1 },
-  detailHeader:    { paddingHorizontal: 20, paddingBottom: 0, overflow: 'hidden' },
+  detailHeader:    { paddingHorizontal: 20, paddingBottom: 0 },
   detailHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 14 },
   detailTitle:      { fontSize: 20, fontFamily: 'ProductSans-Black', color: '#fff' },
   detailSub:        { fontSize: 13, fontFamily: 'ProductSans-Bold', marginTop: 2 },
   previewGameEmoji: { fontSize: 18, marginBottom: 1 },
-  previewTitle:     { fontSize: 15, fontFamily: 'ProductSans-Black', color: '#EEEEFF', letterSpacing: 0.1 },
+  previewTitle:     { fontSize: 18, fontFamily: 'ProductSans-Black', color: '#ffffff', letterSpacing: 0 },
   bigSendBtn:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingVertical: 17 },
   bigSendBtnText:  { fontSize: 16, fontFamily: 'ProductSans-Black', color: '#fff' },
   pickDiffText:    { fontSize: 14, fontFamily: 'ProductSans-Regular', color: 'rgba(255,255,255,0.45)' },

@@ -39,6 +39,9 @@ export interface CachedMsg {
   callType?:     string;
   callKind?:     string;
   callDuration?: number;
+  readAt?:       string;   // ISO — when partner read the message
+  editedAt?:     string;   // ISO — when message was edited
+  reactions?:    Array<{ emoji: string; user_id: string }>;
 }
 
 // ─── Config ───────────────────────────────────────────────────────────────────

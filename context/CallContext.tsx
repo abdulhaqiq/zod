@@ -35,8 +35,14 @@ import {
 } from 'react-native';
 import Constants from 'expo-constants';
 
-/** True when running inside the Expo Go sandbox — native modules unavailable */
-const IS_EXPO_GO = Constants.appOwnership === 'expo';
+/**
+ * True when running inside the Expo Go sandbox — native modules unavailable.
+ * SDK 49+ deprecated appOwnership; SDK 50+ uses executionEnvironment.
+ * We check both for backwards compatibility.
+ */
+const IS_EXPO_GO =
+  Constants.appOwnership === 'expo' ||
+  (Constants as any).executionEnvironment === 'storeClient';
 
 /**
  * Lazily require react-native-webrtc and react-native-incall-manager so the
@@ -833,6 +839,7 @@ export function CallProvider({ token, children }: CallProviderProps) {
 
           // ── Incoming call invite ──────────────────────────────────────────
           if (p.type === 'call_invite') {
+            if (IS_EXPO_GO) return;           // WebRTC unavailable in Expo Go
             if (callStateRef.current !== null) return;
             isCallerRef.current = false;
             const kind: 'audio' | 'video' = p.call_kind === 'video' ? 'video' : 'audio';
@@ -848,6 +855,7 @@ export function CallProvider({ token, children }: CallProviderProps) {
 
           // ── Caller receives: callee accepted → start WebRTC as caller ─────
           } else if (p.type === 'call_accept') {
+            if (IS_EXPO_GO) return;
             if (callStateRef.current === 'outgoing') {
               const kind = callKindRef.current;
               setCallState('active');

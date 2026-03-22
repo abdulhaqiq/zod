@@ -31,6 +31,7 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -57,6 +58,7 @@ import {
   evictCache,
   type CachedMsg,
 } from '@/utils/messageCache';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width: W, height: SCREEN_H } = Dimensions.get('window');
 const CARD_W  = W - 72;
@@ -64,6 +66,8 @@ const CARD_GAP = 12;
 const H_PHOTO = Math.round(W * 1.2);
 
 // ─── Types ────────────────────────────────────────────────────────────────────
+
+interface MsgReaction { emoji: string; user_id: string; created_at: string; }
 
 interface Msg {
   id: string;
@@ -79,7 +83,7 @@ interface Msg {
   status?: 'sending' | 'sent' | 'delivered' | 'read';
   // Truth or Dare game messages
   isTod?: boolean;
-  todMsgType?: 'tod_invite' | 'tod_accept' | 'tod_answer' | 'tod_next';
+  todMsgType?: 'tod_invite' | 'tod_accept' | 'tod_answer' | 'tod_next' | 'tod_choice' | 'tod_skip';
   todExtra?: Record<string, any>;
   // Mini-games
   isGame?: boolean;
@@ -95,6 +99,10 @@ interface Msg {
   callType?: 'missed' | 'ended' | 'declined';
   callKind?: 'audio' | 'video';
   callDuration?: number;
+  // Reactions + edit
+  reactions?: MsgReaction[];
+  editedAt?: string;
+  readAt?: string;
 }
 
 interface ApiMessage {
@@ -518,6 +526,7 @@ function ChatImage({ uri, size }: { uri: string; size: number }) {
       source={{ uri }}
       style={{ width: size, height: size, borderRadius: 12, backgroundColor: '#1e1e1e' }}
       contentFit="cover"
+      cachePolicy="memory-disk"
       transition={{ duration: 250, effect: 'cross-dissolve' }}
       recyclingKey={uri}
       onError={() => setErrored(true)}
@@ -558,6 +567,7 @@ function BubbleAvatar({ uri, size = 28 }: { uri?: string; size?: number }) {
       source={{ uri }}
       style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: '#2a2a2a' }}
       contentFit="cover"
+      cachePolicy="memory-disk"
       transition={{ duration: 200, effect: 'cross-dissolve' }}
       recyclingKey={uri}
     />
@@ -812,7 +822,7 @@ async function getLocalAudioUri(cdnUrl: string): Promise<string> {
 
 // ─── VoiceBubble ─────────────────────────────────────────────────────────────
 
-function VoiceBubble({ msg, colors }: { msg: Msg; colors: any }) {
+function VoiceBubble({ msg, colors, onLongPress }: { msg: Msg; colors: any; onLongPress?: () => void }) {
   const isMe       = msg.from === 'me';
   const bgColor    = isMe ? BUBBLE_ME_BG   : colors.surface;
   const fgColor    = isMe ? BUBBLE_ME_TEXT : colors.text;
@@ -1007,6 +1017,7 @@ function VoiceBubble({ msg, colors }: { msg: Msg; colors: any }) {
   const speedLabel = speed === 1.5 ? '1.5×' : speed === 2 ? '2×' : '1×';
 
   return (
+    <Pressable onLongPress={onLongPress} delayLongPress={350}>
     <Squircle
       style={[styles.bubble, isMe ? styles.bubbleMe : styles.bubbleThem, { minWidth: 240 }]}
       cornerRadius={22} cornerSmoothing={1}
@@ -1097,13 +1108,309 @@ function VoiceBubble({ msg, colors }: { msg: Msg; colors: any }) {
         </View>
       </View>
     </Squircle>
+    </Pressable>
+  );
+}
+
+// ─── Reaction pill — straddles the bottom corner of a bubble (WhatsApp-style) ─
+// Uses negative marginTop so the pill overlaps the bubble's bottom edge without
+// any overflow-clipping issues. Aligns to the inner edge of the bubble.
+
+function ReactionPills({ reactions, myId, from, colors }: {
+  reactions: MsgReaction[];
+  myId: string;
+  from: 'me' | 'them';
+  colors: any;
+}) {
+  if (!reactions || reactions.length === 0) return null;
+  const grouped: Record<string, { count: number; mine: boolean }> = {};
+  for (const r of reactions) {
+    if (!grouped[r.emoji]) grouped[r.emoji] = { count: 0, mine: false };
+    grouped[r.emoji].count++;
+    if (r.user_id === myId) grouped[r.emoji].mine = true;
+  }
+  const entries = Object.entries(grouped);
+
+  return (
+    <View
+      style={{
+        // Pull up by ~half the pill height so top half overlaps the bubble edge
+        marginTop: -11,
+        marginBottom: 4,
+        // Inner-edge alignment: 'me' bubbles are right-side → left is inner edge
+        alignSelf: from === 'me' ? 'flex-start' : 'flex-end',
+        marginLeft: from === 'me' ? 10 : 0,
+        marginRight: from === 'them' ? 10 : 0,
+        flexDirection: 'row',
+        gap: 3,
+        zIndex: 20,
+      }}
+    >
+      {entries.map(([emoji, { count, mine }]) => (
+        <View
+          key={emoji}
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            // Slightly opaque surface so the pill "pops" off the bubble
+            backgroundColor: mine ? 'rgba(99,102,241,0.18)' : colors.surface,
+            borderRadius: 14,
+            paddingHorizontal: count > 1 ? 8 : 7,
+            paddingVertical: 4,
+            borderWidth: mine ? 1.2 : StyleSheet.hairlineWidth,
+            borderColor: mine ? '#6366f1' : colors.border,
+            gap: 3,
+            // Shadow gives the "card on top of bubble" depth
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 2 },
+            shadowOpacity: 0.22,
+            shadowRadius: 4,
+            elevation: 4,
+          }}
+        >
+          <Text style={{ fontSize: 14 }}>{emoji}</Text>
+          {count > 1 && (
+            <Text style={{ fontSize: 11, fontFamily: 'ProductSans-Bold', color: mine ? '#6366f1' : colors.textSecondary }}>
+              {count}
+            </Text>
+          )}
+        </View>
+      ))}
+    </View>
+  );
+}
+
+// ─── Message long-press context menu ─────────────────────────────────────────
+
+const QUICK_EMOJIS = ['❤️', '😂', '😮', '😢', '👍', '🔥', '🙏', '💯'];
+
+function MsgContextMenu({ msg, myId, colors, recentEmojis, onClose, onReact, onReply, onCopy, onEdit, onSaveImage, onUnsend, onInfo, onReport }: {
+  msg: Msg; myId: string; colors: any; recentEmojis: string[];
+  onClose: () => void; onReact: (emoji: string) => void; onReply: () => void;
+  onCopy: () => void; onEdit: () => void; onSaveImage: () => void;
+  onUnsend: () => void; onInfo: () => void; onReport: () => void;
+}) {
+  const isMe    = msg.from === 'me';
+  const hasText = (msg.text?.trim().length ?? 0) > 0 && !msg.imageUrl;
+  const canEdit = isMe && hasText && !msg.isCard && !msg.isGame && !msg.isTod && !msg.audioUrl && !msg.isCall;
+
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(40)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(fadeAnim,  { toValue: 1, duration: 200, useNativeDriver: true }),
+      Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, tension: 180, friction: 22 }),
+    ]).start();
+  }, []);
+
+  const close = (cb?: () => void) => {
+    Animated.parallel([
+      Animated.timing(fadeAnim,  { toValue: 0, duration: 140, useNativeDriver: true }),
+      Animated.timing(slideAnim, { toValue: 30, duration: 140, useNativeDriver: true }),
+    ]).start(() => { onClose(); cb?.(); });
+  };
+
+  const emojiRow = [...new Set([...recentEmojis.slice(0, 4), ...QUICK_EMOJIS])].slice(0, 8);
+  const myReactions = new Set((msg.reactions ?? []).filter(r => r.user_id === myId).map(r => r.emoji));
+
+  // Build action list — only what's relevant for this message type
+  const actions: Array<{ icon: string; label: string; danger?: boolean; onPress: () => void }> = [];
+  if (msg.editedAt) {
+    // "edited today at HH:MM" header is rendered separately — no action needed
+  }
+  actions.push({ icon: 'arrow-undo-outline', label: 'Reply', onPress: () => close(onReply) });
+  if (hasText) actions.push({ icon: 'copy-outline', label: 'Copy', onPress: () => close(onCopy) });
+  if (canEdit) actions.push({ icon: 'pencil-outline', label: 'Edit', onPress: () => close(onEdit) });
+  if (msg.imageUrl) actions.push({ icon: 'download-outline', label: 'Save Image', onPress: () => close(onSaveImage) });
+  actions.push({ icon: 'time-outline', label: 'Info', onPress: () => close(onInfo) });
+  if (isMe && !msg.id.startsWith('opt-')) {
+    actions.push({ icon: 'trash-outline', label: 'Delete', danger: true, onPress: () => close(onUnsend) });
+  }
+  if (!isMe) {
+    actions.push({ icon: 'flag-outline', label: 'Report', danger: true, onPress: () => close(onReport) });
+  }
+
+  const menuBg = colors.surface;
+  const divider = colors.border;
+
+  return (
+    <Modal transparent animationType="none" statusBarTranslucent onRequestClose={() => close()}>
+      {/* Dim backdrop — tappable to dismiss */}
+      <Pressable style={StyleSheet.absoluteFillObject} onPress={() => close()}>
+        <Animated.View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(0,0,0,0.5)', opacity: fadeAnim }]} />
+      </Pressable>
+
+      <Animated.View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, transform: [{ translateY: slideAnim }] }}>
+        {/* Emoji reaction strip */}
+        <Squircle
+          style={{ marginHorizontal: 12, marginBottom: 8, overflow: 'hidden' }}
+          cornerRadius={22} cornerSmoothing={1}
+          fillColor={menuBg}
+          strokeColor={divider} strokeWidth={StyleSheet.hairlineWidth}
+        >
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 8, paddingVertical: 10, gap: 4 }}>
+            {emojiRow.map(emoji => {
+              const active = myReactions.has(emoji);
+              return (
+                <Pressable
+                  key={emoji}
+                  onPress={() => { onReact(emoji); close(); }}
+                  style={({ pressed }) => ({
+                    width: 46, height: 46, borderRadius: 23,
+                    backgroundColor: active
+                      ? 'rgba(99,102,241,0.2)'
+                      : pressed ? colors.surface2 : 'transparent',
+                    alignItems: 'center', justifyContent: 'center',
+                    borderWidth: active ? 1.5 : 0, borderColor: '#6366f1',
+                    transform: [{ scale: pressed ? 1.15 : 1 }],
+                  })}
+                >
+                  <Text style={{ fontSize: 26 }}>{emoji}</Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        </Squircle>
+
+        {/* Action list */}
+        <Squircle
+          style={{ marginHorizontal: 12, marginBottom: 28, overflow: 'hidden' }}
+          cornerRadius={22} cornerSmoothing={1}
+          fillColor={menuBg}
+          strokeColor={divider} strokeWidth={StyleSheet.hairlineWidth}
+        >
+          {/* "Edited" header line if applicable */}
+          {msg.editedAt && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 11, paddingHorizontal: 16, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: divider }}>
+              <Ionicons name="create-outline" size={15} color={colors.textSecondary} />
+              <Text style={{ fontSize: 13, fontFamily: 'ProductSans-Regular', color: colors.textSecondary }}>
+                {`edited ${_formatTime(msg.editedAt)}`}
+              </Text>
+            </View>
+          )}
+
+          {actions.map((action, i) => (
+            <Pressable
+              key={action.label}
+              onPress={action.onPress}
+              style={({ pressed }) => ({
+                flexDirection: 'row', alignItems: 'center', gap: 16,
+                paddingVertical: 14, paddingHorizontal: 18,
+                backgroundColor: pressed ? colors.surface2 : 'transparent',
+                borderTopWidth: (i === 0 && !msg.editedAt) ? 0 : StyleSheet.hairlineWidth,
+                borderTopColor: divider,
+              })}
+            >
+              <Ionicons
+                name={action.icon as any}
+                size={20}
+                color={action.danger ? '#ef4444' : colors.text}
+              />
+              <Text style={{
+                fontSize: 16,
+                fontFamily: 'ProductSans-Regular',
+                color: action.danger ? '#ef4444' : colors.text,
+                flex: 1,
+              }}>
+                {action.label}
+              </Text>
+            </Pressable>
+          ))}
+        </Squircle>
+      </Animated.View>
+    </Modal>
+  );
+}
+
+// ─── Message info bottom sheet (uses local data only — no network call) ───────
+
+function MsgInfoSheet({ msg, myId, colors, onClose }: {
+  msg: Msg; myId: string; colors: any; onClose: () => void;
+}) {
+  // Use only locally available data — no API call, no hang
+  const fmt = (iso: string | null | undefined) => {
+    if (!iso) return null;
+    const d = new Date(iso);
+    const today = new Date();
+    const isToday = d.toDateString() === today.toDateString();
+    const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+    if (isToday) return `Today at ${time}`;
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ` at ${time}`;
+  };
+
+  const rows: Array<{ icon: string; label: string; value: string | null }> = [
+    { icon: 'paper-plane-outline',    label: 'Sent',    value: fmt(msg.rawTime) },
+    { icon: 'create-outline',         label: 'Edited',  value: msg.editedAt ? fmt(msg.editedAt) : null },
+    { icon: 'checkmark-done-outline', label: 'Seen',    value: msg.status === 'read' ? (msg.readAt ? fmt(msg.readAt) : 'Yes') : 'Not yet' },
+  ].filter(r => r.value !== null) as Array<{ icon: string; label: string; value: string }>;
+
+  // Reaction summary
+  const grouped: Record<string, { count: number; mine: boolean }> = {};
+  for (const r of msg.reactions ?? []) {
+    if (!grouped[r.emoji]) grouped[r.emoji] = { count: 0, mine: false };
+    grouped[r.emoji].count++;
+    if (r.user_id === myId) grouped[r.emoji].mine = true;
+  }
+  const reactionEntries = Object.entries(grouped);
+
+  return (
+    <Modal transparent animationType="slide" statusBarTranslucent onRequestClose={onClose}>
+      <Pressable style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(0,0,0,0.45)' }]} onPress={onClose} />
+      <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0 }}>
+        <Squircle
+          style={{ margin: 12, marginBottom: 36, overflow: 'hidden' }}
+          cornerRadius={26} cornerSmoothing={1}
+          fillColor={colors.surface}
+          strokeColor={colors.border} strokeWidth={StyleSheet.hairlineWidth}
+        >
+          {/* Handle */}
+          <View style={{ alignItems: 'center', paddingTop: 10, paddingBottom: 2 }}>
+            <View style={{ width: 34, height: 4, borderRadius: 2, backgroundColor: colors.border }} />
+          </View>
+
+          <Text style={{ fontSize: 15, fontFamily: 'ProductSans-Bold', color: colors.text, paddingHorizontal: 18, paddingTop: 10, paddingBottom: 4 }}>
+            Message Info
+          </Text>
+
+          {rows.map((row, i) => (
+            <View key={row.label} style={{ flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 13, paddingHorizontal: 18, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border }}>
+              <Ionicons name={row.icon as any} size={18} color={colors.textSecondary} />
+              <Text style={{ fontSize: 14, fontFamily: 'ProductSans-Medium', color: colors.textSecondary, width: 52 }}>{row.label}</Text>
+              <Text style={{ fontSize: 14, fontFamily: 'ProductSans-Regular', color: colors.text, flex: 1 }}>{row.value}</Text>
+            </View>
+          ))}
+
+          {reactionEntries.length > 0 && (
+            <View style={{ paddingHorizontal: 18, paddingTop: 12, paddingBottom: 14, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, gap: 10 }}>
+              <Text style={{ fontSize: 12, fontFamily: 'ProductSans-Bold', color: colors.textSecondary, letterSpacing: 0.8 }}>REACTIONS</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                {reactionEntries.map(([emoji, { count, mine }]) => (
+                  <Squircle
+                    key={emoji}
+                    cornerRadius={14} cornerSmoothing={1}
+                    fillColor={mine ? 'rgba(99,102,241,0.15)' : colors.surface2}
+                    strokeColor={mine ? '#6366f1' : 'transparent'}
+                    strokeWidth={1}
+                    style={{ paddingHorizontal: 12, paddingVertical: 7, flexDirection: 'row', alignItems: 'center', gap: 6 }}
+                  >
+                    <Text style={{ fontSize: 18 }}>{emoji}</Text>
+                    <Text style={{ fontSize: 13, fontFamily: 'ProductSans-Bold', color: mine ? '#6366f1' : colors.textSecondary }}>{count}</Text>
+                  </Squircle>
+                ))}
+              </View>
+            </View>
+          )}
+        </Squircle>
+      </View>
+    </Modal>
   );
 }
 
 // ─── Bubble ───────────────────────────────────────────────────────────────────
 
-function Bubble({ msg, colors, onAnswer, answeredCards, myAvatar, partnerAvatar, isLastInGroup, onReply, onJumpToReply, onUnsend }: {
-  msg: Msg; colors: any;
+function Bubble({ msg, colors, myId, onAnswer, answeredCards, myAvatar, partnerAvatar, isLastInGroup, onReply, onJumpToReply, onUnsend, onLongPress }: {
+  msg: Msg; colors: any; myId?: string;
   onAnswer?: (q: string) => void;
   answeredCards?: Set<string>;
   myAvatar?: string;
@@ -1112,6 +1419,7 @@ function Bubble({ msg, colors, onAnswer, answeredCards, myAvatar, partnerAvatar,
   onReply?: (msg: Msg) => void;
   onJumpToReply?: (id: string) => void;
   onUnsend?: (msg: Msg) => void;
+  onLongPress?: (msg: Msg) => void;
 }) {
   const isMe     = msg.from === 'me';
   const isDark   = colors.bg === '#000000' || colors.bg === '#0a0a0a' || colors.bg === '#111' || colors.bg?.length > 0 && parseInt(colors.bg.slice(1), 16) < 0x888888;
@@ -1126,55 +1434,8 @@ function Bubble({ msg, colors, onAnswer, answeredCards, myAvatar, partnerAvatar,
   );
 
   const handleLongPress = React.useCallback(() => {
-    const isImage = !!msg.imageUrl;
-    const options: string[] = [];
-    if (isImage) options.push('Save Image');
-    if (isMe && msg.id && !msg.id.startsWith('opt-')) options.push('Unsend');
-    options.push('Cancel');
-
-    const cancelIdx = options.length - 1;
-    const destructiveIdx = options.indexOf('Unsend');
-
-    const handleAction = async (idx: number) => {
-      const action = options[idx];
-      if (action === 'Save Image' && msg.imageUrl) {
-        try {
-          const { status } = await MediaLibrary.requestPermissionsAsync();
-          if (status !== 'granted') {
-            Alert.alert('Permission needed', 'Allow photo library access to save images.');
-            return;
-          }
-          await MediaLibrary.saveToLibraryAsync(msg.imageUrl);
-          Alert.alert('Saved', 'Image saved to your camera roll.');
-        } catch {
-          Alert.alert('Error', 'Could not save image.');
-        }
-      } else if (action === 'Unsend') {
-        onUnsend?.(msg);
-      }
-    };
-
-    if (Platform.OS === 'ios') {
-      ActionSheetIOS.showActionSheetWithOptions(
-        { options, cancelButtonIndex: cancelIdx, destructiveButtonIndex: destructiveIdx >= 0 ? destructiveIdx : undefined },
-        handleAction,
-      );
-    } else {
-      // Android fallback
-      Alert.alert(
-        'Message options',
-        undefined,
-        options
-          .filter(o => o !== 'Cancel')
-          .map((o, i) => ({
-            text: o,
-            style: o === 'Unsend' ? 'destructive' : 'default',
-            onPress: () => handleAction(i),
-          } as any))
-          .concat([{ text: 'Cancel', style: 'cancel' }]),
-      );
-    }
-  }, [msg, isMe, onUnsend]);
+    onLongPress?.(msg);
+  }, [msg, onLongPress]);
 
   if (msg.isAnswer && msg.answerTo) {
     const bubble = (
@@ -1212,7 +1473,12 @@ function Bubble({ msg, colors, onAnswer, answeredCards, myAvatar, partnerAvatar,
       <SwipeableRow onReply={() => onReply?.(msg)} direction={isMe ? 'left' : 'right'}>
         <View style={[styles.bubbleRow, isMe ? styles.bubbleRowMe : styles.bubbleRowThem]}>
           {!isMe && avatarSlot}
-          {bubble}
+          <Pressable onLongPress={handleLongPress} delayLongPress={350}>
+            <View>
+              {bubble}
+              <ReactionPills reactions={msg.reactions ?? []} myId={myId ?? ''} from={msg.from} colors={colors} />
+            </View>
+          </Pressable>
           {isMe && avatarSlot}
         </View>
       </SwipeableRow>
@@ -1271,7 +1537,12 @@ function Bubble({ msg, colors, onAnswer, answeredCards, myAvatar, partnerAvatar,
       <SwipeableRow onReply={() => onReply?.(msg)} direction={isMe ? 'left' : 'right'}>
         <View style={[styles.bubbleRow, isMe ? styles.bubbleRowMe : styles.bubbleRowThem]}>
           {!isMe && avatarSlot}
-          {bubble}
+          <Pressable onLongPress={handleLongPress} delayLongPress={350}>
+            <View>
+              {bubble}
+              <ReactionPills reactions={msg.reactions ?? []} myId={myId ?? ''} from={msg.from} colors={colors} />
+            </View>
+          </Pressable>
           {isMe && avatarSlot}
         </View>
       </SwipeableRow>
@@ -1316,8 +1587,16 @@ function Bubble({ msg, colors, onAnswer, answeredCards, myAvatar, partnerAvatar,
     <SwipeableRow onReply={() => onReply?.(msg)} direction={isMe ? 'left' : 'right'}>
       <View style={[styles.bubbleRow, isMe ? styles.bubbleRowMe : styles.bubbleRowThem]}>
         {!isMe && avatarSlot}
-        <Pressable onLongPress={handleLongPress} delayLongPress={380}>
-          {bubble}
+        <Pressable onLongPress={handleLongPress} delayLongPress={350}>
+          <View>
+            {bubble}
+            {msg.editedAt && (
+              <Text style={{ fontSize: 10, color: colors.textTertiary, fontFamily: 'ProductSans-Regular', marginTop: 2, marginLeft: 4 }}>
+                edited
+              </Text>
+            )}
+            <ReactionPills reactions={msg.reactions ?? []} myId={myId ?? ''} from={msg.from} colors={colors} />
+          </View>
         </Pressable>
         {isMe && avatarSlot}
       </View>
@@ -2126,9 +2405,217 @@ function StarterCardsPanel({ colors, onSend, onClose, onTodInvite, totalSent = 0
 
 // ─── Truth or Dare — interactive game bubbles ────────────────────────────────
 
-const TOD_TRUTH_COLOR  = '#1e1b4b'; // dark indigo
-const TOD_DARE_COLOR   = '#450a0a'; // dark red
-const TOD_INVITE_COLOR = '#0f0f1e';
+// ─── T&D monochrome palette (grey / white / black only) ──────────────────────
+const TOD_BG      = '#111111';
+const TOD_SURFACE = '#1c1c1c';
+const TOD_BORDER  = 'rgba(255,255,255,0.10)';
+const TOD_MUTED   = 'rgba(255,255,255,0.38)';
+const TOD_SUBTLE  = 'rgba(255,255,255,0.07)';
+
+// Keep for legacy compat in any remaining refs
+const TOD_TRUTH_COLOR  = TOD_BG;
+const TOD_DARE_COLOR   = TOD_BG;
+const TOD_INVITE_COLOR = TOD_BG;
+
+// ─── Built-in question templates ─────────────────────────────────────────────
+const TOD_TRUTH_TEMPLATES = [
+  "What's something you've never told anyone you like about me?",
+  "What's your biggest fear right now in life?",
+  "What's the most embarrassing moment you've had in public?",
+  "What's a secret you've never shared with anyone?",
+  "If you could change one thing about your past, what would it be?",
+  "What's the most childish thing you still do?",
+  "What's your biggest insecurity and why?",
+  "When was the last time you cried and what caused it?",
+  "What's a controversial opinion you hold that most people disagree with?",
+  "What do you genuinely wish you could tell me but haven't yet?",
+  "What's the worst lie you've ever told someone you cared about?",
+  "What do you find most attractive in a person — be completely honest.",
+];
+
+const TOD_DARE_TEMPLATES = [
+  "Send me the last photo you took right now — no deleting first.",
+  "Record a voice note telling me 3 things you genuinely like about me.",
+  "Text your best friend 'I think I'm in love' and screenshot their reaction.",
+  "Send me your honest first impression of me when we first matched.",
+  "Share your most-played song this week.",
+  "Screenshot your screen time for today and send it.",
+  "Write me a 3-line poem — it can be terrible, that's fine.",
+  "Do your best impression of me in a voice note.",
+  "Tell me one thing you've been holding back saying to me.",
+  "Send me a photo that honestly shows what you're doing right now.",
+  "Rate yourself out of 10 in looks, personality, and humor — be honest.",
+  "Post a story right now with no caption and show me what you posted.",
+];
+
+// ─── T&D invite bubble ────────────────────────────────────────────────────────
+
+function TodInviteBubble({ msg, messages, isMe, extra, partnerName, avatarSlot, styles, colors, onChoice, onPickCard }: {
+  msg: Msg; messages: Msg[]; isMe: boolean; extra: Record<string, any>;
+  partnerName: string; avatarSlot: React.ReactNode;
+  styles: any; colors: any;
+  onChoice: (inviteId: string, choice: 'truth' | 'dare') => void;
+  onPickCard: (choice: 'truth' | 'dare') => void;
+}) {
+  "use no memo";
+  const [picking, setPicking] = React.useState(false);
+
+  const choiceMsg     = messages.find(m => m.todMsgType === 'tod_choice' && m.todExtra?.inviteId === msg.id);
+  // preSelectedChoice is set when the sender embeds the choice directly in the invite
+  // (used in the challenge-after-answering flow to avoid optimistic-ID linking issues)
+  const preSelectedChoice = extra.preSelectedChoice as 'truth' | 'dare' | undefined;
+  const partnerChoice = preSelectedChoice ?? (choiceMsg?.todExtra?.choice as 'truth' | 'dare' | undefined);
+  const alreadyChosen = !!partnerChoice;
+  const cardSent      = messages.some(m => m.todMsgType === 'tod_next' && m.todExtra?.inviteId === msg.id);
+  // Was it the sender (isMe) who pre-chose on behalf of the partner, or did the partner choose themselves?
+  const senderPreChose   = isMe  && alreadyChosen && (!!preSelectedChoice || choiceMsg?.from === 'me');
+  const partnerChoseOwn  = isMe  && alreadyChosen && !preSelectedChoice && choiceMsg?.from !== 'me';
+  const senderChoseForMe = !isMe && alreadyChosen && (!!preSelectedChoice || choiceMsg?.from !== 'me');
+
+  // If a newer invite exists in the conversation, this one is expired
+  const isExpired = messages.some(
+    m => m.todMsgType === 'tod_invite' && m.id !== msg.id && m.rawTime && msg.rawTime && m.rawTime > msg.rawTime
+  );
+
+  return (
+    <View style={[styles.bubbleRow, isMe ? styles.bubbleRowMe : styles.bubbleRowThem]}>
+      {!isMe && avatarSlot}
+      <Squircle style={styles.todInviteBubble} cornerRadius={26} cornerSmoothing={1}
+        fillColor={TOD_BG} strokeColor={TOD_BORDER} strokeWidth={1}>
+
+        {/* ── top label row ── */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+          <Squircle style={{ width: 32, height: 32, alignItems: 'center', justifyContent: 'center' }}
+            cornerRadius={10} cornerSmoothing={1} fillColor={TOD_SUBTLE}>
+            <Text style={{ fontSize: 16 }}>🎲</Text>
+          </Squircle>
+          <Text style={{ fontSize: 13, fontFamily: 'ProductSans-Black', color: '#fff', letterSpacing: 0.3 }}>
+            Truth or Dare
+          </Text>
+          <View style={{ flex: 1 }} />
+          <Text style={[styles.bubbleTimeInline, { color: TOD_MUTED }]}>{msg.time}</Text>
+        </View>
+
+        {/* ── status line ── */}
+        <Text style={{ fontSize: 14, fontFamily: 'ProductSans-Regular', color: TOD_MUTED, marginBottom: 16 }}>
+          {isExpired
+            ? 'A newer game was started'
+            : isMe
+              ? senderPreChose
+                ? `You chose ${partnerChoice === 'truth' ? 'Truth' : 'Dare'} for ${partnerName}`
+                : partnerChoseOwn
+                  ? `${partnerName} chose ${partnerChoice === 'truth' ? 'Truth' : 'Dare'}`
+                  : `Waiting for ${partnerName} to choose…`
+              : senderChoseForMe
+                ? `${extra.senderName ?? partnerName} picked a ${partnerChoice === 'truth' ? 'Truth' : 'Dare'} for you!`
+                : `${extra.senderName ?? partnerName} invited you to play`}
+        </Text>
+
+        {/* ── EXPIRED: show quiet badge, no actions ── */}
+        {isExpired && (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Ionicons name="ban-outline" size={13} color="rgba(255,255,255,0.2)" />
+            <Text style={{ fontSize: 12, fontFamily: 'ProductSans-Bold', color: 'rgba(255,255,255,0.2)' }}>
+              Expired
+            </Text>
+          </View>
+        )}
+
+        {/* ── SENDER: choice made → pick question card ── */}
+        {!isExpired && isMe && alreadyChosen && !cardSent && (
+          <Pressable
+            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); onPickCard(partnerChoice!); }}
+            style={({ pressed }) => ({ opacity: pressed ? 0.8 : 1 })}>
+            <Squircle style={{ paddingVertical: 12, alignItems: 'center' }}
+              cornerRadius={50} cornerSmoothing={1} fillColor="#fff">
+              <Text style={{ fontSize: 14, fontFamily: 'ProductSans-Black', color: '#000' }}>
+                {senderPreChose
+                  ? (partnerChoice === 'truth' ? 'Pick a Truth for them →' : 'Pick a Dare for them →')
+                  : (partnerChoice === 'truth' ? 'Send a Truth →' : 'Send a Dare →')}
+              </Text>
+            </Squircle>
+          </Pressable>
+        )}
+        {!isExpired && isMe && cardSent && (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Ionicons name="checkmark-circle" size={14} color="rgba(255,255,255,0.5)" />
+            <Text style={{ fontSize: 12, fontFamily: 'ProductSans-Bold', color: TOD_MUTED }}>Question sent</Text>
+          </View>
+        )}
+        {!isExpired && isMe && !alreadyChosen && (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Ionicons name="time-outline" size={14} color={TOD_MUTED} />
+            <Text style={{ fontSize: 12, fontFamily: 'ProductSans-Bold', color: TOD_MUTED }}>Waiting for choice…</Text>
+          </View>
+        )}
+
+        {/* ── PARTNER: sender already picked a type for them → show what's coming ── */}
+        {!isExpired && !isMe && senderChoseForMe && !cardSent && (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <Squircle style={{ paddingHorizontal: 12, paddingVertical: 6, flexDirection: 'row', alignItems: 'center', gap: 6 }}
+              cornerRadius={50} cornerSmoothing={1} fillColor={TOD_SUBTLE} strokeColor={TOD_BORDER} strokeWidth={1}>
+              <Text style={{ fontSize: 14 }}>{partnerChoice === 'truth' ? '🤔' : '🎲'}</Text>
+              <Text style={{ fontSize: 12, fontFamily: 'ProductSans-Black', color: '#fff' }}>
+                {partnerChoice === 'truth' ? 'Truth' : 'Dare'} incoming…
+              </Text>
+            </Squircle>
+          </View>
+        )}
+        {!isExpired && !isMe && senderChoseForMe && cardSent && (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Ionicons name="arrow-down-circle-outline" size={14} color={TOD_MUTED} />
+            <Text style={{ fontSize: 12, fontFamily: 'ProductSans-Bold', color: TOD_MUTED }}>Question sent — check below</Text>
+          </View>
+        )}
+
+        {/* ── PARTNER: "Let's Play" → then T / D choice ── */}
+        {!isExpired && !isMe && !alreadyChosen && !picking && (
+          <Pressable
+            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); setPicking(true); }}
+            style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1 })}>
+            <Squircle style={{ paddingVertical: 12, alignItems: 'center' }}
+              cornerRadius={50} cornerSmoothing={1} fillColor="#fff">
+              <Text style={{ fontSize: 14, fontFamily: 'ProductSans-Black', color: '#000' }}>Let's Play →</Text>
+            </Squircle>
+          </Pressable>
+        )}
+        {!isExpired && !isMe && !alreadyChosen && picking && (
+          <View style={{ flexDirection: 'row', gap: 10 }}>
+            <Pressable
+              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); onChoice(msg.id, 'truth'); }}
+              style={({ pressed }) => ({ flex: 1, opacity: pressed ? 0.75 : 1 })}>
+              <Squircle style={{ paddingVertical: 14, alignItems: 'center', gap: 4 }}
+                cornerRadius={16} cornerSmoothing={1}
+                fillColor={TOD_SUBTLE} strokeColor="rgba(255,255,255,0.25)" strokeWidth={1}>
+                <Text style={{ fontSize: 18 }}>🤔</Text>
+                <Text style={{ fontSize: 13, fontFamily: 'ProductSans-Black', color: '#fff' }}>Truth</Text>
+              </Squircle>
+            </Pressable>
+            <Pressable
+              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); onChoice(msg.id, 'dare'); }}
+              style={({ pressed }) => ({ flex: 1, opacity: pressed ? 0.75 : 1 })}>
+              <Squircle style={{ paddingVertical: 14, alignItems: 'center', gap: 4 }}
+                cornerRadius={16} cornerSmoothing={1}
+                fillColor={TOD_SUBTLE} strokeColor="rgba(255,255,255,0.25)" strokeWidth={1}>
+                <Text style={{ fontSize: 18 }}>🎲</Text>
+                <Text style={{ fontSize: 13, fontFamily: 'ProductSans-Black', color: '#fff' }}>Dare</Text>
+              </Squircle>
+            </Pressable>
+          </View>
+        )}
+        {!isMe && alreadyChosen && (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Ionicons name="checkmark-circle" size={14} color="rgba(255,255,255,0.5)" />
+            <Text style={{ fontSize: 12, fontFamily: 'ProductSans-Bold', color: TOD_MUTED }}>
+              You chose {partnerChoice === 'truth' ? 'Truth' : 'Dare'} — waiting for question…
+            </Text>
+          </View>
+        )}
+      </Squircle>
+      {isMe && avatarSlot}
+    </View>
+  );
+}
 
 const TOD_CATEGORIES = ['Spicy', 'Romantic', 'Fun', 'Deep'];
 const TOD_CAT_ACCENT: Record<string, string> = {
@@ -2138,18 +2625,24 @@ const TOD_CAT_EMOJI: Record<string, string> = {
   Spicy: '🌶️', Romantic: '💕', Fun: '😂', Deep: '🌊',
 };
 
-function TodBubble({ msg, colors, myId, onJoin, onAnswer, onSendTurn, messages, myAvatar, partnerAvatar, isLastInGroup }: {
+function TodBubble({ msg, colors, myId, partnerName, onJoin, onAnswer, onSkip, onSendTurn, onPickCard, onChoice, messages, myAvatar, partnerAvatar, isLastInGroup, skipUsed }: {
   msg: Msg;
   colors: any;
   myId: string;
+  partnerName: string;
   onJoin: (msgId: string) => void;
   onAnswer: (msg: Msg) => void;
-  onSendTurn: () => void;
+  onSkip: (msg: Msg) => void;
+  onSendTurn: (choice?: 'truth' | 'dare') => void;
+  onPickCard: (choice: 'truth' | 'dare') => void;
+  onChoice: (inviteId: string, choice: 'truth' | 'dare') => void;
   messages: Msg[];
   myAvatar?: string;
   partnerAvatar?: string;
   isLastInGroup?: boolean;
+  skipUsed: boolean;
 }) {
+  "use no memo";
   const isMe  = msg.from === 'me';
   const extra = msg.todExtra ?? {};
 
@@ -2161,111 +2654,110 @@ function TodBubble({ msg, colors, myId, onJoin, onAnswer, onSendTurn, messages, 
 
   // ── Invite bubble ─────────────────────────────────────────────────────────
   if (msg.todMsgType === 'tod_invite') {
-    const accepted = messages.some(m => m.todMsgType === 'tod_accept' && m.todExtra?.inviteId === msg.id);
-    return (
-      <View style={[styles.bubbleRow, isMe ? styles.bubbleRowMe : styles.bubbleRowThem]}>
-        {!isMe && avatarSlot}
-        <Squircle
-          style={styles.todInviteBubble}
-          cornerRadius={24} cornerSmoothing={1}
-          fillColor={TOD_INVITE_COLOR}
-        >
-          <Text style={styles.todInviteEmoji}>🎲</Text>
-          <Text style={styles.todInviteTitle}>Truth or Dare</Text>
-          <Text style={styles.todInviteSub}>
-            {isMe ? 'You invited to play' : `${extra.senderName ?? 'They'} wants to play!`}
-          </Text>
-          {!isMe && !accepted && (
-            <Pressable onPress={() => onJoin(msg.id)} style={({ pressed }) => [styles.todJoinBtn, { opacity: pressed ? 0.8 : 1 }]}>
-              <Text style={styles.todJoinBtnText}>Join Game 🎮</Text>
-            </Pressable>
-          )}
-          {accepted && (
-            <View style={styles.todAcceptedBadge}>
-              <Ionicons name="checkmark-circle" size={13} color="#4ade80" />
-              <Text style={styles.todAcceptedText}>Game started!</Text>
-            </View>
-          )}
-          <Text style={[styles.bubbleTimeInline, { color: 'rgba(255,255,255,0.35)', marginTop: 6 }]}>{msg.time}</Text>
-        </Squircle>
-        {isMe && avatarSlot}
-      </View>
-    );
+    return <TodInviteBubble
+      msg={msg} messages={messages} isMe={isMe} extra={extra}
+      partnerName={partnerName} avatarSlot={avatarSlot}
+      styles={styles} colors={colors}
+      onChoice={onChoice} onPickCard={onPickCard}
+    />;
   }
 
-  // ── Accept / system events ─────────────────────────────────────────────────
-  if (msg.todMsgType === 'tod_accept') {
+  // ── System event badges (choice / skip / accept) ─────────────────────────
+  if (msg.todMsgType === 'tod_choice' || msg.todMsgType === 'tod_skip' || msg.todMsgType === 'tod_accept') {
+    const choice = extra.choice as 'truth' | 'dare' | undefined;
+    const label = msg.todMsgType === 'tod_choice'
+      ? (isMe ? `You chose ${choice === 'truth' ? 'Truth' : 'Dare'}` : `${partnerName} chose ${choice === 'truth' ? 'Truth' : 'Dare'}`)
+      : msg.todMsgType === 'tod_skip'
+      ? (isMe ? 'You skipped' : `${partnerName} skipped`)
+      : (isMe ? 'Game started' : 'Game started');
+    const icon = msg.todMsgType === 'tod_choice'
+      ? (choice === 'truth' ? '🤔' : '🎲')
+      : msg.todMsgType === 'tod_skip' ? '↩' : '🎲';
     return (
       <View style={[styles.bubbleRow, { justifyContent: 'center' }]}>
-        <Squircle style={styles.todSystemBubble} cornerRadius={50} cornerSmoothing={1} fillColor={colors.surface2}>
-          <Text style={{ fontSize: 14 }}>🎲</Text>
-          <Text style={[styles.todSystemText, { color: colors.textSecondary }]}>
-            {isMe ? 'You joined! Send them a card first.' : 'Game on! Your partner will send first.'}
-          </Text>
+        <Squircle style={styles.todSystemBubble} cornerRadius={50} cornerSmoothing={1}
+          fillColor={TOD_SUBTLE} strokeColor={TOD_BORDER} strokeWidth={1}>
+          <Text style={{ fontSize: 12 }}>{icon}</Text>
+          <Text style={[styles.todSystemText, { color: TOD_MUTED }]}>{label}</Text>
         </Squircle>
       </View>
     );
   }
 
-  // ── Turn card: the sender chose truth/dare + picked a card ────────────────
+  // ── Question card (tod_next) ──────────────────────────────────────────────
   if (msg.todMsgType === 'tod_next') {
     const choice   = extra.choice   as 'truth' | 'dare' | undefined;
     const question = extra.question as string   | undefined;
     const emoji    = extra.emoji    as string   | undefined;
-    const category = extra.category as string   | undefined;
-    const bgColor  = choice === 'truth' ? TOD_TRUTH_COLOR : TOD_DARE_COLOR;
-    const accent   = choice === 'truth' ? '#818cf8' : '#f87171';
-
-    const answered = messages.some(m => m.todMsgType === 'tod_answer' && m.todExtra?.turnMsgId === msg.id);
+    const answered  = messages.some(m => (m.todMsgType === 'tod_answer' || m.todMsgType === 'tod_skip') && m.todExtra?.turnMsgId === msg.id);
+    const skipped   = messages.some(m => m.todMsgType === 'tod_skip' && m.todExtra?.turnMsgId === msg.id);
+    const typeLabel = choice === 'truth' ? 'Truth' : 'Dare';
 
     return (
       <View style={[styles.bubbleRow, isMe ? styles.bubbleRowMe : styles.bubbleRowThem]}>
         {!isMe && avatarSlot}
         <Squircle
           style={[styles.todTurnCard, isMe ? { alignSelf: 'flex-end' } : { alignSelf: 'flex-start' }]}
-          cornerRadius={22} cornerSmoothing={1}
-          fillColor={bgColor}
+          cornerRadius={24} cornerSmoothing={1}
+          fillColor={TOD_BG} strokeColor={TOD_BORDER} strokeWidth={1}
         >
-          {/* Header row */}
-          <View style={styles.todTurnHeader}>
-            <Squircle style={styles.todChoicePill} cornerRadius={50} cornerSmoothing={1}
-              fillColor={`${accent}25`}>
-              <Text style={[styles.todChoicePillText, { color: accent }]}>
-                {choice === 'truth' ? '🤔 Truth' : '🔥 Dare'}
+          {/* ── header row ── */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
+            <Squircle style={{ paddingHorizontal: 10, paddingVertical: 4 }}
+              cornerRadius={50} cornerSmoothing={1} fillColor={TOD_SUBTLE} strokeColor={TOD_BORDER} strokeWidth={1}>
+              <Text style={{ fontSize: 11, fontFamily: 'ProductSans-Black', color: 'rgba(255,255,255,0.7)', letterSpacing: 0.5 }}>
+                {choice === 'truth' ? '🤔 ' : '🎲 '}{typeLabel}
               </Text>
             </Squircle>
-            {category && (
-              <Squircle style={[styles.todChoicePill, { marginLeft: 6 }]} cornerRadius={50} cornerSmoothing={1}
-                fillColor="rgba(255,255,255,0.08)">
-                <Text style={[styles.todChoicePillText, { color: 'rgba(255,255,255,0.7)' }]}>
-                  {TOD_CAT_EMOJI[category] ?? ''} {category}
-                </Text>
-              </Squircle>
-            )}
             <View style={{ flex: 1 }} />
-            <Text style={[styles.bubbleTimeInline, { color: 'rgba(255,255,255,0.35)' }]}>{msg.time}</Text>
+            <Text style={[styles.bubbleTimeInline, { color: TOD_MUTED }]}>{msg.time}</Text>
           </View>
 
-          <Text style={styles.todTurnName}>
-            {isMe ? 'You sent' : `From ${extra.senderName ?? 'them'}`}
+          {/* ── from label ── */}
+          <Text style={{ fontSize: 11, fontFamily: 'ProductSans-Bold', color: TOD_MUTED, marginBottom: 10, letterSpacing: 0.3 }}>
+            {isMe ? 'YOU SENT' : `FROM ${(extra.senderName ?? partnerName).toUpperCase()}`}
           </Text>
 
-          {emoji && <Text style={{ fontSize: 34, textAlign: 'center', marginVertical: 6 }}>{emoji}</Text>}
+          {/* ── emoji + question ── */}
+          {emoji && <Text style={{ fontSize: 32, textAlign: 'center', marginBottom: 10 }}>{emoji}</Text>}
           {question
             ? <Text style={styles.todTurnQuestion}>{question}</Text>
-            : <Text style={[styles.todTurnQuestion, { opacity: 0.4, fontStyle: 'italic' }]}>Card hidden…</Text>}
+            : <Text style={[styles.todTurnQuestion, { opacity: 0.35, fontStyle: 'italic' }]}>Question hidden…</Text>}
 
+          {/* ── action area ── */}
           {answered ? (
-            <View style={styles.todAnsweredRow}>
-              <Ionicons name="checkmark-circle" size={14} color="#4ade80" />
-              <Text style={styles.todAnsweredText}>Answered</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 14 }}>
+              <Ionicons name={skipped ? 'play-skip-forward-outline' : 'checkmark-circle-outline'} size={14} color={TOD_MUTED} />
+              <Text style={{ fontSize: 12, fontFamily: 'ProductSans-Bold', color: TOD_MUTED }}>
+                {skipped ? 'Skipped' : 'Completed'}
+              </Text>
             </View>
           ) : !isMe && question ? (
-            <Pressable onPress={() => onAnswer(msg)} style={({ pressed }) => [styles.todAnswerBtn, { opacity: pressed ? 0.8 : 1, backgroundColor: `${accent}22`, borderColor: `${accent}50` }]}>
-              <Text style={[styles.todAnswerBtnText, { color: accent }]}>
-                {choice === 'truth' ? 'Answer Truth' : 'Complete Dare'}
-              </Text>
-            </Pressable>
+            <View style={{ flexDirection: 'row', gap: 8, marginTop: 16 }}>
+              <Pressable
+                onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); onAnswer(msg); }}
+                style={({ pressed }) => ({ flex: 1, opacity: pressed ? 0.8 : 1 })}>
+                <Squircle style={{ paddingVertical: 12, alignItems: 'center' }}
+                  cornerRadius={50} cornerSmoothing={1} fillColor="#fff">
+                  <Text style={{ fontSize: 13, fontFamily: 'ProductSans-Black', color: '#000' }}>
+                    {choice === 'truth' ? 'Answer' : 'Complete'}
+                  </Text>
+                </Squircle>
+              </Pressable>
+              {!skipUsed && (
+                <Pressable
+                  onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onSkip(msg); }}
+                  style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}>
+                  <Squircle style={{ paddingVertical: 12, paddingHorizontal: 18, alignItems: 'center' }}
+                    cornerRadius={50} cornerSmoothing={1}
+                    fillColor={TOD_SUBTLE} strokeColor={TOD_BORDER} strokeWidth={1}>
+                    <Text style={{ fontSize: 13, fontFamily: 'ProductSans-Black', color: TOD_MUTED }}>
+                      Skip
+                    </Text>
+                  </Squircle>
+                </Pressable>
+              )}
+            </View>
           ) : null}
         </Squircle>
         {isMe && avatarSlot}
@@ -2276,10 +2768,12 @@ function TodBubble({ msg, colors, myId, onJoin, onAnswer, onSendTurn, messages, 
   // ── Answer bubble ─────────────────────────────────────────────────────────
   if (msg.todMsgType === 'tod_answer') {
     const choice  = extra.choice as 'truth' | 'dare' | undefined;
-    const bgColor = choice === 'truth' ? TOD_TRUTH_COLOR : TOD_DARE_COLOR;
-    const accent  = choice === 'truth' ? '#818cf8' : '#f87171';
-
     const isLastAnswer = messages.filter(m => m.todMsgType === 'tod_answer').slice(-1)[0]?.id === msg.id;
+    // Use array-index order so optimistic invites (no rawTime yet) also hide the challenge buttons
+    const answerIdx = messages.findIndex(m => m.id === msg.id);
+    const nextRoundStarted = isLastAnswer && messages.some((m, idx) =>
+      m.isTod && m.todMsgType === 'tod_invite' && idx > answerIdx
+    );
 
     return (
       <>
@@ -2288,33 +2782,87 @@ function TodBubble({ msg, colors, myId, onJoin, onAnswer, onSendTurn, messages, 
           <Squircle
             style={[styles.todAnswerBubble, isMe ? { alignSelf: 'flex-end' } : { alignSelf: 'flex-start' }]}
             cornerRadius={22} cornerSmoothing={1}
-            fillColor={bgColor}
+            fillColor={TOD_BG} strokeColor={TOD_BORDER} strokeWidth={1}
           >
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-              <Text style={{ fontSize: 13 }}>{choice === 'truth' ? '🤔' : '🔥'}</Text>
-              <Text style={[styles.todAnswerLabel, { color: accent }]}>
-                {choice === 'truth' ? 'Truth answer' : 'Dare completed'}
+            {/* type pill */}
+            <Squircle style={{ paddingHorizontal: 9, paddingVertical: 3, alignSelf: 'flex-start', marginBottom: 8 }}
+              cornerRadius={50} cornerSmoothing={1} fillColor={TOD_SUBTLE} strokeColor={TOD_BORDER} strokeWidth={1}>
+              <Text style={{ fontSize: 10, fontFamily: 'ProductSans-Black', color: TOD_MUTED, letterSpacing: 0.4 }}>
+                {choice === 'truth' ? '🤔 TRUTH' : '🎲 DARE'}
               </Text>
-            </View>
+            </Squircle>
             {extra.question && (
-              <Text style={styles.todAnswerQuestion} numberOfLines={2}>{extra.question}</Text>
+              <Text style={{ fontSize: 11, fontFamily: 'ProductSans-Regular', color: TOD_MUTED, marginBottom: 8, fontStyle: 'italic', lineHeight: 16 }} numberOfLines={2}>
+                {extra.question}
+              </Text>
             )}
             <Text style={styles.todAnswerText}>{msg.text}</Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 2, marginTop: 4 }}>
-              <Text style={[styles.bubbleTimeInline, { color: 'rgba(255,255,255,0.35)' }]}>{msg.time}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 4, marginTop: 6 }}>
+              <Text style={[styles.bubbleTimeInline, { color: TOD_MUTED }]}>{msg.time}</Text>
               {isMe && <MsgTicks status={msg.status} />}
             </View>
           </Squircle>
           {isMe && avatarSlot}
         </View>
-        {!isMe && isLastAnswer && (
-          <View style={[styles.bubbleRow, { justifyContent: 'center', marginTop: 4 }]}>
-            <Pressable onPress={onSendTurn} style={({ pressed }) => [styles.todNudgeBtn, { backgroundColor: colors.surface2, opacity: pressed ? 0.85 : 1 }]}>
-              <Text style={{ fontSize: 14 }}>🎲</Text>
-              <Text style={[styles.todNudgeText, { color: colors.text }]}>Now send them a card!</Text>
-              <Ionicons name="chevron-forward" size={14} color={colors.textSecondary} />
-            </Pressable>
-          </View>
+
+        {/* ── Next-round challenge prompt ── */}
+        {isLastAnswer && !nextRoundStarted && (
+          isMe ? (
+            /* Challenger side — pick what the partner should do */
+            <View style={[styles.bubbleRow, styles.bubbleRowMe, { marginTop: 8 }]}>
+              <Squircle style={styles.todInviteBubble} cornerRadius={26} cornerSmoothing={1}
+                fillColor={TOD_BG} strokeColor={TOD_BORDER} strokeWidth={1}>
+
+                {/* header */}
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                  <Squircle style={{ width: 32, height: 32, alignItems: 'center', justifyContent: 'center' }}
+                    cornerRadius={10} cornerSmoothing={1} fillColor={TOD_SUBTLE}>
+                    <Text style={{ fontSize: 16 }}>🎲</Text>
+                  </Squircle>
+                  <Text style={{ fontSize: 13, fontFamily: 'ProductSans-Black', color: '#fff', letterSpacing: 0.3 }}>
+                    Your Turn
+                  </Text>
+                </View>
+
+                <Text style={{ fontSize: 13, fontFamily: 'ProductSans-Regular', color: TOD_MUTED, marginBottom: 14 }}>
+                  What should {partnerName} do?
+                </Text>
+
+                <View style={{ flexDirection: 'row', gap: 10 }}>
+                  <Pressable
+                    onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); onSendTurn('truth'); }}
+                    style={({ pressed }) => ({ flex: 1, opacity: pressed ? 0.75 : 1 })}>
+                    <Squircle style={{ paddingVertical: 14, alignItems: 'center', gap: 4 }}
+                      cornerRadius={16} cornerSmoothing={1}
+                      fillColor={TOD_SUBTLE} strokeColor="rgba(255,255,255,0.25)" strokeWidth={1}>
+                      <Text style={{ fontSize: 18 }}>🤔</Text>
+                      <Text style={{ fontSize: 13, fontFamily: 'ProductSans-Black', color: '#fff' }}>Truth</Text>
+                    </Squircle>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); onSendTurn('dare'); }}
+                    style={({ pressed }) => ({ flex: 1, opacity: pressed ? 0.75 : 1 })}>
+                    <Squircle style={{ paddingVertical: 14, alignItems: 'center', gap: 4 }}
+                      cornerRadius={16} cornerSmoothing={1}
+                      fillColor={TOD_SUBTLE} strokeColor="rgba(255,255,255,0.25)" strokeWidth={1}>
+                      <Text style={{ fontSize: 18 }}>🎲</Text>
+                      <Text style={{ fontSize: 13, fontFamily: 'ProductSans-Black', color: '#fff' }}>Dare</Text>
+                    </Squircle>
+                  </Pressable>
+                </View>
+              </Squircle>
+            </View>
+          ) : (
+            <View style={[styles.bubbleRow, { justifyContent: 'center', marginTop: 6 }]}>
+              <Squircle style={styles.todSystemBubble} cornerRadius={50} cornerSmoothing={1}
+                fillColor={TOD_SUBTLE} strokeColor={TOD_BORDER} strokeWidth={1}>
+                <Text style={{ fontSize: 12 }}>⏳</Text>
+                <Text style={[styles.todSystemText, { color: TOD_MUTED }]}>
+                  {partnerName} will challenge you next…
+                </Text>
+              </Squircle>
+            </View>
+          )
         )}
       </>
     );
@@ -2323,14 +2871,13 @@ function TodBubble({ msg, colors, myId, onJoin, onAnswer, onSendTurn, messages, 
   return null;
 }
 
-// ─── Truth or Dare — Send Card Panel (full redesign) ─────────────────────────
-//
-// Flow: pick Truth/Dare → pick source (Template | Custom | AI) → preview → send
-//
+// ─── Truth or Dare — Send Card Panel ─────────────────────────────────────────
+// Flow: list of built-in templates (pre-filtered by partner's choice)
+//       + AI generate  + write custom  → preview → send
 
 function TodPickPanel({
   colors, token, myId, myName, partnerId, partnerName,
-  chatMessages, onSendCard, onClose,
+  chatMessages, defaultChoice, onSendCard, onClose,
 }: {
   colors: any;
   token?: string;
@@ -2339,24 +2886,19 @@ function TodPickPanel({
   partnerId: string;
   partnerName: string;
   chatMessages: Msg[];
+  defaultChoice?: 'truth' | 'dare' | null;
   onSendCard: (choice: 'truth' | 'dare', question: string, emoji: string, color: string, category: string) => void;
   onClose: () => void;
 }) {
   const slideY = useRef(new Animated.Value(700)).current;
 
   // step: 'choice' → 'source' → 'template_cat' → 'template_cards' → 'custom' → 'ai' → 'preview'
-  const [step,     setStep]     = useState<'choice' | 'source' | 'template_cat' | 'template_cards' | 'custom' | 'ai' | 'preview'>('choice');
-  const [choice,   setChoice]   = useState<'truth' | 'dare' | null>(null);
-  const [category, setCategory] = useState<string>('');
-  const [cards,    setCards]    = useState<DbCard[]>([]);
-  const [loading,  setLoading]  = useState(false);
+  const [step, setStep] = useState<'list' | 'custom' | 'ai' | 'preview'>('list');
+  const [choice] = useState<'truth' | 'dare'>(defaultChoice ?? 'truth');
   const [aiLoading, setAiLoading] = useState(false);
-
-  // Final card state
+  const [customText, setCustomText] = useState('');
   const [cardQuestion, setCardQuestion] = useState('');
-  const [cardEmoji,    setCardEmoji]    = useState('🎲');
-  const [cardColor,    setCardColor]    = useState('#1e1b4b');
-  const [customText,   setCustomText]   = useState('');
+  const [cardEmoji, setCardEmoji] = useState('🎲');
 
   useEffect(() => {
     Animated.spring(slideY, { toValue: 0, useNativeDriver: true, damping: 22, stiffness: 230 }).start();
@@ -2365,266 +2907,145 @@ function TodPickPanel({
   const dismiss = (cb?: () => void) =>
     Animated.timing(slideY, { toValue: 700, duration: 220, useNativeDriver: true }).start(cb);
 
-  const bgForChoice = (c: 'truth' | 'dare' | null) =>
-    c === 'truth' ? TOD_TRUTH_COLOR : c === 'dare' ? TOD_DARE_COLOR : '#1e1b4b';
+  const templates = choice === 'truth' ? TOD_TRUTH_TEMPLATES : TOD_DARE_TEMPLATES;
 
-  // ── Fetch template cards ──────────────────────────────────────────────────
-  const fetchTemplateCards = async (cat: string) => {
-    if (!token || !choice) return;
-    setLoading(true);
-    try {
-      const fetched = await apiFetch<DbCard[]>(
-        `/cards/truth_or_dare/${choice === 'truth' ? 'Truth' : 'Dare'}`,
-        { token }
-      );
-      setCards(fetched);
-    } catch {}
-    setLoading(false);
-    setStep('template_cards');
-  };
-
-  // ── AI generation ─────────────────────────────────────────────────────────
   const generateAiCard = async () => {
-    if (!token || !choice) return;
+    if (!token) return;
     setAiLoading(true);
+    setStep('ai');
     try {
-      const context = chatMessages
-        .filter(m => !m.isCard && !m.isTod)
-        .slice(-12)
-        .map(m => m.text);
+      const context = chatMessages.filter(m => !m.isCard && !m.isTod).slice(-12).map(m => m.text);
       const result = await apiFetch<{ question: string; emoji: string; color: string }>(
         `/cards/generate`,
-        {
-          token,
-          method: 'POST',
-          body: JSON.stringify({ choice, category: category || 'Fun', chat_context: context }),
-        }
+        { token, method: 'POST', body: JSON.stringify({ choice, category: 'Fun', chat_context: context }) }
       );
       setCardQuestion(result.question);
       setCardEmoji(result.emoji);
-      setCardColor(result.color);
       setStep('preview');
     } catch {
-      // Fallback — just go to custom
       setStep('custom');
     }
     setAiLoading(false);
   };
 
-  const selectTemplateCard = (c: DbCard) => {
-    setCardQuestion(c.question);
-    setCardEmoji(c.emoji);
-    setCardColor(c.color);
-    setCategory(c.category);
-    setStep('preview');
-  };
-
-  const confirmCustom = () => {
-    if (!customText.trim()) return;
-    setCardQuestion(customText.trim());
-    setCardEmoji(choice === 'truth' ? '🤔' : '🔥');
-    setCardColor(bgForChoice(choice));
-    setStep('preview');
-  };
-
   const handleSend = () => {
-    if (!choice || !cardQuestion) return;
-    dismiss(() => onSendCard(choice, cardQuestion, cardEmoji, cardColor, category || (choice === 'truth' ? 'Truth' : 'Dare')));
-  };
-
-  const headerTitle = () => {
-    if (step === 'choice')        return 'Send a Card';
-    if (step === 'source')        return choice === 'truth' ? '🤔 Truth Card' : '🔥 Dare Card';
-    if (step === 'template_cat')  return 'Pick Category';
-    if (step === 'template_cards') return 'Pick a Card';
-    if (step === 'custom')        return 'Write Your Own';
-    if (step === 'ai')            return 'AI Generate';
-    if (step === 'preview')       return 'Preview';
-    return 'Truth or Dare';
+    dismiss(() => onSendCard(choice, cardQuestion, cardEmoji, '#111111', choice === 'truth' ? 'Truth' : 'Dare'));
   };
 
   const goBack = () => {
-    if (step === 'source')         setStep('choice');
-    else if (step === 'template_cat')   setStep('source');
-    else if (step === 'template_cards') setStep('template_cat');
-    else if (step === 'custom')    setStep('source');
-    else if (step === 'ai')        setStep('source');
-    else if (step === 'preview')   setStep('source');
+    if (step === 'preview' || step === 'custom') setStep('list');
+    else if (step === 'ai') setStep('list');
     else dismiss(onClose);
   };
 
   return (
-    <Pressable style={StyleSheet.absoluteFill} onPress={() => dismiss(onClose)}>
+    <KeyboardAvoidingView
+      style={[StyleSheet.absoluteFill, { justifyContent: 'flex-end' }]}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      pointerEvents="box-none"
+    >
+      {/* backdrop — sits behind the panel; tap it to dismiss */}
+      <Pressable style={StyleSheet.absoluteFill} onPress={() => dismiss(onClose)} />
+
       <Animated.View style={[
         styles.panel,
-        { backgroundColor: colors.bg, borderTopColor: colors.border, transform: [{ translateY: slideY }] },
+        { position: 'relative', backgroundColor: '#0a0a0a', borderTopColor: 'rgba(255,255,255,0.08)', transform: [{ translateY: slideY }] },
       ]}>
-        <Pressable>
-          <View style={[styles.panelHandle, { backgroundColor: colors.border }]} />
+        {/* inner Pressable swallows all taps so they never reach the backdrop */}
+        <Pressable onPress={() => {}}>
+          <View style={[styles.panelHandle, { backgroundColor: 'rgba(255,255,255,0.15)' }]} />
 
-          {/* Header */}
+          {/* ── Header ── */}
           <View style={styles.panelHeader}>
             <Pressable onPress={goBack} hitSlop={12}>
-              <Squircle style={styles.panelCloseBtn} cornerRadius={10} cornerSmoothing={1} fillColor={colors.surface2}>
-                <Ionicons name={step === 'choice' ? 'close' : 'arrow-back'} size={16} color={colors.text} />
+              <Squircle style={styles.panelCloseBtn} cornerRadius={10} cornerSmoothing={1} fillColor={TOD_SUBTLE}>
+                <Ionicons name={step === 'list' ? 'close' : 'arrow-back'} size={16} color="#fff" />
               </Squircle>
             </Pressable>
             <View style={{ flex: 1 }}>
-              <Text style={[styles.panelTitle, { color: colors.text, textAlign: 'center' }]}>{headerTitle()}</Text>
+              <Text style={[styles.panelTitle, { color: '#fff', textAlign: 'center' }]}>
+                {step === 'list'
+                  ? (choice === 'truth' ? 'Truth Questions' : 'Dare Challenges')
+                  : step === 'custom' ? 'Write Your Own'
+                  : step === 'ai' ? 'AI Generate'
+                  : 'Preview Card'}
+              </Text>
             </View>
             <View style={{ width: 32 }} />
           </View>
 
-          {/* ── STEP: choice ── */}
-          {step === 'choice' && (
-            <View style={{ paddingHorizontal: 20, paddingBottom: 40, gap: 14 }}>
+          {/* ── STEP: list ── */}
+          {step === 'list' && (
+            <ScrollView
+              style={{ maxHeight: SCREEN_H * 0.62 }}
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 40, gap: 8 }}
+            >
+              {/* AI Generate row */}
               <Pressable
-                onPress={() => { setChoice('truth'); setStep('source'); }}
-                style={({ pressed }) => [styles.todPickBtn, { backgroundColor: TOD_TRUTH_COLOR, opacity: pressed ? 0.85 : 1 }]}
-              >
-                <Text style={styles.todPickEmoji}>🤔</Text>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.todPickTitle}>Truth</Text>
-                  <Text style={styles.todPickSub}>Ask {partnerName} an honest question</Text>
-                </View>
-                <Ionicons name="chevron-forward" size={20} color="rgba(255,255,255,0.5)" />
-              </Pressable>
-              <Pressable
-                onPress={() => { setChoice('dare'); setStep('source'); }}
-                style={({ pressed }) => [styles.todPickBtn, { backgroundColor: TOD_DARE_COLOR, opacity: pressed ? 0.85 : 1 }]}
-              >
-                <Text style={styles.todPickEmoji}>🔥</Text>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.todPickTitle}>Dare</Text>
-                  <Text style={styles.todPickSub}>Challenge {partnerName} to something spicy</Text>
-                </View>
-                <Ionicons name="chevron-forward" size={20} color="rgba(255,255,255,0.5)" />
-              </Pressable>
-            </View>
-          )}
-
-          {/* ── STEP: source ── */}
-          {step === 'source' && (
-            <View style={{ paddingHorizontal: 20, paddingBottom: 40, gap: 12 }}>
-              {/* AI card */}
-              <Pressable
-                onPress={() => { setStep('ai'); generateAiCard(); }}
-                style={({ pressed }) => [styles.todSourceBtn, { borderColor: '#6366f1', opacity: pressed ? 0.85 : 1 }]}
-              >
-                <View style={[styles.todSourceIcon, { backgroundColor: '#1e1b4b' }]}>
-                  <Ionicons name="sparkles" size={22} color="#a5b4fc" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.todSourceTitle, { color: colors.text }]}>AI Generated</Text>
-                  <Text style={[styles.todSourceSub, { color: colors.textSecondary }]}>Personalised from your chat history</Text>
-                </View>
-                <View style={[styles.todSourceBadge, { backgroundColor: '#312e81' }]}>
-                  <Text style={{ fontSize: 10, color: '#a5b4fc', fontFamily: 'ProductSans-Bold' }}>SMART</Text>
-                </View>
-              </Pressable>
-
-              {/* Template */}
-              <Pressable
-                onPress={() => setStep('template_cat')}
-                style={({ pressed }) => [styles.todSourceBtn, { borderColor: colors.border, opacity: pressed ? 0.85 : 1 }]}
-              >
-                <View style={[styles.todSourceIcon, { backgroundColor: colors.surface2 }]}>
-                  <Ionicons name="grid" size={22} color={colors.text} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.todSourceTitle, { color: colors.text }]}>Template Cards</Text>
-                  <Text style={[styles.todSourceSub, { color: colors.textSecondary }]}>Browse by category</Text>
-                </View>
-              </Pressable>
-
-              {/* Custom */}
-              <Pressable
-                onPress={() => setStep('custom')}
-                style={({ pressed }) => [styles.todSourceBtn, { borderColor: colors.border, opacity: pressed ? 0.85 : 1 }]}
-              >
-                <View style={[styles.todSourceIcon, { backgroundColor: colors.surface2 }]}>
-                  <Ionicons name="create" size={22} color={colors.text} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.todSourceTitle, { color: colors.text }]}>Write My Own</Text>
-                  <Text style={[styles.todSourceSub, { color: colors.textSecondary }]}>Custom question or dare</Text>
-                </View>
-              </Pressable>
-            </View>
-          )}
-
-          {/* ── STEP: template_cat ── */}
-          {step === 'template_cat' && (
-            <View style={{ paddingHorizontal: 20, paddingBottom: 40, gap: 12 }}>
-              {TOD_CATEGORIES.map(cat => (
-                <Pressable
-                  key={cat}
-                  onPress={() => { setCategory(cat); fetchTemplateCards(cat); }}
-                  style={({ pressed }) => [styles.todCatBtn, { borderColor: TOD_CAT_ACCENT[cat], opacity: pressed ? 0.85 : 1 }]}
-                >
-                  <Text style={{ fontSize: 24 }}>{TOD_CAT_EMOJI[cat]}</Text>
+                onPress={generateAiCard}
+                style={({ pressed }) => ({ opacity: pressed ? 0.8 : 1, marginBottom: 4 })}>
+                <Squircle style={{ flexDirection: 'row', alignItems: 'center', gap: 14, padding: 16 }}
+                  cornerRadius={16} cornerSmoothing={1}
+                  fillColor={TOD_SUBTLE} strokeColor="rgba(255,255,255,0.18)" strokeWidth={1}>
+                  <Squircle style={{ width: 38, height: 38, alignItems: 'center', justifyContent: 'center' }}
+                    cornerRadius={12} cornerSmoothing={1} fillColor="rgba(255,255,255,0.1)">
+                    <Ionicons name="sparkles" size={18} color="#fff" />
+                  </Squircle>
                   <View style={{ flex: 1 }}>
-                    <Text style={[styles.todSourceTitle, { color: colors.text }]}>{cat}</Text>
-                    <Text style={[styles.todSourceSub, { color: colors.textSecondary }]}>
-                      {cat === 'Spicy' ? 'Bold & daring' : cat === 'Romantic' ? 'Sweet & intimate' : cat === 'Fun' ? 'Lighthearted laughs' : 'Thoughtful & deep'}
-                    </Text>
+                    <Text style={{ fontSize: 14, fontFamily: 'ProductSans-Black', color: '#fff', marginBottom: 2 }}>AI Generate</Text>
+                    <Text style={{ fontSize: 12, fontFamily: 'ProductSans-Regular', color: TOD_MUTED }}>Personalised from your chat</Text>
                   </View>
-                  <Ionicons name="chevron-forward" size={18} color={TOD_CAT_ACCENT[cat]} />
+                  <Squircle style={{ paddingHorizontal: 8, paddingVertical: 3 }} cornerRadius={50} cornerSmoothing={1} fillColor="rgba(255,255,255,0.12)">
+                    <Text style={{ fontSize: 10, fontFamily: 'ProductSans-Black', color: '#fff' }}>SMART</Text>
+                  </Squircle>
+                </Squircle>
+              </Pressable>
+
+              {/* Template list */}
+              {templates.map((q, i) => (
+                <Pressable
+                  key={i}
+                  onPress={() => { setCardQuestion(q); setCardEmoji(choice === 'truth' ? '🤔' : '🎲'); setStep('preview'); }}
+                  style={({ pressed }) => ({ opacity: pressed ? 0.75 : 1 })}>
+                  <Squircle style={{ padding: 16, flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}
+                    cornerRadius={16} cornerSmoothing={1}
+                    fillColor={TOD_SURFACE} strokeColor={TOD_BORDER} strokeWidth={1}>
+                    <Text style={{ fontSize: 11, fontFamily: 'ProductSans-Black', color: 'rgba(255,255,255,0.25)', marginTop: 2, width: 18 }}>
+                      {String(i + 1).padStart(2, '0')}
+                    </Text>
+                    <Text style={{ flex: 1, fontSize: 14, fontFamily: 'ProductSans-Medium', color: '#fff', lineHeight: 21 }}>{q}</Text>
+                    <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.2)" style={{ marginTop: 2 }} />
+                  </Squircle>
                 </Pressable>
               ))}
-            </View>
-          )}
 
-          {/* ── STEP: template_cards ── */}
-          {step === 'template_cards' && (
-            <View style={{ paddingBottom: 28 }}>
-              {loading ? (
-                <View style={{ height: 180, alignItems: 'center', justifyContent: 'center' }}>
-                  <ActivityIndicator size="large" color={choice === 'truth' ? '#6366f1' : '#ef4444'} />
-                </View>
-              ) : (
-                <ScrollView style={{ maxHeight: 400 }} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 20, gap: 10 }}>
-                  {cards.map(c => (
-                    <Pressable
-                      key={c.id}
-                      onPress={() => selectTemplateCard(c)}
-                      style={({ pressed }) => [{ opacity: pressed ? 0.85 : 1 }]}
-                    >
-                      <View style={[styles.todTemplateCard, { backgroundColor: c.color }]}>
-                        <Text style={{ fontSize: 24, marginBottom: 6 }}>{c.emoji}</Text>
-                        <Text style={styles.todTemplateCardText}>{c.question}</Text>
-                        <View style={{ position: 'absolute', top: 12, right: 12 }}>
-                          <Ionicons name="chevron-forward-circle" size={20} color="rgba(255,255,255,0.4)" />
-                        </View>
-                      </View>
-                    </Pressable>
-                  ))}
-                </ScrollView>
-              )}
-            </View>
+              {/* Write custom */}
+              <Pressable
+                onPress={() => setStep('custom')}
+                style={({ pressed }) => ({ opacity: pressed ? 0.8 : 1, marginTop: 4 })}>
+                <Squircle style={{ flexDirection: 'row', alignItems: 'center', gap: 12, padding: 16 }}
+                  cornerRadius={16} cornerSmoothing={1}
+                  fillColor={TOD_SUBTLE} strokeColor={TOD_BORDER} strokeWidth={1}>
+                  <Ionicons name="create-outline" size={18} color={TOD_MUTED} />
+                  <Text style={{ fontSize: 14, fontFamily: 'ProductSans-Bold', color: TOD_MUTED }}>Write my own…</Text>
+                </Squircle>
+              </Pressable>
+            </ScrollView>
           )}
 
           {/* ── STEP: custom ── */}
           {step === 'custom' && (
-            <View style={{ paddingHorizontal: 20, paddingBottom: 40, gap: 16 }}>
-              <View style={[styles.todCardPreview, { backgroundColor: bgForChoice(choice), minHeight: 60 }]}>
-                <View style={[styles.todChoicePill, {
-                  backgroundColor: choice === 'truth' ? 'rgba(99,102,241,0.35)' : 'rgba(239,68,68,0.35)',
-                  alignSelf: 'flex-start', marginBottom: 8,
-                }]}>
-                  <Text style={styles.todChoicePillText}>{choice === 'truth' ? '🤔 Truth' : '🔥 Dare'}</Text>
-                </View>
-                <Text style={[styles.todCardPreviewQuestion, { opacity: customText ? 1 : 0.4, fontStyle: customText ? 'normal' : 'italic' }]}>
-                  {customText || `Write your ${choice}…`}
+            <View style={{ paddingHorizontal: 16, paddingBottom: 40, gap: 14 }}>
+              <Squircle style={{ padding: 16 }} cornerRadius={16} cornerSmoothing={1}
+                fillColor={TOD_SURFACE} strokeColor={TOD_BORDER} strokeWidth={1}>
+                <Text style={{ fontSize: 10, fontFamily: 'ProductSans-Black', color: TOD_MUTED, letterSpacing: 0.5, marginBottom: 8 }}>
+                  {choice === 'truth' ? 'YOUR TRUTH QUESTION' : 'YOUR DARE CHALLENGE'}
                 </Text>
-              </View>
-
-              <Squircle style={styles.todAnswerInput} cornerRadius={16} cornerSmoothing={1}
-                fillColor={colors.surface} strokeColor={colors.border} strokeWidth={StyleSheet.hairlineWidth}>
                 <TextInput
-                  style={[{ flex: 1, color: colors.text, fontSize: 15, fontFamily: 'ProductSans-Regular', padding: 14 }]}
-                  placeholder={choice === 'dare' ? "Type your dare challenge…" : "Type your truth question…"}
-                  placeholderTextColor={colors.placeholder}
+                  style={{ color: '#fff', fontSize: 15, fontFamily: 'ProductSans-Regular', lineHeight: 22, minHeight: 80 }}
+                  placeholder={choice === 'dare' ? "Write a dare challenge…" : "Write a truth question…"}
+                  placeholderTextColor="rgba(255,255,255,0.2)"
                   value={customText}
                   onChangeText={setCustomText}
                   multiline
@@ -2632,17 +3053,14 @@ function TodPickPanel({
                   autoFocus
                 />
               </Squircle>
-
               <Pressable
-                onPress={confirmCustom}
+                onPress={() => { if (customText.trim()) { setCardQuestion(customText.trim()); setCardEmoji(choice === 'truth' ? '🤔' : '🎲'); setStep('preview'); } }}
                 disabled={!customText.trim()}
-                style={({ pressed }) => [styles.todRevealBtn, {
-                  backgroundColor: bgForChoice(choice),
-                  opacity: !customText.trim() ? 0.5 : pressed ? 0.8 : 1,
-                }]}
-              >
-                <Text style={styles.todRevealBtnText}>Preview Card</Text>
-                <Ionicons name="arrow-forward" size={16} color="#fff" />
+                style={({ pressed }) => ({ opacity: !customText.trim() ? 0.3 : pressed ? 0.8 : 1 })}>
+                <Squircle style={{ paddingVertical: 14, alignItems: 'center' }}
+                  cornerRadius={50} cornerSmoothing={1} fillColor="#fff">
+                  <Text style={{ fontSize: 15, fontFamily: 'ProductSans-Black', color: '#000' }}>Preview →</Text>
+                </Squircle>
               </Pressable>
             </View>
           )}
@@ -2650,46 +3068,46 @@ function TodPickPanel({
           {/* ── STEP: ai loading ── */}
           {step === 'ai' && (
             <View style={{ height: 200, alignItems: 'center', justifyContent: 'center', gap: 14 }}>
-              <ActivityIndicator size="large" color={choice === 'truth' ? '#6366f1' : '#ef4444'} />
-              <Text style={[styles.panelSub, { color: colors.textSecondary }]}>Generating your card…</Text>
+              <ActivityIndicator size="large" color="#fff" />
+              <Text style={{ fontSize: 13, fontFamily: 'ProductSans-Regular', color: TOD_MUTED }}>Generating…</Text>
             </View>
           )}
 
           {/* ── STEP: preview ── */}
           {step === 'preview' && (
-            <View style={{ paddingHorizontal: 20, paddingBottom: 40, gap: 16 }}>
-              <View style={[styles.todCardPreview, { backgroundColor: cardColor }]}>
-                <View style={[styles.todChoicePill, {
-                  backgroundColor: choice === 'truth' ? 'rgba(99,102,241,0.35)' : 'rgba(239,68,68,0.35)',
-                  alignSelf: 'flex-start', marginBottom: 8,
-                }]}>
-                  <Text style={styles.todChoicePillText}>{choice === 'truth' ? '🤔 Truth' : '🔥 Dare'}</Text>
-                </View>
-                <Text style={{ fontSize: 40, textAlign: 'center', marginVertical: 8 }}>{cardEmoji}</Text>
-                <Text style={styles.todCardPreviewQuestion}>{cardQuestion}</Text>
-              </View>
+            <View style={{ paddingHorizontal: 16, paddingBottom: 40, gap: 14 }}>
+              <Squircle style={{ padding: 22 }} cornerRadius={20} cornerSmoothing={1}
+                fillColor={TOD_BG} strokeColor={TOD_BORDER} strokeWidth={1}>
+                <Squircle style={{ paddingHorizontal: 10, paddingVertical: 4, alignSelf: 'flex-start', marginBottom: 14 }}
+                  cornerRadius={50} cornerSmoothing={1} fillColor={TOD_SUBTLE} strokeColor={TOD_BORDER} strokeWidth={1}>
+                  <Text style={{ fontSize: 11, fontFamily: 'ProductSans-Black', color: TOD_MUTED, letterSpacing: 0.4 }}>
+                    {choice === 'truth' ? '🤔 TRUTH' : '🎲 DARE'}
+                  </Text>
+                </Squircle>
+                <Text style={{ fontSize: 28, textAlign: 'center', marginBottom: 12 }}>{cardEmoji}</Text>
+                <Text style={{ fontSize: 16, fontFamily: 'ProductSans-Black', color: '#fff', textAlign: 'center', lineHeight: 24 }}>{cardQuestion}</Text>
+              </Squircle>
 
               <Pressable
                 onPress={handleSend}
-                style={({ pressed }) => [styles.todRevealBtn, {
-                  backgroundColor: bgForChoice(choice),
-                  opacity: pressed ? 0.8 : 1,
-                }]}
-              >
-                <Ionicons name="send" size={16} color="#fff" />
-                <Text style={styles.todRevealBtnText}>
-                  Send {choice === 'truth' ? 'Truth' : 'Dare'} to {partnerName}
-                </Text>
+                style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1 })}>
+                <Squircle style={{ paddingVertical: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+                  cornerRadius={50} cornerSmoothing={1} fillColor="#fff">
+                  <Ionicons name="send" size={15} color="#000" />
+                  <Text style={{ fontSize: 15, fontFamily: 'ProductSans-Black', color: '#000' }}>
+                    Send to {partnerName}
+                  </Text>
+                </Squircle>
               </Pressable>
 
-              <Pressable onPress={() => setStep('source')} style={{ alignItems: 'center' }}>
-                <Text style={[styles.todSourceSub, { color: colors.textSecondary }]}>Pick a different card</Text>
+              <Pressable onPress={() => setStep('list')} style={{ alignItems: 'center' }}>
+                <Text style={{ fontSize: 13, fontFamily: 'ProductSans-Regular', color: TOD_MUTED }}>Pick a different card</Text>
               </Pressable>
             </View>
           )}
         </Pressable>
       </Animated.View>
-    </Pressable>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -2701,12 +3119,11 @@ function TodAnswerPanel({ colors, turnMsg, onSubmit, onClose }: {
   onSubmit: (answer: string) => void;
   onClose: () => void;
 }) {
-  const slideY    = useRef(new Animated.Value(700)).current;
+  const slideY  = useRef(new Animated.Value(700)).current;
   const [text, setText] = useState('');
   const extra   = turnMsg.todExtra ?? {};
   const choice  = extra.choice   as 'truth' | 'dare' | undefined;
   const question = extra.question as string | undefined;
-  const bgColor  = choice === 'truth' ? TOD_TRUTH_COLOR : TOD_DARE_COLOR;
 
   useEffect(() => {
     Animated.spring(slideY, { toValue: 0, useNativeDriver: true, damping: 22, stiffness: 230 }).start();
@@ -2715,76 +3132,96 @@ function TodAnswerPanel({ colors, turnMsg, onSubmit, onClose }: {
   const dismiss = (cb?: () => void) =>
     Animated.timing(slideY, { toValue: 700, duration: 220, useNativeDriver: true }).start(cb);
 
-  const handleSubmit = () => {
-    if (!text.trim()) return;
-    dismiss(() => onSubmit(text.trim()));
-  };
-
   return (
-    <Pressable style={StyleSheet.absoluteFill} onPress={() => dismiss(onClose)}>
+    <KeyboardAvoidingView
+      style={[StyleSheet.absoluteFill, { justifyContent: 'flex-end' }]}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      pointerEvents="box-none"
+    >
+      {/* backdrop — sits behind the panel; tap it to dismiss */}
+      <Pressable style={StyleSheet.absoluteFill} onPress={() => dismiss(onClose)} />
+
       <Animated.View style={[
         styles.panel,
-        { backgroundColor: colors.bg, borderTopColor: colors.border, transform: [{ translateY: slideY }] },
+        { position: 'relative', backgroundColor: '#0a0a0a', borderTopColor: 'rgba(255,255,255,0.08)', transform: [{ translateY: slideY }] },
       ]}>
-        <Pressable>
-          <View style={[styles.panelHandle, { backgroundColor: colors.border }]} />
+        {/* inner Pressable swallows all taps so they never reach the backdrop */}
+        <Pressable onPress={() => {}}>
+          <View style={[styles.panelHandle, { backgroundColor: 'rgba(255,255,255,0.15)' }]} />
+
+          {/* Header */}
           <View style={styles.panelHeader}>
             <Pressable onPress={() => dismiss(onClose)} hitSlop={12}>
-              <Squircle style={styles.panelCloseBtn} cornerRadius={10} cornerSmoothing={1} fillColor={colors.surface2}>
-                <Ionicons name="close" size={16} color={colors.text} />
+              <Squircle style={styles.panelCloseBtn} cornerRadius={10} cornerSmoothing={1} fillColor={TOD_SUBTLE}>
+                <Ionicons name="close" size={16} color="#fff" />
               </Squircle>
             </Pressable>
             <View style={{ flex: 1 }}>
-              <Text style={[styles.panelTitle, { color: colors.text, textAlign: 'center' }]}>
-                {choice === 'dare' ? '🔥 Complete Dare' : '🤔 Answer Truth'}
+              <Text style={[styles.panelTitle, { color: '#fff', textAlign: 'center' }]}>
+                {choice === 'dare' ? 'Complete Dare' : 'Answer Truth'}
               </Text>
             </View>
             <View style={{ width: 32 }} />
           </View>
 
-          <View style={{ paddingHorizontal: 20, paddingBottom: 40, gap: 16 }}>
-            {/* Card preview */}
-            <View style={[styles.todCardPreview, { backgroundColor: bgColor }]}>
-              <View style={[styles.todChoicePill, {
-                backgroundColor: choice === 'truth' ? 'rgba(99,102,241,0.35)' : 'rgba(239,68,68,0.35)',
-                alignSelf: 'flex-start', marginBottom: 8,
-              }]}>
-                <Text style={styles.todChoicePillText}>{choice === 'truth' ? '🤔 Truth' : '🔥 Dare'}</Text>
-              </View>
-              {extra.emoji && <Text style={{ fontSize: 36, textAlign: 'center', marginBottom: 6 }}>{extra.emoji}</Text>}
-              <Text style={styles.todCardPreviewQuestion}>{question ?? ''}</Text>
-            </View>
-
-            {/* Answer input */}
-            <Squircle style={styles.todAnswerInput} cornerRadius={16} cornerSmoothing={1}
-              fillColor={colors.surface} strokeColor={colors.border} strokeWidth={StyleSheet.hairlineWidth}>
-              <TextInput
-                style={[{ flex: 1, color: colors.text, fontSize: 15, fontFamily: 'ProductSans-Regular', padding: 14 }]}
-                placeholder={choice === 'dare' ? "Describe what you did…" : "Your honest answer…"}
-                placeholderTextColor={colors.placeholder}
-                value={text}
-                onChangeText={setText}
-                multiline
-                maxLength={500}
-                autoFocus
-              />
+          <View style={{ paddingHorizontal: 16, paddingBottom: 40, gap: 14 }}>
+            {/* Question preview */}
+            <Squircle style={{ padding: 20 }} cornerRadius={20} cornerSmoothing={1}
+              fillColor={TOD_BG} strokeColor={TOD_BORDER} strokeWidth={1}>
+              <Squircle style={{ paddingHorizontal: 10, paddingVertical: 4, alignSelf: 'flex-start', marginBottom: 12 }}
+                cornerRadius={50} cornerSmoothing={1} fillColor={TOD_SUBTLE} strokeColor={TOD_BORDER} strokeWidth={1}>
+                <Text style={{ fontSize: 10, fontFamily: 'ProductSans-Black', color: TOD_MUTED, letterSpacing: 0.4 }}>
+                  {choice === 'truth' ? '🤔 TRUTH' : '🎲 DARE'}
+                </Text>
+              </Squircle>
+              {extra.emoji && <Text style={{ fontSize: 28, textAlign: 'center', marginBottom: 10 }}>{extra.emoji}</Text>}
+              <Text style={{ fontSize: 15, fontFamily: 'ProductSans-Black', color: '#fff', lineHeight: 22 }}>
+                {question ?? ''}
+              </Text>
             </Squircle>
 
-            <Pressable
-              onPress={handleSubmit}
-              disabled={!text.trim()}
-              style={({ pressed }) => [styles.todRevealBtn, {
-                backgroundColor: bgColor,
-                opacity: !text.trim() ? 0.5 : pressed ? 0.8 : 1,
-              }]}
-            >
-              <Ionicons name="send" size={16} color="#fff" />
-              <Text style={styles.todRevealBtnText}>Send Answer</Text>
-            </Pressable>
+            {/* Truth → text input; Dare → just a complete button */}
+            {choice === 'truth' ? (
+              <>
+                <Squircle style={{ padding: 14, minHeight: 100 }} cornerRadius={16} cornerSmoothing={1}
+                  fillColor={TOD_SURFACE} strokeColor={TOD_BORDER} strokeWidth={1}>
+                  <TextInput
+                    style={{ color: '#fff', fontSize: 15, fontFamily: 'ProductSans-Regular', lineHeight: 22, flex: 1 }}
+                    placeholder="Your honest answer…"
+                    placeholderTextColor="rgba(255,255,255,0.2)"
+                    value={text}
+                    onChangeText={setText}
+                    multiline
+                    maxLength={500}
+                    autoFocus
+                  />
+                </Squircle>
+                <Pressable
+                  onPress={() => { if (!text.trim()) return; dismiss(() => onSubmit(text.trim())); }}
+                  disabled={!text.trim()}
+                  style={({ pressed }) => ({
+                    opacity: !text.trim() ? 0.3 : pressed ? 0.85 : 1,
+                  })}>
+                  <Squircle style={{ paddingVertical: 15, alignItems: 'center', justifyContent: 'center' }}
+                    cornerRadius={50} cornerSmoothing={1} fillColor="#fff">
+                    <Text style={{ fontSize: 15, fontFamily: 'ProductSans-Black', color: '#000' }}>Send Answer</Text>
+                  </Squircle>
+                </Pressable>
+              </>
+            ) : (
+              <Pressable
+                onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); dismiss(() => onSubmit('completed')); }}
+                style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1 })}>
+                <Squircle style={{ paddingVertical: 15, alignItems: 'center', justifyContent: 'center' }}
+                  cornerRadius={50} cornerSmoothing={1} fillColor="#fff">
+                  <Text style={{ fontSize: 15, fontFamily: 'ProductSans-Black', color: '#000' }}>Mark as Complete</Text>
+                </Squircle>
+              </Pressable>
+            )}
           </View>
         </Pressable>
       </Animated.View>
-    </Pressable>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -3116,6 +3553,8 @@ function PartnerProfileModal({ visible, colors, insets, name, image, partnerId, 
                 source={{ uri: heroPhoto }}
                 style={{ width: '100%', height: H_PHOTO }}
                 contentFit="cover"
+                cachePolicy="memory-disk"
+                transition={200}
               />
 
               {/* Top gradient: dark→transparent (for header legibility) */}
@@ -3392,7 +3831,7 @@ function PartnerProfileModal({ visible, colors, insets, name, image, partnerId, 
               {/* 2nd photo */}
               {images[1] ? (
                 <>
-                  <Image source={{ uri: images[1] }} style={styles.profileInlinePhoto} contentFit="cover" />
+                  <Image source={{ uri: images[1] }} style={styles.profileInlinePhoto} contentFit="cover" cachePolicy="memory-disk" transition={200} />
                   <View style={[styles.profileDivider, { backgroundColor: colors.border }]} />
                 </>
               ) : null}
@@ -3436,7 +3875,7 @@ function PartnerProfileModal({ visible, colors, insets, name, image, partnerId, 
               {/* 3rd photo */}
               {images[2] ? (
                 <>
-                  <Image source={{ uri: images[2] }} style={styles.profileInlinePhoto} contentFit="cover" />
+                  <Image source={{ uri: images[2] }} style={styles.profileInlinePhoto} contentFit="cover" cachePolicy="memory-disk" transition={200} />
                   <View style={[styles.profileDivider, { backgroundColor: colors.border }]} />
                 </>
               ) : null}
@@ -3482,7 +3921,7 @@ function PartnerProfileModal({ visible, colors, insets, name, image, partnerId, 
               {/* More photos (4th onwards) */}
               {images.slice(3).map((img: string, i: number) => (
                 <React.Fragment key={img + i}>
-                  <Image source={{ uri: img }} style={styles.profileInlinePhoto} contentFit="cover" />
+                  <Image source={{ uri: img }} style={styles.profileInlinePhoto} contentFit="cover" cachePolicy="memory-disk" transition={200} />
                   <View style={[styles.profileDivider, { backgroundColor: colors.border }]} />
                 </React.Fragment>
               ))}
@@ -3607,6 +4046,73 @@ export default function ChatConversationPage() {
   const [isTranscribing,  setIsTranscribing]  = useState(false);
   const recStartingRef  = useRef(false);
 
+  // ── Message context-menu (long-press) ────────────────────────────────────
+  const [ctxMsg,       setCtxMsg]       = useState<Msg | null>(null);
+  const [ctxInfoMsg,   setCtxInfoMsg]   = useState<Msg | null>(null);
+  const [editingMsg,   setEditingMsg]   = useState<Msg | null>(null);
+  const [editText,     setEditText]     = useState('');
+  const [recentEmojis, setRecentEmojis] = useState<string[]>([]);
+
+  // Load recent emojis from storage on mount
+  useEffect(() => {
+    AsyncStorage.getItem('chat_recentEmojis').then(raw => {
+      if (raw) setRecentEmojis(JSON.parse(raw));
+    }).catch(() => {});
+  }, []);
+
+  const saveRecentEmoji = useCallback((emoji: string) => {
+    setRecentEmojis(prev => {
+      const next = [emoji, ...prev.filter(e => e !== emoji)].slice(0, 20);
+      AsyncStorage.setItem('chat_recentEmojis', JSON.stringify(next));
+      return next;
+    });
+  }, []);
+
+  const openCtxMenu = useCallback((msg: Msg) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setCtxMsg(msg);
+  }, []);
+
+  const closeCtxMenu = useCallback(() => setCtxMsg(null), []);
+
+  const handleReact = useCallback(async (msg: Msg, emoji: string) => {
+    if (!token) return;
+    saveRecentEmoji(emoji);
+    closeCtxMenu();
+    try {
+      const res = await apiFetch<{ action: string; reactions: MsgReaction[] }>(
+        `/chat/messages/${msg.id}/react`,
+        { token, method: 'POST', body: JSON.stringify({ emoji }) },
+      );
+      setMessages(prev => prev.map(m =>
+        m.id === msg.id ? { ...m, reactions: res.reactions } : m
+      ));
+      // Persist to local cache so reactions survive re-opens
+      patchCacheMessage(partnerId, msg.id, { reactions: res.reactions });
+    } catch {}
+  }, [token, partnerId, saveRecentEmoji, closeCtxMenu]);
+
+  const handleEditSave = useCallback(async () => {
+    if (!token || !editingMsg) return;
+    const trimmed = editText.trim();
+    if (!trimmed) return;
+    const prev = editingMsg.text;
+    setMessages(msgs => msgs.map(m =>
+      m.id === editingMsg.id ? { ...m, text: trimmed, editedAt: new Date().toISOString() } : m
+    ));
+    setEditingMsg(null);
+    try {
+      await apiFetch(`/chat/messages/${editingMsg.id}`, {
+        token, method: 'PATCH',
+        body: JSON.stringify({ content: trimmed }),
+      });
+    } catch {
+      setMessages(msgs => msgs.map(m =>
+        m.id === editingMsg.id ? { ...m, text: prev, editedAt: editingMsg.editedAt } : m
+      ));
+    }
+  }, [token, editingMsg, editText]);
+
   // Track keyboard visibility to remove safe-area bottom padding when it's up
   useEffect(() => {
     const show = Keyboard.addListener('keyboardWillShow', () => setKeyboardShown(true));
@@ -3641,9 +4147,11 @@ export default function ChatConversationPage() {
 
   // ── Truth or Dare game state ──────────────────────────────────────────────
   // showTodPicker: open the "send a card" panel (sender flow)
-  const [showTodPicker,  setShowTodPicker]  = useState(false);
+  const [showTodPicker,      setShowTodPicker]      = useState(false);
+  // todPickerDefault: pre-select truth/dare when partner has already chosen
+  const [todPickerDefault,   setTodPickerDefault]   = useState<'truth' | 'dare' | null>(null);
   // todAnswerMsg: the turn message the receiver is answering
-  const [todAnswerMsg,   setTodAnswerMsg]   = useState<Msg | null>(null);
+  const [todAnswerMsg,       setTodAnswerMsg]       = useState<Msg | null>(null);
 
   // ── Mini-games state ──────────────────────────────────────────────────────
   const [showGames, setShowGames] = useState(false);
@@ -3727,6 +4235,9 @@ export default function ChatConversationPage() {
       callType:     isCall ? ((m.metadata?.call_type ?? 'ended') as Msg['callType']) : undefined,
       callKind:     isCall ? ((m.metadata?.call_kind === 'video' ? 'video' : 'audio') as Msg['callKind']) : undefined,
       callDuration: isCall ? Number(m.metadata?.duration ?? 0) : undefined,
+      reactions:    (m as any).reactions ?? [],
+      editedAt:     (m as any).edited_at ?? undefined,
+      readAt:       (m as any).read_at ?? undefined,
     };
   }, [myId]);
 
@@ -3875,8 +4386,15 @@ export default function ChatConversationPage() {
               pendingOptIdRef.current = null;
               seenMsgIdsRef.current.add(msg.id);
               const confirmed = { ...msg, status: 'sent' as const };
-              // Replace optimistic bubble with confirmed one in cache
-              patchCacheMessage(partnerId, pendingId, { id: msg.id, status: 'sent', rawTime: msg.rawTime });
+              // Replace optimistic bubble with confirmed one in cache.
+              // Also patch todExtra / gameExtra so cached links use the backend-assigned IDs.
+              patchCacheMessage(partnerId, pendingId, {
+                id: msg.id,
+                status: 'sent',
+                rawTime: msg.rawTime,
+                ...(msg.isTod   ? { todExtra:  msg.todExtra  } : {}),
+                ...(msg.isGame  ? { gameExtra: msg.gameExtra } : {}),
+              });
               return prev.map(x => x.id === pendingId ? confirmed : x);
             }
             if (seenMsgIdsRef.current.has(msg.id)) return prev;
@@ -3920,6 +4438,20 @@ export default function ChatConversationPage() {
         } else if (payload.type === 'message_deleted') {
           removeCacheMessage(partnerId, payload.message_id);
           setMessages(prev => prev.filter(m => m.id !== payload.message_id));
+
+        } else if (payload.type === 'reaction_update') {
+          const { message_id, reactions } = payload;
+          setMessages(prev => prev.map(m =>
+            m.id === message_id ? { ...m, reactions } : m
+          ));
+          patchCacheMessage(partnerId, message_id, { reactions });
+
+        } else if (payload.type === 'message_edited') {
+          const { message_id, content, edited_at } = payload;
+          setMessages(prev => prev.map(m =>
+            m.id === message_id ? { ...m, text: content, editedAt: edited_at } : m
+          ));
+          patchCacheMessage(partnerId, message_id, { text: content, editedAt: edited_at });
 
         } else if (payload.type === 'restricted') {
           const pid = pendingOptIdRef.current;
@@ -3978,6 +4510,18 @@ export default function ChatConversationPage() {
         setIsOnline(Boolean(payload.online));
       } else if (payload.type === 'message_deleted') {
         setMessages(prev => prev.filter(m => m.id !== payload.message_id));
+      } else if (payload.type === 'reaction_update') {
+        const { message_id, reactions } = payload;
+        setMessages(prev => prev.map(m =>
+          m.id === message_id ? { ...m, reactions } : m
+        ));
+        patchCacheMessage(partnerId, message_id, { reactions });
+      } else if (payload.type === 'message_edited') {
+        const { message_id, content, edited_at } = payload;
+        setMessages(prev => prev.map(m =>
+          m.id === message_id ? { ...m, text: content, editedAt: edited_at } : m
+        ));
+        patchCacheMessage(partnerId, message_id, { text: content, editedAt: edited_at });
       }
     });
   }, [partnerId, onNotifyMessage, notifySend, apiMsgToMsg]);
@@ -4307,10 +4851,67 @@ export default function ChatConversationPage() {
     });
   };
 
-  // Partner accepts the invite — opens the sender panel for them
+  // Partner accepts the invite — opens the sender panel for them (legacy)
   const handleTodJoin = (inviteMsgId: string) => {
     sendTodMessage('tod_accept', '🎮 Game on!', { inviteId: inviteMsgId });
     setTimeout(() => { setShowTodPicker(true); Keyboard.dismiss(); }, 350);
+  };
+
+  // Partner selects Truth or Dare — notifies sender and records choice
+  const handleTodChoice = (inviteId: string, choice: 'truth' | 'dare') => {
+    Keyboard.dismiss();
+    sendTodMessage('tod_choice', `${choice === 'truth' ? '🤔' : '🎲'} I choose ${choice === 'truth' ? 'Truth' : 'Dare'}`, {
+      inviteId, choice,
+    });
+  };
+
+  // Sender taps "Send a Dare →" on the invite — just open the picker pre-filtered,
+  // no new invite or choice message needed (round already in progress)
+  const handleOpenPickerForRound = (choice: 'truth' | 'dare') => {
+    Keyboard.dismiss();
+    setTodPickerDefault(choice);
+    setShowTodPicker(true);
+  };
+
+  // Receiver skips a turn card (once per active game)
+  const handleTodSkip = (turnMsg: Msg) => {
+    Keyboard.dismiss();
+    const extra = turnMsg.todExtra ?? {};
+    sendTodMessage('tod_skip', '↩ Skipped', {
+      turnMsgId: turnMsg.id,
+      inviteId: extra.inviteId,
+      choice: extra.choice,
+    });
+  };
+
+  // An "active game" = last tod_invite within 12 hours.
+  // Skip is available once per active game: hidden if any tod_skip already sent in this game.
+  const GAME_TTL_MS = 12 * 60 * 60 * 1000;
+  const latestGameInvite = [...messages].reverse().find(m => m.isTod && m.todMsgType === 'tod_invite');
+  const gameIsActive = latestGameInvite
+    ? (Date.now() - new Date(latestGameInvite.rawTime ?? 0).getTime()) < GAME_TTL_MS
+    : false;
+  const skipUsedInGame = gameIsActive
+    ? messages.some(m =>
+        m.todMsgType === 'tod_skip' &&
+        latestGameInvite &&
+        m.rawTime &&
+        latestGameInvite.rawTime &&
+        m.rawTime > latestGameInvite.rawTime
+      )
+    : true;
+
+  // Answerer challenges partner for the next round.
+  // Embeds the pre-selected choice directly in the tod_invite so we never send
+  // a tod_choice with an optimistic inviteId (which the backend can't resolve).
+  const handleTodSendAfterChoice = (choice: 'truth' | 'dare') => {
+    Keyboard.dismiss();
+    sendTodMessage('tod_invite', '🎲 Truth or Dare — want to play?', {
+      senderName: profile?.full_name ?? 'Me',
+      preSelectedChoice: choice,       // backend sets choice + status='choice_made' immediately
+    });
+    setTodPickerDefault(choice);
+    setShowTodPicker(true);
   };
 
   // Sender chose their card — broadcast it so both players see the question
@@ -4321,6 +4922,8 @@ export default function ChatConversationPage() {
     color: string,
     category: string,
   ) => {
+    // Find the latest unanswered invite to link this card back to it
+    const latestInvite = [...messages].reverse().find(m => m.isTod && m.todMsgType === 'tod_invite');
     sendTodMessage('tod_next', question, {
       choice,
       question,
@@ -4328,19 +4931,26 @@ export default function ChatConversationPage() {
       color,
       category,
       senderName: profile?.full_name ?? 'Me',
+      ...(latestInvite ? { inviteId: latestInvite.id } : {}),
     });
     setShowTodPicker(false);
+    setTodPickerDefault(null);
   };
 
   // Receiver answers a turn card
   const handleTodAnswer = (answer: string) => {
     if (!todAnswerMsg) return;
-    const extra = todAnswerMsg.todExtra ?? {};
+    const extra  = todAnswerMsg.todExtra ?? {};
+    // For tod_invite cards, infer choice from category; for tod_next, use existing choice field
+    const choice = extra.choice
+      ?? (extra.category?.toLowerCase() === 'dare' ? 'dare' : 'truth');
     sendTodMessage('tod_answer', answer, {
       turnMsgId: todAnswerMsg.id,
+      // Also set inviteId so the invite bubble can detect answered state
+      ...(todAnswerMsg.todMsgType === 'tod_invite' ? { inviteId: todAnswerMsg.id } : {}),
       question:  extra.question ?? '',
       emoji:     extra.emoji    ?? '',
-      choice:    extra.choice   ?? 'truth',
+      choice,
     });
     setTodAnswerMsg(null);
   };
@@ -4438,6 +5048,7 @@ export default function ChatConversationPage() {
         <Pressable style={styles.headerCenter} hitSlop={4} onPress={() => { Keyboard.dismiss(); setShowProfile(true); }}>
           <View style={styles.headerAvatarWrap}>
             <Image source={{ uri: image }} style={[styles.headerAvatar, { backgroundColor: '#2a2a2a' }]} contentFit="cover"
+              cachePolicy="memory-disk"
               transition={{ duration: 200, effect: 'cross-dissolve' }}
               recyclingKey={image} />
             {isOnline && <View style={[styles.onlineDot, { borderColor: colors.bg }]} />}
@@ -4534,13 +5145,12 @@ export default function ChatConversationPage() {
               return (
                 <MsgRow key={msg.id} id={msg.id} highlightedId={highlightedMsgId} msgLayoutsRef={msgLayoutsRef}>
                   <SwipeableRow onReply={() => { setReplyingTo(msg); setAnsweringCard(null); }} direction={msg.from === 'me' ? 'left' : 'right'}>
-                    <CallBubble
-                      msg={msg}
-                      colors={colors}
-                      isLastInGroup={isLastInGroup}
-                      myAvatar={myAvatar}
-                      partnerAvatar={partnerAvatar}
-                    />
+                    <Pressable onLongPress={() => openCtxMenu(msg)} delayLongPress={350}>
+                      <View>
+                        <CallBubble msg={msg} colors={colors} isLastInGroup={isLastInGroup} myAvatar={myAvatar} partnerAvatar={partnerAvatar} />
+                        <ReactionPills reactions={msg.reactions ?? []} myId={myId} from={msg.from} colors={colors} />
+                      </View>
+                    </Pressable>
                   </SwipeableRow>
                 </MsgRow>
               );
@@ -4551,21 +5161,23 @@ export default function ChatConversationPage() {
               return (
                 <MsgRow key={msg.id} id={msg.id} highlightedId={highlightedMsgId} msgLayoutsRef={msgLayoutsRef}>
                   <SwipeableRow onReply={() => { setReplyingTo(msg); setAnsweringCard(null); }} direction={msg.from === 'me' ? 'left' : 'right'}>
-                    <GameBubble
-                      msg={msg as unknown as GameMsg}
-                      colors={colors}
-                      myId={myId}
-                      partnerId={partnerId}
-                      partnerName={name}
-                      messages={messages.filter(m => m.isGame) as unknown as GameMsg[]}
-                      myAvatar={myAvatar}
-                      partnerAvatar={partnerAvatar}
-                      isLastInGroup={isLastInGroup}
-                      onRespond={(updatedMsg) => handleGameRespond(
-                        msg,
-                        updatedMsg.gameExtra ?? {},
-                      )}
-                    />
+                    <Pressable onLongPress={() => openCtxMenu(msg)} delayLongPress={350}>
+                      <View>
+                        <GameBubble
+                          msg={msg as unknown as GameMsg}
+                          colors={colors}
+                          myId={myId}
+                          partnerId={partnerId}
+                          partnerName={name}
+                          messages={messages.filter(m => m.isGame) as unknown as GameMsg[]}
+                          myAvatar={myAvatar}
+                          partnerAvatar={partnerAvatar}
+                          isLastInGroup={isLastInGroup}
+                          onRespond={(updatedMsg) => handleGameRespond(msg, updatedMsg.gameExtra ?? {})}
+                        />
+                        <ReactionPills reactions={msg.reactions ?? []} myId={myId} from={msg.from} colors={colors} />
+                      </View>
+                    </Pressable>
                   </SwipeableRow>
                 </MsgRow>
               );
@@ -4575,18 +5187,28 @@ export default function ChatConversationPage() {
               return (
                 <MsgRow key={msg.id} id={msg.id} highlightedId={highlightedMsgId} msgLayoutsRef={msgLayoutsRef}>
                   <SwipeableRow onReply={() => { setReplyingTo(msg); setAnsweringCard(null); }} direction={msg.from === 'me' ? 'left' : 'right'}>
-                    <TodBubble
-                      msg={msg}
-                      colors={colors}
-                      myId={myId}
-                      onJoin={handleTodJoin}
-                      onAnswer={(m) => { setTodAnswerMsg(m); Keyboard.dismiss(); }}
-                      onSendTurn={() => { setShowTodPicker(true); Keyboard.dismiss(); }}
-                      messages={messages}
-                      myAvatar={myAvatar}
-                      partnerAvatar={partnerAvatar}
-                      isLastInGroup={isLastInGroup}
-                    />
+                    <Pressable onLongPress={() => openCtxMenu(msg)} delayLongPress={350}>
+                      <View>
+                        <TodBubble
+                          msg={msg}
+                          colors={colors}
+                          myId={myId}
+                          partnerName={name}
+                          onJoin={handleTodJoin}
+                          onAnswer={(m) => { setTodAnswerMsg(m); Keyboard.dismiss(); }}
+                          onSendTurn={(choice) => { handleTodSendAfterChoice(choice ?? 'truth'); }}
+                          onPickCard={handleOpenPickerForRound}
+                          onSkip={handleTodSkip}
+                          onChoice={handleTodChoice}
+                          skipUsed={skipUsedInGame}
+                          messages={messages}
+                          myAvatar={myAvatar}
+                          partnerAvatar={partnerAvatar}
+                          isLastInGroup={isLastInGroup}
+                        />
+                        <ReactionPills reactions={msg.reactions ?? []} myId={myId} from={msg.from} colors={colors} />
+                      </View>
+                    </Pressable>
                   </SwipeableRow>
                 </MsgRow>
               );
@@ -4599,17 +5221,12 @@ export default function ChatConversationPage() {
                 <MsgRow key={msg.id} id={msg.id} highlightedId={highlightedMsgId} msgLayoutsRef={msgLayoutsRef}>
                   <SwipeableRow onReply={() => { setReplyingTo(msg); setAnsweringCard(null); }} direction={isMe ? 'left' : 'right'}>
                     <View style={[styles.bubbleRow, isMe ? styles.bubbleRowMe : styles.bubbleRowThem]}>
-                      {!isMe && (
-                        isLastInGroup
-                          ? <BubbleAvatar uri={partnerAvatar} />
-                          : <View style={{ width: 28 }} />
-                      )}
-                      <VoiceBubble msg={msg} colors={colors} />
-                      {isMe && (
-                        isLastInGroup
-                          ? <BubbleAvatar uri={myAvatar} />
-                          : <View style={{ width: 28 }} />
-                      )}
+                      {!isMe && (isLastInGroup ? <BubbleAvatar uri={partnerAvatar} /> : <View style={{ width: 28 }} />)}
+                      <View>
+                        <VoiceBubble msg={msg} colors={colors} onLongPress={() => openCtxMenu(msg)} />
+                        <ReactionPills reactions={msg.reactions ?? []} myId={myId} from={msg.from} colors={colors} />
+                      </View>
+                      {isMe && (isLastInGroup ? <BubbleAvatar uri={myAvatar} /> : <View style={{ width: 28 }} />)}
                     </View>
                   </SwipeableRow>
                 </MsgRow>
@@ -4621,6 +5238,7 @@ export default function ChatConversationPage() {
               <Bubble
                 msg={msg}
                 colors={colors}
+                myId={myId}
                 answeredCards={new Set(messages.filter(m => m.isAnswer && m.answerTo).map(m => m.answerTo!))}
                 onAnswer={(q) => {
                   setAnsweringCard(q);
@@ -4634,15 +5252,14 @@ export default function ChatConversationPage() {
                 onJumpToReply={scrollToMessage}
                 onUnsend={async (m) => {
                   if (!token || !m.id) return;
-                  // Optimistically remove from UI
                   setMessages(prev => prev.filter(x => x.id !== m.id));
                   try {
                     await apiFetch(`/chat/messages/${m.id}`, { token, method: 'DELETE' });
                   } catch {
-                    // Restore if API call fails
                     setMessages(prev => [m, ...prev].sort((a, b) => a.time.localeCompare(b.time)));
                   }
                 }}
+                onLongPress={openCtxMenu}
                 myAvatar={myAvatar}
                 partnerAvatar={partnerAvatar}
                 isLastInGroup={isLastInGroup}
@@ -4888,8 +5505,9 @@ export default function ChatConversationPage() {
           partnerId={partnerId}
           partnerName={name}
           chatMessages={messages}
+          defaultChoice={todPickerDefault}
           onSendCard={handleTodSendCard}
-          onClose={() => setShowTodPicker(false)}
+          onClose={() => { setShowTodPicker(false); setTodPickerDefault(null); }}
         />
       )}
 
@@ -4928,6 +5546,101 @@ export default function ChatConversationPage() {
       />
 
       {/* Call screen is now rendered globally by CallProvider in _layout.tsx */}
+
+      {/* ── Message long-press context menu ── */}
+      {ctxMsg && (
+        <MsgContextMenu
+          msg={ctxMsg}
+          myId={myId}
+          colors={colors}
+          recentEmojis={recentEmojis}
+          onClose={closeCtxMenu}
+          onReact={(emoji) => handleReact(ctxMsg, emoji)}
+          onReply={() => { setReplyingTo(ctxMsg); setAnsweringCard(null); }}
+          onCopy={() => {
+            const copyText = ctxMsg.text || (ctxMsg.audioUrl ? 'Voice message' : '');
+            if (copyText) Share.share({ message: copyText });
+          }}
+          onEdit={() => {
+            setEditingMsg(ctxMsg);
+            setEditText(ctxMsg.text ?? '');
+          }}
+          onSaveImage={async () => {
+            if (!ctxMsg.imageUrl) return;
+            try {
+              const { status } = await MediaLibrary.requestPermissionsAsync();
+              if (status !== 'granted') { Alert.alert('Permission needed', 'Allow photo library access to save images.'); return; }
+              await MediaLibrary.saveToLibraryAsync(ctxMsg.imageUrl);
+              Alert.alert('Saved', 'Image saved to your camera roll.');
+            } catch { Alert.alert('Error', 'Could not save image.'); }
+          }}
+          onUnsend={() => {
+            if (!token || !ctxMsg.id) return;
+            setMessages(prev => prev.filter(x => x.id !== ctxMsg.id));
+            apiFetch(`/chat/messages/${ctxMsg.id}`, { token, method: 'DELETE' }).catch(() => {});
+          }}
+          onInfo={() => setCtxInfoMsg(ctxMsg)}
+          onReport={() => {
+            Alert.alert('Report message', 'Are you sure you want to report this message?', [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Report', style: 'destructive', onPress: () => {
+                if (token) apiFetch(`/chat/${partnerId}/report`, { token, method: 'POST', body: JSON.stringify({ reason: 'message_content' }) }).catch(() => {});
+              }},
+            ]);
+          }}
+        />
+      )}
+
+      {/* ── Message info sheet (uses local data, no API call) ── */}
+      {ctxInfoMsg && (
+        <MsgInfoSheet
+          msg={ctxInfoMsg}
+          myId={myId}
+          colors={colors}
+          onClose={() => setCtxInfoMsg(null)}
+        />
+      )}
+
+      {/* ── Edit message input sheet ── */}
+      {editingMsg && (
+        <Modal transparent animationType="slide" statusBarTranslucent onRequestClose={() => setEditingMsg(null)}>
+          <Pressable style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(0,0,0,0.4)' }]} onPress={() => setEditingMsg(null)} />
+          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ position: 'absolute', bottom: 0, left: 0, right: 0 }}>
+            <Squircle
+              style={{ margin: 12, marginBottom: 12, overflow: 'hidden' }}
+              cornerRadius={28} cornerSmoothing={1}
+              fillColor={colors.surface}
+              strokeColor={colors.border}
+              strokeWidth={StyleSheet.hairlineWidth}
+            >
+              <View style={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8 }}>
+                <Text style={{ fontSize: 13, fontFamily: 'ProductSans-Bold', color: colors.textSecondary, marginBottom: 8 }}>Edit message</Text>
+                <TextInput
+                  autoFocus
+                  value={editText}
+                  onChangeText={setEditText}
+                  multiline
+                  style={{ fontSize: 16, fontFamily: 'ProductSans-Regular', color: colors.text, minHeight: 60, maxHeight: 160 }}
+                  selectionColor={colors.text}
+                  placeholderTextColor={colors.placeholder}
+                />
+              </View>
+              <View style={{ flexDirection: 'row', gap: 10, padding: 12, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border }}>
+                <Pressable onPress={() => setEditingMsg(null)} style={{ flex: 1 }}>
+                  <Squircle cornerRadius={16} cornerSmoothing={1} fillColor={colors.surface2} style={{ paddingVertical: 14, alignItems: 'center' }}>
+                    <Text style={{ fontSize: 15, fontFamily: 'ProductSans-Bold', color: colors.textSecondary }}>Cancel</Text>
+                  </Squircle>
+                </Pressable>
+                <Pressable onPress={handleEditSave} style={{ flex: 1 }} disabled={!editText.trim() || editText.trim() === editingMsg?.text}>
+                  <Squircle cornerRadius={16} cornerSmoothing={1} fillColor={colors.text} style={{ paddingVertical: 14, alignItems: 'center', opacity: (!editText.trim() || editText.trim() === editingMsg?.text) ? 0.4 : 1 }}>
+                    <Text style={{ fontSize: 15, fontFamily: 'ProductSans-Bold', color: colors.bg }}>Save</Text>
+                  </Squircle>
+                </Pressable>
+              </View>
+            </Squircle>
+          </KeyboardAvoidingView>
+        </Modal>
+      )}
     </View>
   );
 }
@@ -5075,51 +5788,50 @@ const styles = StyleSheet.create({
   deckSendBtnText:  { fontSize: 15, fontFamily: 'ProductSans-Black' },
 
   // ── Truth or Dare styles ──────────────────────────────────────────────────
-  todInviteBubble:   { padding: 18, alignItems: 'center', minWidth: 220, maxWidth: W * 0.72 },
+  // ── T&D bubbles (monochrome) ───────────────────────────────────────────────
+  todInviteBubble:   { padding: 18, width: W * 0.76 },
   todInviteEmoji:    { fontSize: 40, marginBottom: 6 },
   todInviteTitle:    { fontSize: 18, fontFamily: 'ProductSans-Black', color: '#fff', marginBottom: 4 },
-  todInviteSub:      { fontSize: 13, fontFamily: 'ProductSans-Regular', color: 'rgba(255,255,255,0.6)', textAlign: 'center', marginBottom: 14 },
-  todJoinBtn:        { backgroundColor: 'rgba(255,255,255,0.12)', paddingHorizontal: 24, paddingVertical: 10, borderRadius: 50, borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)' },
-  todJoinBtnText:    { fontSize: 15, fontFamily: 'ProductSans-Black', color: '#fff' },
+  todInviteSub:      { fontSize: 13, fontFamily: 'ProductSans-Regular', color: 'rgba(255,255,255,0.5)', marginBottom: 14 },
+  todJoinBtn:        { paddingVertical: 11, borderRadius: 50, alignItems: 'center' },
+  todJoinBtnText:    { fontSize: 14, fontFamily: 'ProductSans-Black', color: '#000' },
   todAcceptedBadge:  { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  todAcceptedText:   { fontSize: 12, fontFamily: 'ProductSans-Bold', color: '#4ade80' },
+  todAcceptedText:   { fontSize: 12, fontFamily: 'ProductSans-Bold', color: 'rgba(255,255,255,0.4)' },
   todSystemBubble:   { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingVertical: 8 },
   todSystemText:     { fontSize: 12, fontFamily: 'ProductSans-Medium' },
-  todTurnCard:       { padding: 18, width: W * 0.72 },
-  todTurnHeader:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 6 },
+  todTurnCard:       { padding: 20, width: W * 0.76 },
+  todTurnHeader:     { flexDirection: 'row', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 6 },
   todChoicePill:     { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 4 },
-  todChoicePillText: { fontSize: 12, fontFamily: 'ProductSans-Bold' },
-  todTurnName:       { fontSize: 13, fontFamily: 'ProductSans-Bold', color: 'rgba(255,255,255,0.5)', marginBottom: 8 },
-  todTurnQuestion:   { fontSize: 16, fontFamily: 'ProductSans-Black', color: '#fff', lineHeight: 23, marginBottom: 14 },
-  todAnsweredRow:    { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  todAnsweredText:   { fontSize: 12, fontFamily: 'ProductSans-Bold', color: '#4ade80' },
+  todChoicePillText: { fontSize: 11, fontFamily: 'ProductSans-Black', letterSpacing: 0.3 },
+  todTurnName:       { fontSize: 11, fontFamily: 'ProductSans-Black', color: 'rgba(255,255,255,0.38)', marginBottom: 10, letterSpacing: 0.3 },
+  todTurnQuestion:   { fontSize: 16, fontFamily: 'ProductSans-Black', color: '#fff', lineHeight: 24 },
+  todAnsweredRow:    { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 14 },
+  todAnsweredText:   { fontSize: 12, fontFamily: 'ProductSans-Bold', color: 'rgba(255,255,255,0.4)' },
   todAnswerBtn:      { paddingHorizontal: 20, paddingVertical: 8, borderRadius: 50, alignSelf: 'flex-start', borderWidth: 1 },
   todAnswerBtnText:  { fontSize: 13, fontFamily: 'ProductSans-Black' },
-  todAnswerBubble:   { padding: 14, maxWidth: W * 0.68 },
-  todAnswerLabel:    { fontSize: 11, fontFamily: 'ProductSans-Bold', letterSpacing: 0.5 },
-  todAnswerQuestion: { fontSize: 11, fontFamily: 'ProductSans-Regular', color: 'rgba(255,255,255,0.5)', marginBottom: 6, fontStyle: 'italic' },
-  todAnswerText:     { fontSize: 14, fontFamily: 'ProductSans-Medium', color: '#fff', lineHeight: 20 },
+  todAnswerBubble:   { padding: 14, width: W * 0.72 },
+  todAnswerLabel:    { fontSize: 10, fontFamily: 'ProductSans-Black', letterSpacing: 0.5 },
+  todAnswerQuestion: { fontSize: 11, fontFamily: 'ProductSans-Regular', color: 'rgba(255,255,255,0.4)', marginBottom: 8, fontStyle: 'italic' },
+  todAnswerText:     { fontSize: 14, fontFamily: 'ProductSans-Medium', color: '#fff', lineHeight: 21 },
 
-  // TodPickPanel
-  todPickBtn:          { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 18, borderRadius: 20 },
-  todPickEmoji:        { fontSize: 32 },
-  todPickTitle:        { fontSize: 17, fontFamily: 'ProductSans-Black', color: '#fff', marginBottom: 3 },
-  todPickSub:          { fontSize: 12, fontFamily: 'ProductSans-Regular', color: 'rgba(255,255,255,0.6)' },
-  todCardPreview:      { borderRadius: 20, padding: 20, alignItems: 'center', minHeight: 150, justifyContent: 'center' },
-  todCardPreviewQuestion: { fontSize: 16, fontFamily: 'ProductSans-Black', color: '#fff', textAlign: 'center', lineHeight: 23 },
-  todRevealBtn:        { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 15, borderRadius: 50 },
-  todRevealBtnText:    { fontSize: 15, fontFamily: 'ProductSans-Black', color: '#fff' },
-  todAnswerInput:      { height: 110 },
-
-  // Source selection
-  todSourceBtn:        { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 16, borderRadius: 18, borderWidth: 1 },
-  todSourceIcon:       { width: 50, height: 50, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
-  todSourceTitle:      { fontSize: 15, fontFamily: 'ProductSans-Black', marginBottom: 2 },
+  // TodPickPanel (monochrome)
+  todPickBtn:          { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 16 },
+  todPickEmoji:        { fontSize: 28 },
+  todPickTitle:        { fontSize: 15, fontFamily: 'ProductSans-Black', color: '#fff', marginBottom: 2 },
+  todPickSub:          { fontSize: 12, fontFamily: 'ProductSans-Regular', color: 'rgba(255,255,255,0.4)' },
+  todCardPreview:      { borderRadius: 20, padding: 20, minHeight: 120 },
+  todCardPreviewQuestion: { fontSize: 16, fontFamily: 'ProductSans-Black', color: '#fff', lineHeight: 23 },
+  todRevealBtn:        { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14, borderRadius: 50 },
+  todRevealBtnText:    { fontSize: 15, fontFamily: 'ProductSans-Black', color: '#000' },
+  todAnswerInput:      { minHeight: 100, padding: 14 },
+  todSourceBtn:        { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 16 },
+  todSourceIcon:       { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  todSourceTitle:      { fontSize: 14, fontFamily: 'ProductSans-Black', marginBottom: 2 },
   todSourceSub:        { fontSize: 12, fontFamily: 'ProductSans-Regular' },
   todSourceBadge:      { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20 },
-  todCatBtn:           { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 16, borderRadius: 18, borderWidth: 1.5 },
+  todCatBtn:           { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 16 },
   todTemplateCard:     { borderRadius: 18, padding: 18, marginBottom: 2 },
-  todTemplateCardText: { fontSize: 15, fontFamily: 'ProductSans-Black', color: '#fff', lineHeight: 22 },
+  todTemplateCardText: { fontSize: 14, fontFamily: 'ProductSans-Black', color: '#fff', lineHeight: 21 },
   todNudgeBtn:         { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 50 },
   todNudgeText:        { fontSize: 13, fontFamily: 'ProductSans-Bold' },
 

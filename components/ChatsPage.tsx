@@ -40,17 +40,32 @@ interface Conversation {
 
 /** Formats a raw message content + msg_type into a human-readable preview. */
 function _previewText(content: string, msgType?: string): string {
-  // Use msg_type first (most reliable)
-  if (msgType === 'image') return '📷 Photo';
-  if (msgType && msgType !== 'text' && msgType !== 'message') {
-    // Game / tod / mini-game messages
-    if (msgType.startsWith('tod_')) return '🎯 Truth or Dare';
-    if (msgType === 'question_cards') return '❓ Question Card';
-    if (msgType === 'wyr') return '🤔 Would You Rather';
-    if (msgType === 'hot_takes') return '🔥 Hot Take';
-    if (msgType === 'nhi') return '🙈 Never Have I Ever';
-    return '🎮 Game';
+  switch (msgType) {
+    case 'image':        return '📷 Photo';
+    case 'voice':        return '🎙️ Voice message';
+    case 'call':         return '📞 Call';
+    case 'card':         return '🃏 Card';
+    // Truth-or-Dare
+    case 'tod_invite':   return '🎲 Truth or Dare invite';
+    case 'tod_accept':   return '🎲 Accepted Truth or Dare';
+    case 'tod_answer':   return '🎲 Answered Truth or Dare';
+    case 'tod_next':     return '🎲 Next Truth or Dare round';
+    // Mini-games (new types)
+    case 'game_wyr':     return '🤷 Would You Rather';
+    case 'game_nhi':     return '🍹 Never Have I Ever';
+    case 'game_hot':     return '🔥 Hot Takes';
+    case 'game_quiz':    return '💘 Compatibility Quiz';
+    case 'game_date':    return '🗓️ Build a Date';
+    case 'game_emoji':   return '😂 Emoji Story';
+    // Legacy types
+    case 'question_cards': return '❓ Question Card';
+    case 'wyr':          return '🤔 Would You Rather';
+    case 'hot_takes':    return '🔥 Hot Take';
+    case 'nhi':          return '🙈 Never Have I Ever';
   }
+
+  // Anything else with a non-text type label
+  if (msgType && msgType !== 'text' && msgType !== 'message') return '🎮 Game';
 
   if (!content) return '';
   // Fallback: detect image by URI pattern (for legacy messages without msg_type)
@@ -108,7 +123,7 @@ function ConvRow({
       >
         <View style={styles.avatarWrap}>
           {conv.partner_image
-            ? <Image source={{ uri: conv.partner_image }} style={styles.avatar} contentFit="cover" cachePolicy="memory-disk" transition={150} />
+            ? <Image source={{ uri: conv.partner_image }} style={styles.avatar} contentFit="cover" cachePolicy="memory-disk" transition={150} recyclingKey={conv.partner_image} />
             : <View style={[styles.avatar, { backgroundColor: colors.surface2 }]} />
           }
           {conv.is_online && (
@@ -214,13 +229,15 @@ export default function ChatsPage({ insets, token }: { insets: any; token: strin
         try {
           const payload = JSON.parse(e.data);
           if (payload.type === 'new_message') {
-            // Update last_message and bump to top for matching room
             setConvs(prev => {
-              const idx = prev.findIndex(
-                c => c.room_id === payload.room_id || c.partner_id === payload.sender_id
+              const myId = profile?.id ?? '';
+              // Match by room_id first; fall back to sender_id or receiver_id
+              const idx = prev.findIndex(c =>
+                c.room_id === payload.room_id ||
+                c.partner_id === payload.sender_id ||
+                c.partner_id === payload.receiver_id
               );
               if (idx === -1) {
-                // Unknown conversation — re-fetch to get it
                 fetchConvs();
                 return prev;
               }
@@ -232,7 +249,10 @@ export default function ChatsPage({ insets, token }: { insets: any; token: strin
                 created_at: payload.created_at ?? new Date().toISOString(),
                 msg_type:   payload.msg_type,
               };
-              conv.unread_count = (conv.unread_count ?? 0) + 1;
+              // Only increment unread for messages the PARTNER sent (not my own)
+              if (payload.sender_id !== myId) {
+                conv.unread_count = (conv.unread_count ?? 0) + 1;
+              }
               updated.splice(idx, 1);
               const next = [conv, ...updated];
               _convsCache = next;
@@ -335,7 +355,7 @@ export default function ChatsPage({ insets, token }: { insets: any; token: strin
                 <View style={styles.matchRingWrap}>
                   <View style={[styles.matchRing, { borderColor: '#6366f1' }]}>
                     {m.partner_image
-                      ? <Image source={{ uri: m.partner_image }} style={styles.matchAvatar} contentFit="cover" cachePolicy="memory-disk" transition={150} />
+                      ? <Image source={{ uri: m.partner_image }} style={styles.matchAvatar} contentFit="cover" cachePolicy="memory-disk" transition={150} recyclingKey={m.partner_image} />
                       : <View style={[styles.matchAvatar, { backgroundColor: colors.surface2 }]} />
                     }
                   </View>
