@@ -725,7 +725,7 @@ function IDTab({ colors, active = true }: { colors: AppColors; active?: boolean 
           <View style={styles.idFieldList}>
             {checks.map(f => (
               <View key={f.label} style={styles.idFieldRow}>
-                <Ionicons name={f.val ? 'checkmark-circle' : 'ellipse-outline'} size={15}
+                <Ionicons name={f.val ? 'checkmark-circle' : 'ellipse-outline' as any} size={15}
                   color={f.val ? '#22c55e' : 'rgba(34,197,94,0.3)'} />
                 <Text style={[styles.idFieldText, { color: f.val ? '#22c55e' : 'rgba(34,197,94,0.5)' }]}>{f.label}</Text>
               </View>
@@ -767,7 +767,7 @@ function IDTab({ colors, active = true }: { colors: AppColors; active?: boolean 
             <View style={styles.idFieldList}>
               {checks.map(f => f.val !== null ? (
                 <View key={f.label} style={styles.idFieldRow}>
-                  <Ionicons name={f.val ? 'checkmark-circle' : 'close-circle'} size={15}
+                  <Ionicons name={f.val ? 'checkmark-circle' : 'close-circle' as any} size={15}
                     color={f.val ? 'rgba(34,197,94,0.7)' : colors.error} />
                   <Text style={[styles.idFieldText, { color: f.val ? 'rgba(34,197,94,0.7)' : colors.error }]}>{f.label}</Text>
                 </View>
@@ -917,7 +917,7 @@ export default function VerificationPage() {
         <Pressable key={t} onPress={() => setTab(t)}>
           <View style={[styles.tabPill, tab === t && { backgroundColor: colors.text }]}>
             <Ionicons
-              name={t === 'face' ? 'scan-outline' : 'card-outline'}
+              name={t === 'face' ? 'scan-outline' : 'card-outline' as any}
               size={12}
               color={tab === t ? colors.bg : colors.textSecondary}
               style={{ marginRight: 5 }}

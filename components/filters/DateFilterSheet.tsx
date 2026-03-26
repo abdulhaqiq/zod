@@ -437,7 +437,7 @@ export default function DateFilterSheet({ visible, onClose, onApply, onNavigateT
                     fillColor={colors.surface2}
                   >
                     <Ionicons
-                      name={isFaceVerified ? 'shield-checkmark' : 'scan-outline'}
+                      name={isFaceVerified ? 'shield-checkmark' : 'scan-outline' as any}
                       size={18}
                       color={colors.textSecondary}
                     />

@@ -91,7 +91,7 @@ function FeaturedCard({ item, colors, joined, onJoin }: {
                 fillColor={joined ? 'rgba(255,255,255,0.22)' : '#ffffff'}
                 style={styles.joinSquircle}
               >
-                <Ionicons name={joined ? 'checkmark' : item.pro ? 'lock-closed' : 'add'} size={14} color={joined ? '#fff' : '#000'} />
+                <Ionicons name={joined ? 'checkmark' : item.pro ? 'lock-closed' : 'add' as any} size={14} color={joined ? '#fff' : '#000'} />
                 <Text style={[styles.joinTxt, { color: joined ? '#fff' : '#000' }]}>
                   {joined ? 'Joined' : item.pro ? 'Pro only' : 'Join'}
                 </Text>

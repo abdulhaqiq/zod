@@ -11,7 +11,7 @@ import {
   createAudioPlayer,
   setAudioModeAsync,
   useAudioRecorder,
-  useAudioRecorderState,
+  requestRecordingPermissionsAsync,
 } from 'expo-audio';
 import * as Linking from 'expo-linking';
 import * as Haptics from 'expo-haptics';
@@ -1032,7 +1032,7 @@ function VoiceBubble({ msg, colors, onLongPress }: { msg: Msg; colors: any; onLo
             backgroundColor: isMe ? 'rgba(0,0,0,0.18)' : 'rgba(255,255,255,0.15)',
             alignItems: 'center', justifyContent: 'center',
           }}>
-            <Ionicons name={playing ? 'pause' : 'play'} size={18} color={fgColor} />
+            <Ionicons name={playing ? 'pause' : 'play' as any} size={18} color={fgColor} />
           </View>
         </Pressable>
 
@@ -2162,7 +2162,7 @@ function StarterCardsPanel({ colors, onSend, onClose, onTodInvite, totalSent = 0
                       </Text>
                     </View>
                     <View style={[styles.gameCardArrow, { backgroundColor: `${meta.accent}25` }]}>
-                      <Ionicons name={gameKey === 'truth_or_dare' ? 'game-controller' : 'chevron-forward'} size={18} color={meta.accent} />
+                      <Ionicons name={gameKey === 'truth_or_dare' ? 'game-controller' : 'chevron-forward' as any} size={18} color={meta.accent} />
                     </View>
                   </Squircle>
                 </Pressable>
@@ -2727,7 +2727,7 @@ function TodBubble({ msg, colors, myId, partnerName, onJoin, onAnswer, onSkip, o
           {/* ── action area ── */}
           {answered ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 14 }}>
-              <Ionicons name={skipped ? 'play-skip-forward-outline' : 'checkmark-circle-outline'} size={14} color={TOD_MUTED} />
+              <Ionicons name={skipped ? 'play-skip-forward-outline' : 'checkmark-circle-outline' as any} size={14} color={TOD_MUTED} />
               <Text style={{ fontSize: 12, fontFamily: 'ProductSans-Bold', color: TOD_MUTED }}>
                 {skipped ? 'Skipped' : 'Completed'}
               </Text>
@@ -2959,7 +2959,7 @@ function TodPickPanel({
           <View style={styles.panelHeader}>
             <Pressable onPress={goBack} hitSlop={12}>
               <Squircle style={styles.panelCloseBtn} cornerRadius={10} cornerSmoothing={1} fillColor={TOD_SUBTLE}>
-                <Ionicons name={step === 'list' ? 'close' : 'arrow-back'} size={16} color="#fff" />
+                <Ionicons name={step === 'list' ? 'close' : 'arrow-back' as any} size={16} color="#fff" />
               </Squircle>
             </Pressable>
             <View style={{ flex: 1 }}>
@@ -3271,7 +3271,7 @@ function CallBubble({
       >
         <View style={[styles.callBubbleIcon, { backgroundColor: isMissed ? 'rgba(239,68,68,0.15)' : 'rgba(34,197,94,0.15)' }]}>
           <Ionicons
-            name={isVideo ? (isMissed ? 'videocam-off' : 'videocam') : (isMissed ? 'call' : 'call-outline')}
+            name={isVideo ? (isMissed ? 'videocam-off' : 'videocam') : (isMissed ? 'call' : 'call-outline') as any}
             size={18}
             color={iconColor}
           />
@@ -3280,7 +3280,7 @@ function CallBubble({
           <Text style={[styles.callBubbleLabel, { color: labelColor }]}>{label}</Text>
           <Text style={[styles.callBubbleTime, { color: timeColor }]}>{msg.time}</Text>
         </View>
-        <Ionicons name={arrowIcon} size={14} color={arrowColor} />
+        <Ionicons name={arrowIcon as any} size={14} color={arrowColor} />
       </Squircle>
       {isMe && avatarSlot}
     </View>
@@ -3368,7 +3368,7 @@ function UnmatchModal({ visible, colors, insets, onClose, onConfirm }: {
                         strokeWidth={StyleSheet.hairlineWidth}
                         style={styles.unmatchReasonSquircle}
                       >
-                        <Ionicons name={r.icon} size={20} color={isActive ? colors.bg : colors.textSecondary} />
+                        <Ionicons name={r.icon as any} size={20} color={isActive ? colors.bg : colors.textSecondary} />
                         <Text style={[styles.unmatchReasonText, { color: isActive ? colors.bg : colors.text }]} numberOfLines={2}>
                           {r.label}
                         </Text>
@@ -3891,7 +3891,7 @@ function PartnerProfileModal({ visible, colors, insets, name, image, partnerId, 
                           key={d.key} cornerRadius={14} cornerSmoothing={1}
                           fillColor={colors.surface} style={styles.profileDetailChip}
                         >
-                          <Ionicons name={d.icon} size={14} color={colors.textSecondary} />
+                          <Ionicons name={d.icon as any} size={14} color={colors.textSecondary} />
                           <View style={{ marginLeft: 6 }}>
                             <Text style={[styles.profileDetailLabel, { color: colors.textSecondary }]}>{d.label}</Text>
                             <Text style={[styles.profileDetailValue, { color: colors.text }]}>{details[d.key]}</Text>
@@ -4159,8 +4159,16 @@ export default function ChatConversationPage() {
   const msgLayoutsRef      = useRef<Record<string, number>>({});
   const [highlightedMsgId, setHighlightedMsgId] = useState<string | null>(null);
   const chatRecorder    = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
-  // Drive the recording timer directly from native recorder (1 s poll) — no setInterval flicker
-  const recState        = useAudioRecorderState(chatRecorder, 1000);
+  // Safe replacement for useAudioRecorderState — wraps native property access in try-catch so
+  // that stale native recorder objects after hot-reload don't crash the app.
+  const [recDurMs, setRecDurMs] = useState(0);
+  useEffect(() => {
+    if (!isListening) { setRecDurMs(0); return; }
+    const id = setInterval(() => {
+      try { setRecDurMs((chatRecorder.currentTime ?? 0) * 1000); } catch { /* stale native obj on hot reload */ }
+    }, 1000);
+    return () => clearInterval(id);
+  }, [isListening, chatRecorder]);
   const scrollToMessage = React.useCallback((id: string) => {
     const y = msgLayoutsRef.current[id];
     if (y !== undefined) {
@@ -4624,7 +4632,7 @@ export default function ChatConversationPage() {
       if (!chatRecorder.isRecording) return;
 
       // Capture duration from native recorder — no manual counter drift
-      const duration = Math.max(1, Math.round(recState.durationMillis / 1000));
+      const duration = Math.max(1, Math.round(recDurMs / 1000));
 
       try {
         await chatRecorder.stop();
@@ -4709,13 +4717,22 @@ export default function ChatConversationPage() {
     if (recStartingRef.current) return; // guard against double-tap
     recStartingRef.current = true;
     try {
+      // Explicitly request microphone permission before attempting to record
+      const { granted } = await requestRecordingPermissionsAsync();
+      if (!granted) {
+        Alert.alert(
+          'Microphone access needed',
+          'Please allow microphone access in Settings → Zod → Microphone.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Open Settings', onPress: () => Linking.openSettings() },
+          ],
+        );
+        return;
+      }
+
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
       await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
-      // iOS automatically prompts for microphone permission on first use because
-      // NSMicrophoneUsageDescription is set in Info.plist. No explicit JS-side
-      // permission request is needed — expo-audio's requestRecordingPermissionsAsync
-      // and expo-camera's requestMicrophonePermissionsAsync both crash or are
-      // undefined in this native build.
       await chatRecorder.prepareToRecordAsync();
       chatRecorder.record();
       setIsListening(true);
@@ -4739,13 +4756,13 @@ export default function ChatConversationPage() {
     }
   };
 
-  // Auto-stop at 60 s — driven by native recorder state, no setInterval needed
+  // Auto-stop at 60 s
   useEffect(() => {
-    if (isListening && recState.durationMillis >= 60_000) {
+    if (isListening && recDurMs >= 60_000) {
       handleMicPress();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isListening, recState.durationMillis]);
+  }, [isListening, recDurMs]);
 
   const handleUnmatch = async (reason: string, custom?: string) => {
     // Navigate away immediately — screen unmount closes all modals cleanly
@@ -5467,7 +5484,7 @@ export default function ChatConversationPage() {
                 }
               >
                 <Ionicons
-                  name={contentWarning ? 'ban' : text.trim() ? 'send' : isListening ? 'stop-circle' : 'mic'}
+                  name={contentWarning ? 'ban' : text.trim() ? 'send' : isListening ? 'stop-circle' : 'mic' as any}
                   size={18}
                   color={contentWarning ? '#fff' : text.trim() ? ((answeringCard || replyingTo) ? '#fff' : colors.bg) : isListening ? '#fff' : colors.text}
                 />

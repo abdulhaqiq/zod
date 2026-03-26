@@ -47,7 +47,7 @@ function timeAgo(iso: string): string {
   return new Date(iso).toLocaleDateString();
 }
 
-function deviceIcon(name: string): keyof typeof Ionicons.glyphMap {
+function deviceIcon(name: string): string {
   const n = name.toLowerCase();
   if (n.includes('iphone') || n.includes('android') || n.includes('pixel')) return 'phone-portrait-outline';
   if (n.includes('ipad') || n.includes('tablet')) return 'tablet-portrait-outline';
@@ -60,7 +60,7 @@ function deviceIcon(name: string): keyof typeof Ionicons.glyphMap {
 function ActionRow({
   icon, label, sub, value, onPress, last, colors, danger,
 }: {
-  icon: keyof typeof Ionicons.glyphMap;
+  icon: string;
   label: string; sub?: string; value?: string;
   onPress?: () => void; last?: boolean; colors: any; danger?: boolean;
 }) {
@@ -74,7 +74,7 @@ function ActionRow({
       ]}
     >
       <Squircle style={styles.iconWrap} cornerRadius={10} cornerSmoothing={1} fillColor={colors.bg}>
-        <Ionicons name={icon} size={18} color={danger ? '#e53935' : colors.text} />
+        <Ionicons name={icon as any} size={18} color={danger ? '#e53935' : colors.text} />
       </Squircle>
       <View style={styles.rowText}>
         <Text style={[styles.rowLabel, { color: danger ? '#e53935' : colors.text }]}>{label}</Text>
@@ -89,7 +89,7 @@ function ActionRow({
 function ToggleRow({
   icon, label, sub, value, onChange, last, colors,
 }: {
-  icon: keyof typeof Ionicons.glyphMap;
+  icon: string;
   label: string; sub?: string;
   value: boolean; onChange: (v: boolean) => void;
   last?: boolean; colors: any;
@@ -101,7 +101,7 @@ function ToggleRow({
   return (
     <View style={[styles.row, !last && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border }]}>
       <Squircle style={styles.iconWrap} cornerRadius={10} cornerSmoothing={1} fillColor={colors.bg}>
-        <Ionicons name={icon} size={18} color={colors.text} />
+        <Ionicons name={icon as any} size={18} color={colors.text} />
       </Squircle>
       <View style={styles.rowText}>
         <Text style={[styles.rowLabel, { color: colors.text }]}>{label}</Text>
@@ -121,7 +121,7 @@ function SessionCard({ session, isCurrent, onRevoke, colors }: {
     <Squircle style={styles.sessionCard} cornerRadius={18} cornerSmoothing={1}
       fillColor={colors.surface} strokeColor={isCurrent ? colors.text : colors.border} strokeWidth={isCurrent ? 1.5 : 1}>
       <View style={styles.sessionLeft}>
-        <Ionicons name={deviceIcon(session.device_name)} size={20} color={colors.text} />
+        <Ionicons name={deviceIcon(session.device_name) as any} size={20} color={colors.text} />
         <View style={{ marginLeft: 12, flex: 1 }}>
           <Text style={[styles.sessionDevice, { color: colors.text }]} numberOfLines={1}>
             {session.device_name}
@@ -168,7 +168,7 @@ function MaxSessionsModal({ visible, sessions, onRevoke, onClose, colors }: {
                 fillColor={colors.bg} strokeColor={colors.border} strokeWidth={1}
                 style={styles.modalSessionCard}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
-                  <Ionicons name={deviceIcon(s.device_name)} size={18} color={colors.text} />
+                  <Ionicons name={deviceIcon(s.device_name) as any} size={18} color={colors.text} />
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.sessionDevice, { color: colors.text }]} numberOfLines={1}>{s.device_name}</Text>
                     <Text style={[styles.sessionMeta, { color: colors.textSecondary }]}>{timeAgo(s.last_used_at)}</Text>

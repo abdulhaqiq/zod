@@ -213,7 +213,7 @@ export default function WorkFilterSheet({ visible, onClose, colors, insets, onAp
                     fillColor={isFaceVerified ? 'rgba(34,197,94,0.15)' : 'rgba(34,197,94,0.12)'}
                   >
                     <Ionicons
-                      name={isFaceVerified ? 'shield-checkmark' : 'scan-outline'}
+                      name={isFaceVerified ? 'shield-checkmark' : 'scan-outline' as any}
                       size={18}
                       color="#22c55e"
                     />

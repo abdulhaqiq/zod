@@ -361,7 +361,7 @@ export default function AiMatchPage({ insets }: { insets: any }) {
                     borderColor: isLiked ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.25)',
                   }]}>
                     <Ionicons
-                      name={isLiked ? 'heart' : 'close-circle'}
+                      name={isLiked ? 'heart' : 'close-circle' as any}
                       size={16}
                       color={isLiked ? '#22c55e' : '#ef4444'}
                     />

@@ -187,7 +187,7 @@ export default function Photos() {
               { icon: 'star-outline'   as const, text: 'Tap the star to set any photo as your main'  },
             ].map((tip, i) => (
               <View key={i} style={styles.tipRow}>
-                <Ionicons name={tip.icon} size={14} color={colors.btnPrimaryBg} />
+                <Ionicons name={tip.icon as any} size={14} color={colors.btnPrimaryBg} />
                 <Text style={[styles.tipText, { color: colors.textSecondary }]}>{tip.text}</Text>
               </View>
             ))}

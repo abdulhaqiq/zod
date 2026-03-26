@@ -201,7 +201,7 @@ function ClipCard({
           style={[styles.playBtn, { backgroundColor: colors.text }]}
           onPress={togglePlay}
         >
-          <Ionicons name={playing ? 'pause' : 'play'} size={16} color={colors.bg} />
+          <Ionicons name={playing ? 'pause' : 'play' as any} size={16} color={colors.bg} />
         </Pressable>
         <Text style={[styles.clipDur, { color: colors.textSecondary }]}>
           {fmt(playing ? pos : clip.duration_sec)}

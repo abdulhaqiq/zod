@@ -72,7 +72,7 @@ function EditRow({
     >
       <Squircle style={styles.editIconWrap} cornerRadius={10} cornerSmoothing={1}
         fillColor={accentIcon ? '#833ab4' : colors.surface2}>
-        <Ionicons name={icon} size={16} color={accentIcon ? '#fff' : colors.text} />
+        <Ionicons name={icon as any} size={16} color={accentIcon ? '#fff' : colors.text} />
       </Squircle>
       <View style={{ flex: 1, gap: 1 }}>
         <Text style={[styles.editLabel, { color: colors.text }]}>{label}</Text>
@@ -311,7 +311,7 @@ function BestPhotoRow({
       { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
     ]}>
       <Squircle style={styles.editIconWrap} cornerRadius={10} cornerSmoothing={1} fillColor={colors.surface2}>
-        <Ionicons name={enabled ? 'star' : 'star-outline'} size={16} color={enabled ? '#FFD60A' : colors.text} />
+        <Ionicons name={enabled ? 'star' : 'star-outline' as any} size={16} color={enabled ? '#FFD60A' : colors.text} />
       </Squircle>
       <View style={{ flex: 1, gap: 1 }}>
         <Text style={[styles.editLabel, { color: colors.text }]}>Best Photo</Text>
@@ -353,7 +353,7 @@ function ChipEditRow({
       ]}
     >
       <Squircle style={styles.editIconWrap} cornerRadius={10} cornerSmoothing={1} fillColor={colors.surface2}>
-        <Ionicons name={icon} size={16} color={colors.text} />
+        <Ionicons name={icon as any} size={16} color={colors.text} />
       </Squircle>
       <View style={{ flex: 1, gap: 1 }}>
         <Text style={[styles.editLabel, { color: colors.text }]}>{label}</Text>

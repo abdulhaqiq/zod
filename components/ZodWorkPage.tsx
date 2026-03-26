@@ -55,7 +55,7 @@ function Row({
       ]}
     >
       <Squircle style={styles.iconWrap} cornerRadius={10} cornerSmoothing={1} fillColor={colors.surface2}>
-        <Ionicons name={icon} size={16} color={colors.text} />
+        <Ionicons name={icon as any} size={16} color={colors.text} />
       </Squircle>
       <View style={{ flex: 1, gap: 1 }}>
         <Text style={[styles.rowLabel, { color: colors.text }]}>{label}</Text>
@@ -82,7 +82,7 @@ function ToggleRow({
       !last && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
     ]}>
       <Squircle style={styles.iconWrap} cornerRadius={10} cornerSmoothing={1} fillColor={colors.surface2}>
-        <Ionicons name={icon} size={16} color={colors.text} />
+        <Ionicons name={icon as any} size={16} color={colors.text} />
       </Squircle>
       <View style={{ flex: 1, gap: 1 }}>
         <Text style={[styles.rowLabel, { color: colors.text }]}>{label}</Text>

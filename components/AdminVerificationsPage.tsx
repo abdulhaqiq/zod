@@ -115,7 +115,7 @@ function AttemptCard({ a }: { a: Attempt }) {
         <View style={styles.cardHeaderRight}>
           <StatusBadge status={a.status} />
           <Ionicons
-            name={expanded ? 'chevron-up' : 'chevron-down'}
+            name={expanded ? 'chevron-up' : 'chevron-down' as any}
             size={14}
             color={colors.textTertiary}
           />

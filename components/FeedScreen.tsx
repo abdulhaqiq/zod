@@ -349,7 +349,7 @@ const SuperLikeBtn = ({
         ]}
       >
         <Animated.View style={{ transform: [{ rotate }] }}>
-          <Ionicons name={isPro ? 'star' : 'lock-closed'} size={isPro ? 22 : 18} color={starColor} />
+          <Ionicons name={isPro ? 'star' : 'lock-closed' as any} size={isPro ? 22 : 18} color={starColor} />
         </Animated.View>
       </Animated.View>
       {/* Remaining count badge — only shown for Pro */}
@@ -383,10 +383,12 @@ const ProfileCard = forwardRef<ProfileCardHandle, {
   onSwipedLeft: () => void;
   onSwipedRight: () => void;
   onSuperLike: () => void;
+  onReport: (profileId: string) => void;
+  onBlock: (profileId: string) => void;
   colors: any;
   isPro: boolean;
   superLikesRemaining: number;
-}>(function ProfileCard({ profile, onSwipedLeft, onSwipedRight, onSuperLike, colors, isPro, superLikesRemaining }, ref) {
+}>(function ProfileCard({ profile, onSwipedLeft, onSwipedRight, onSuperLike, onReport, onBlock, colors, isPro, superLikesRemaining }, ref) {
   const position = useRef(new Animated.ValueXY()).current;
   const superStampAnim = useRef(new Animated.Value(0)).current;
 
@@ -679,7 +681,7 @@ const ProfileCard = forwardRef<ProfileCardHandle, {
               <View style={styles.detailGrid}>
                 {DETAILS.filter(d => d.value).map(d => (
                   <View key={d.label} style={[styles.detailChip, { backgroundColor: colors.surface2 }]}>
-                    <Ionicons name={d.icon} size={13} color={colors.btnPrimaryBg} />
+                    <Ionicons name={d.icon as any} size={13} color={colors.btnPrimaryBg} />
                     <View>
                       <Text style={[styles.detailLabel, { color: colors.textSecondary }]}>{d.label}</Text>
                       <Text style={[styles.detailValue, { color: colors.text }]}>{d.value}</Text>
@@ -707,13 +709,21 @@ const ProfileCard = forwardRef<ProfileCardHandle, {
           </> : null}
 
           <View style={styles.dangerRow}>
-            <Pressable style={({ pressed }) => [styles.dangerBtn, { borderColor: colors.border, backgroundColor: colors.surface2 }, pressed && { opacity: 0.65 }]}>
-              <Ionicons name="flag-outline" size={15} color={colors.error} />
-              <Text style={[styles.dangerBtnText, { color: colors.error }]}>Report</Text>
+            <Pressable style={{ flex: 1 }} onPress={() => onReport(profile.id)}>
+              {({ pressed }) => (
+                <Squircle style={[styles.dangerBtn, { opacity: pressed ? 0.65 : 1 }]} cornerRadius={14} cornerSmoothing={1} fillColor={colors.surface2} strokeColor={colors.border} strokeWidth={1}>
+                  <Ionicons name="flag-outline" size={15} color={colors.error} />
+                  <Text style={[styles.dangerBtnText, { color: colors.error }]}>Report</Text>
+                </Squircle>
+              )}
             </Pressable>
-            <Pressable style={({ pressed }) => [styles.dangerBtn, { borderColor: colors.border, backgroundColor: colors.surface2 }, pressed && { opacity: 0.65 }]}>
-              <Ionicons name="ban-outline" size={15} color={colors.textSecondary} />
-              <Text style={[styles.dangerBtnText, { color: colors.textSecondary }]}>Block</Text>
+            <Pressable style={{ flex: 1 }} onPress={() => onBlock(profile.id)}>
+              {({ pressed }) => (
+                <Squircle style={[styles.dangerBtn, { opacity: pressed ? 0.65 : 1 }]} cornerRadius={14} cornerSmoothing={1} fillColor={colors.surface2} strokeColor={colors.border} strokeWidth={1}>
+                  <Ionicons name="ban-outline" size={15} color={colors.textSecondary} />
+                  <Text style={[styles.dangerBtnText, { color: colors.textSecondary }]}>Block</Text>
+                </Squircle>
+              )}
             </Pressable>
           </View>
         </View>
@@ -865,7 +875,7 @@ function WorkProfileCard({ profile, onSwipedLeft, onSwipedRight, colors }: {
             ].map(d => (
               <View key={d.label} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 6 }}>
                 <View style={[{ width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center' }, { backgroundColor: colors.surface2 }]}>
-                  <Ionicons name={d.icon} size={13} color={colors.textSecondary} />
+                  <Ionicons name={d.icon as any} size={13} color={colors.textSecondary} />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.detailLabel, { color: colors.textSecondary }]}>{d.label}</Text>
@@ -902,13 +912,21 @@ function WorkProfileCard({ profile, onSwipedLeft, onSwipedRight, colors }: {
           ))}
 
           <View style={[styles.dangerRow, { marginTop: 8 }]}>
-            <Pressable style={({ pressed }) => [styles.dangerBtn, { borderColor: colors.border, backgroundColor: colors.surface2 }, pressed && { opacity: 0.65 }]}>
-              <Ionicons name="flag-outline" size={15} color={colors.error} />
-              <Text style={[styles.dangerBtnText, { color: colors.error }]}>Report</Text>
+            <Pressable style={{ flex: 1 }}>
+              {({ pressed }) => (
+                <Squircle style={[styles.dangerBtn, { opacity: pressed ? 0.65 : 1 }]} cornerRadius={14} cornerSmoothing={1} fillColor={colors.surface2} strokeColor={colors.border} strokeWidth={1}>
+                  <Ionicons name="flag-outline" size={15} color={colors.error} />
+                  <Text style={[styles.dangerBtnText, { color: colors.error }]}>Report</Text>
+                </Squircle>
+              )}
             </Pressable>
-            <Pressable style={({ pressed }) => [styles.dangerBtn, { borderColor: colors.border, backgroundColor: colors.surface2 }, pressed && { opacity: 0.65 }]}>
-              <Ionicons name="ban-outline" size={15} color={colors.textSecondary} />
-              <Text style={[styles.dangerBtnText, { color: colors.textSecondary }]}>Block</Text>
+            <Pressable style={{ flex: 1 }}>
+              {({ pressed }) => (
+                <Squircle style={[styles.dangerBtn, { opacity: pressed ? 0.65 : 1 }]} cornerRadius={14} cornerSmoothing={1} fillColor={colors.surface2} strokeColor={colors.border} strokeWidth={1}>
+                  <Ionicons name="ban-outline" size={15} color={colors.textSecondary} />
+                  <Text style={[styles.dangerBtnText, { color: colors.textSecondary }]}>Block</Text>
+                </Squircle>
+              )}
             </Pressable>
           </View>
         </View>
@@ -1112,18 +1130,32 @@ export default function FeedScreen() {
     : '';
   const isMuslim = religionLabel.includes('muslim') || religionLabel.includes('islam');
   const [halalMode,            setHalalMode]            = useState(profile?.halal_mode_enabled ?? false);
+  // Ref mirrors halalMode so fetchFeed can read the latest value without
+  // being listed as a dep (which would cause double-fetches on profile sync).
+  const halalModeRef = useRef(profile?.halal_mode_enabled ?? false);
 
-  // Keep local halalMode in sync if the profile refreshes from the server
-  // (e.g. on re-mount or after a background profile fetch).
+  // Keep local halalMode in sync if the profile refreshes from the server.
+  // Also tracks whether we've received the first real profile value so we
+  // can gate the initial feed fetch correctly.
+  const [profileLoaded, setProfileLoaded] = useState(!!profile?.id);
   useEffect(() => {
     if (profile?.halal_mode_enabled !== undefined) {
+      halalModeRef.current = profile.halal_mode_enabled;
       setHalalMode(profile.halal_mode_enabled);
     }
-  }, [profile?.halal_mode_enabled]);
+    if (profile?.id && !profileLoaded) {
+      setProfileLoaded(true);
+    }
+  }, [profile?.halal_mode_enabled, profile?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const [halalSheetVisible,    setHalalSheetVisible]    = useState(false);
   const [halalConfirmVisible,  setHalalConfirmVisible]  = useState(false);
   const [halalGateMuslim,      setHalalGateMuslim]      = useState(false);
   const [halalGateId,          setHalalGateId]          = useState(false);
+
+  // ── Report / Block state ──────────────────────────────────────────────────
+  const [reportTargetId,      setReportTargetId]      = useState<string | null>(null);
+  const [reportReason,        setReportReason]        = useState<string | null>(null);
+  const [reportSubmitting,    setReportSubmitting]    = useState(false);
 
   // Show ID gate for Muslim + halal-enabled users who haven't verified yet.
   // Re-evaluates whenever verification status changes (e.g. after successful ID scan).
@@ -1228,7 +1260,10 @@ export default function FeedScreen() {
     if (!token) return;
     setLoadingFeed(true);
     try {
-      const halalParam = halalMode ? '&halal=true' : '';
+      // Read from ref so this callback doesn't need halalMode in its dep array.
+      // This prevents the feed from re-fetching a second time when the profile
+      // loads async and syncs halalMode state after the initial mount fetch.
+      const halalParam = halalModeRef.current ? '&halal=true' : '';
       const [res, localSwiped] = await Promise.all([
         apiFetch<{ profiles: Profile[]; has_more: boolean }>(
           `/discover/feed?page=${page}&limit=10${halalParam}`,
@@ -1264,16 +1299,29 @@ export default function FeedScreen() {
       });
       setHasMore(res.has_more);
       setFeedPage(page);
-    } catch {
-      // keep existing profiles on error
+    } catch (err: any) {
+      // On a halal-gate 403 the backend returns a specific message. Clear the
+      // deck so stale standard-feed cards don't show under the Halal pill.
+      const msg: string = err?.message ?? '';
+      if (/halal mode/i.test(msg) || /403/i.test(msg)) {
+        setProfiles([]);
+        setHasMore(false);
+      }
+      // Any other network/server error: keep existing profiles so the deck
+      // doesn't vanish on a transient failure.
     } finally {
       setLoadingFeed(false);
     }
-  }, [token, halalMode, getLocalSwipedIds]);
+  }, [token, getLocalSwipedIds]);
 
+  // Gate the initial feed fetch on profile being loaded so halalModeRef.current
+  // is correct before the first request goes out. Without this, if the profile
+  // loads async (not cached) the feed would fire twice: once with halal=false
+  // (profile not yet known) and once with halal=true (after profile syncs),
+  // causing a flash of standard-feed profiles before being replaced by empty.
   useEffect(() => {
-    if (appMode === 'date') fetchFeed(0, true);
-  }, [appMode, halalMode, fetchFeed]);
+    if (appMode === 'date' && profileLoaded) fetchFeed(0, true);
+  }, [appMode, profileLoaded, fetchFeed]);
 
   useEffect(() => { fetchCounts(); }, [fetchCounts]);
 
@@ -1305,32 +1353,73 @@ export default function FeedScreen() {
     fetchFeed(0, true);
   }, [token, fetchFeed]);
 
+  // ── Report / Block handlers ───────────────────────────────────────────────
+  const handleReportPress = useCallback((profileId: string) => {
+    setReportReason(null);
+    setReportTargetId(profileId);
+  }, []);
+
+  const handleReportSubmit = useCallback(async () => {
+    if (!token || !reportTargetId || !reportReason) return;
+    setReportSubmitting(true);
+    try {
+      await apiFetch('/moderation/report', {
+        token, method: 'POST',
+        body: JSON.stringify({ reported_id: reportTargetId, reason: reportReason }),
+      });
+    } catch { /* silent — report is best-effort */ }
+    setReportSubmitting(false);
+    setReportTargetId(null);
+    // Remove the reported profile from feed
+    setProfiles(prev => prev.filter(p => p.id !== reportTargetId));
+  }, [token, reportTargetId, reportReason]);
+
+  const handleBlockPress = useCallback(async (profileId: string) => {
+    // Immediately remove from UI
+    setProfiles(prev => prev.filter(p => p.id !== profileId));
+    if (!token) return;
+    apiFetch('/moderation/block', {
+      token, method: 'POST',
+      body: JSON.stringify({ blocked_id: profileId }),
+    }).catch(() => {});
+  }, [token]);
+
   // ── Halal mode toggle handler ─────────────────────────────────────────────
   const _applyHalalMode = useCallback(async (halal: boolean) => {
     setHalalMode(halal);
+    halalModeRef.current = halal; // keep ref in sync for fetchFeed
     // Persist to profile context so the value survives re-mounts and navigation
     updateProfile({ halal_mode_enabled: halal });
     swipedThisSessionRef.current.clear();
     try { await AsyncStorage.removeItem(swipeCacheKeyRef.current); } catch { /* ignore */ }
+    // IMPORTANT: await the PATCH before fetching the feed — the backend guards
+    // halal=true requests by checking me.halal_mode_enabled in the DB. If we
+    // fire-and-forget the PATCH and immediately fetch, the DB still has the old
+    // value and the backend returns 403, leaving the feed silently empty.
     if (token) {
-      apiFetch('/profile/me', {
-        method: 'PATCH',
-        token,
-        body: JSON.stringify({ halal_mode_enabled: halal }),
-      }).catch(() => {});
+      try {
+        await apiFetch('/profile/me', {
+          method: 'PATCH',
+          token,
+          body: JSON.stringify({ halal_mode_enabled: halal }),
+        });
+      } catch { /* ignore — profile context already updated optimistically */ }
     }
     fetchFeed(0, true);
   }, [token, fetchFeed, updateProfile]);
 
   const handleHalalSelect = useCallback((halal: boolean) => {
     setHalalSheetVisible(false);
-    if (halal && !halalMode) {
+    // Check both local state and profile source-of-truth so a stale local
+    // state never causes the confirmation to show when halal is already on.
+    const alreadyOn = halalMode || (profile?.halal_mode_enabled ?? false);
+    if (halal && !alreadyOn) {
       // Show the "turn on Halal mode" confirmation before activating
       setHalalConfirmVisible(true);
     } else {
       _applyHalalMode(halal);
     }
-  }, [halalMode, _applyHalalMode]);
+  }, [halalMode, profile?.halal_mode_enabled, _applyHalalMode]);
 
   // Show the match celebration for a profile that was on the deck
   const _showMatchIfNeeded = (res: { match: boolean }, p: Profile) => {
@@ -1548,6 +1637,70 @@ export default function FeedScreen() {
         </Pressable>
       </Modal>
 
+      {/* Report modal */}
+      {(() => {
+        const REPORT_REASONS: { key: string; label: string; icon: string }[] = [
+          { key: 'fake_profile',          label: 'Fake profile',           icon: 'person-remove-outline' },
+          { key: 'inappropriate_photos',  label: 'Inappropriate photos',   icon: 'images-outline' },
+          { key: 'harassment',            label: 'Harassment',             icon: 'warning-outline' },
+          { key: 'spam',                  label: 'Spam or scam',           icon: 'ban-outline' },
+          { key: 'underage',              label: 'Underage user',          icon: 'shield-outline' },
+          { key: 'hate_speech',           label: 'Hate speech',            icon: 'alert-circle-outline' },
+          { key: 'other',                 label: 'Something else',         icon: 'ellipsis-horizontal-circle-outline' },
+        ];
+        return (
+          <Modal visible={!!reportTargetId} transparent animationType="fade" onRequestClose={() => setReportTargetId(null)}>
+            <Pressable style={mStyles.backdrop} onPress={() => setReportTargetId(null)}>
+              <Pressable style={[mStyles.sheet, { backgroundColor: colors.surface, gap: 0 }]}>
+                <View style={mStyles.handle} />
+                <Squircle style={{ width: 52, height: 52, alignItems: 'center', justifyContent: 'center', alignSelf: 'center', marginBottom: 16 }}
+                  cornerRadius={16} cornerSmoothing={1} fillColor={colors.surface2}>
+                  <Ionicons name="flag-outline" size={26} color={colors.error} />
+                </Squircle>
+                <Text style={[mStyles.heading, { color: colors.text, marginBottom: 4 }]}>Report Profile</Text>
+                <Text style={[mStyles.optSub, { color: colors.textSecondary, textAlign: 'center', marginBottom: 20 }]}>
+                  Select a reason — your report is anonymous.
+                </Text>
+
+                {REPORT_REASONS.map(r => (
+                  <Pressable key={r.key} onPress={() => setReportReason(r.key)}
+                    style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}>
+                    <Squircle
+                      cornerRadius={12} cornerSmoothing={1}
+                      fillColor={reportReason === r.key ? colors.btnPrimaryBg + '22' : colors.surface2}
+                      strokeColor={reportReason === r.key ? colors.btnPrimaryBg : colors.border}
+                      strokeWidth={reportReason === r.key ? 1.5 : 1}
+                      style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 11, paddingHorizontal: 14, marginBottom: 8 }}
+                    >
+                      <Ionicons name={r.icon as any} size={18} color={reportReason === r.key ? colors.btnPrimaryBg : colors.textSecondary} />
+                      <Text style={{ flex: 1, fontSize: 14, fontFamily: 'ProductSans-Medium', color: colors.text }}>{r.label}</Text>
+                      {reportReason === r.key && <Ionicons name="checkmark-circle" size={18} color={colors.btnPrimaryBg} />}
+                    </Squircle>
+                  </Pressable>
+                ))}
+
+                <Squircle cornerRadius={18} cornerSmoothing={1}
+                  fillColor={reportReason ? colors.error : colors.surface2}
+                  style={[styles.applyBtn, { marginHorizontal: 0, marginTop: 8, marginBottom: 12, opacity: reportReason ? 1 : 0.45 }]}>
+                  <Pressable
+                    disabled={!reportReason || reportSubmitting}
+                    onPress={handleReportSubmit}
+                    style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}
+                  >
+                    <Text style={[styles.applyBtnText, { color: '#fff' }]}>
+                      {reportSubmitting ? 'Submitting…' : 'Submit Report'}
+                    </Text>
+                  </Pressable>
+                </Squircle>
+                <Pressable onPress={() => setReportTargetId(null)} style={{ alignItems: 'center', paddingVertical: 12 }}>
+                  <Text style={[mStyles.optSub, { color: colors.textSecondary }]}>Cancel</Text>
+                </Pressable>
+              </Pressable>
+            </Pressable>
+          </Modal>
+        );
+      })()}
+
       {/* Tab content */}
       {activeTab === 'people' && (
         <View style={styles.cardStack}>
@@ -1566,6 +1719,8 @@ export default function FeedScreen() {
                 onSwipedLeft={() => handleSwipeLeft(profiles[0].id)}
                 onSwipedRight={() => handleSwipeRight(profiles[0].id)}
                 onSuperLike={() => handleSuperLike(profiles[0].id)}
+                onReport={handleReportPress}
+                onBlock={handleBlockPress}
                 colors={colors}
                 isPro={isPro}
                 superLikesRemaining={superLikesRemaining}
@@ -1604,7 +1759,7 @@ export default function FeedScreen() {
               hitSlop={8}
             >
               <View style={styles.navIconWrap}>
-                <Ionicons name={active ? item.iconActive : item.icon} size={22} color={active ? colors.text : colors.textSecondary} />
+                <Ionicons name={active ? item.iconActive : item.icon as any} size={22} color={active ? colors.text : colors.textSecondary} />
                 {item.badge && (
                   <View style={[styles.badge, { backgroundColor: colors.text }]}>
                     <Text style={[styles.badgeText, { color: colors.bg }]}>{item.badge}</Text>
@@ -1749,7 +1904,7 @@ const styles = StyleSheet.create({
   detailLabel:    { fontSize: 10, fontFamily: 'ProductSans-Regular' },
   detailValue:    { fontSize: 12, fontFamily: 'ProductSans-Bold' },
   dangerRow:      { flexDirection: 'row', gap: 10, paddingBottom: 4 },
-  dangerBtn:      { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, paddingVertical: 12, borderRadius: 14, borderWidth: 1 },
+  dangerBtn:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, paddingVertical: 12 },
   dangerBtnText:  { fontSize: 14, fontFamily: 'ProductSans-Medium' },
   workRow:        { flexDirection: 'row', gap: 10 },
   workCard:       { flex: 1, flexDirection: 'row', alignItems: 'flex-start', borderRadius: 14, padding: 12 },

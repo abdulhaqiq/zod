@@ -262,8 +262,19 @@ export default function SubscriptionPage() {
 
   // ── Personal quota (from my-features) ────────────────────────────────────────
 
-  const slRemaining = myFeatures?.super_likes_remaining ?? profile?.super_likes_remaining ?? 0;
-  const slLimit     = myFeatures?.super_likes_limit ?? (tier === 'premium_plus' ? 10 : 5);
+  // Derive the user's actual subscription tier (not the UI tab selector)
+  const activeTier     = myFeatures?.tier ?? profile?.subscription_tier ?? 'free';
+  const defaultSlLimit = activeTier === 'premium_plus' ? 10 : activeTier === 'pro' ? 5 : 0;
+
+  // my-features is the authoritative source; profile is a stale cache fallback.
+  // For remaining: prefer myFeatures (freshly synced from server).
+  // For limit: use myFeatures if it's > 0; otherwise fall back to tier default.
+  const slRemaining = myFeatures != null
+    ? myFeatures.super_likes_remaining
+    : (profile?.super_likes_remaining ?? 0);
+  const slLimit = myFeatures != null && myFeatures.super_likes_limit > 0
+    ? myFeatures.super_likes_limit
+    : defaultSlLimit;
   const slResetsIn  = myFeatures?.super_likes_resets_in_days;
 
   // ── Handlers ─────────────────────────────────────────────────────────────────
@@ -341,7 +352,7 @@ export default function SubscriptionPage() {
         {/* ── Hero ─────────────────────────────────────────────────────── */}
         <View style={styles.hero}>
           <Squircle style={styles.heroIcon} cornerRadius={24} cornerSmoothing={1} fillColor={colors.surface2}>
-            <Ionicons name={tier === 'premium_plus' ? 'diamond' : 'star'} size={34} color={colors.text} />
+            <Ionicons name={tier === 'premium_plus' ? 'diamond' : 'star' as any} size={34} color={colors.text} />
           </Squircle>
           <Text style={[styles.heroTitle, { color: colors.text }]}>
             {tier === 'pro' ? 'Zod Pro' : 'Premium+'}

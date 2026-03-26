@@ -143,7 +143,7 @@ export default function FaceScanRequiredPage() {
                 strokeWidth={1}
               >
                 <View style={[styles.reasonIconWrap, { backgroundColor: colors.surface2 }]}>
-                  <Ionicons name={item.icon} size={15} color={colors.textSecondary} />
+                  <Ionicons name={item.icon as any} size={15} color={colors.textSecondary} />
                 </View>
                 <View style={styles.reasonTextWrap}>
                   <Text style={[styles.reasonTitle, { color: colors.text }]}>{item.title}</Text>
@@ -200,7 +200,7 @@ export default function FaceScanRequiredPage() {
               >
                 <Squircle style={styles.ctaBtn} cornerRadius={28} cornerSmoothing={1}
                   fillColor={colors.text}>
-                  <Ionicons name={scanTab === 'id' ? 'card-outline' : 'scan-outline'} size={19} color={colors.bg} />
+                  <Ionicons name={scanTab === 'id' ? 'card-outline' : 'scan-outline' as any} size={19} color={colors.bg} />
                   <Text style={[styles.ctaBtnText, { color: colors.bg }]}>
                     {scanTab === 'id' ? 'Verify ID Now' : 'Scan Face Now'}
                   </Text>

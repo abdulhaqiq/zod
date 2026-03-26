@@ -83,7 +83,7 @@ export default function Purpose() {
                     strokeWidth={selected ? 0 : 1.5}
                   >
                     <View style={[styles.iconWrap, { backgroundColor: iconBg }]}>
-                      <Ionicons name={item.icon} size={20} color={iconColor} />
+                      <Ionicons name={item.icon as any} size={20} color={iconColor} />
                     </View>
                     <View style={styles.cardText}>
                       <Text style={[styles.cardLabel, { color: fgColor }]}>{item.label}</Text>

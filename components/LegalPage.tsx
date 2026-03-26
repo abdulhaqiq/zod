@@ -50,7 +50,7 @@ function AccordionItem({ q, a, colors }: { q: string; a: string; colors: any }) 
         onPress={() => setOpen(o => !o)}
       >
         <Text style={[styles.accordionQ, { color: colors.text }]}>{q}</Text>
-        <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={16} color={colors.textSecondary} />
+        <Ionicons name={open ? 'chevron-up' : 'chevron-down' as any} size={16} color={colors.textSecondary} />
       </Pressable>
       {open && (
         <Text style={[styles.accordionA, { color: colors.textSecondary }]}>{a}</Text>
@@ -85,7 +85,7 @@ export default function LegalPage() {
                 onPress={() => WebBrowser.openBrowserAsync(item.url, { presentationStyle: WebBrowser.WebBrowserPresentationStyle.PAGE_SHEET })}
               >
                 <Squircle style={styles.iconWrap} cornerRadius={10} cornerSmoothing={1} fillColor={colors.bg}>
-                  <Ionicons name={item.icon} size={18} color={colors.text} />
+                  <Ionicons name={item.icon as any} size={18} color={colors.text} />
                 </Squircle>
                 <Text style={[styles.rowLabel, { color: colors.text }]}>{item.label}</Text>
                 <Ionicons name="open-outline" size={15} color={colors.textSecondary} />

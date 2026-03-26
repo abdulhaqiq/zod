@@ -46,7 +46,7 @@ function AccordionItem({ q, a, colors }: { q: string; a: string; colors: any }) 
     <View style={{ borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border }}>
       <Pressable style={styles.accordionHeader} onPress={() => setOpen(o => !o)}>
         <Text style={[styles.accordionQ, { color: colors.text }]}>{q}</Text>
-        <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={16} color={colors.textSecondary} />
+        <Ionicons name={open ? 'chevron-up' : 'chevron-down' as any} size={16} color={colors.textSecondary} />
       </Pressable>
       {open && (
         <Text style={[styles.accordionA, { color: colors.textSecondary }]}>{a}</Text>
@@ -58,7 +58,7 @@ function AccordionItem({ q, a, colors }: { q: string; a: string; colors: any }) 
 // ─── Contact option ───────────────────────────────────────────────────────────
 
 function ContactRow({ icon, label, sub, onPress, last, colors }: {
-  icon: keyof typeof Ionicons.glyphMap;
+  icon: string;
   label: string; sub: string;
   onPress: () => void; last?: boolean; colors: any;
 }) {
@@ -72,7 +72,7 @@ function ContactRow({ icon, label, sub, onPress, last, colors }: {
       ]}
     >
       <Squircle style={styles.iconWrap} cornerRadius={10} cornerSmoothing={1} fillColor={colors.bg}>
-        <Ionicons name={icon} size={18} color={colors.text} />
+        <Ionicons name={icon as any} size={18} color={colors.text} />
       </Squircle>
       <View style={styles.rowText}>
         <Text style={[styles.rowLabel, { color: colors.text }]}>{label}</Text>

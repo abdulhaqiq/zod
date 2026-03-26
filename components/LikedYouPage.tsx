@@ -252,7 +252,7 @@ export default function LikedYouPage({ insets, token }: { insets: any; token: st
                     {/* Heart / Super Like badge — only on unblurred */}
                     {!isBlurred && (
                       <View style={[styles.heartBadge, p.is_super_like ? styles.superBadge : { backgroundColor: colors.text }]}>
-                        <Ionicons name={p.is_super_like ? 'star' : 'heart'} size={11} color="#fff" />
+                        <Ionicons name={p.is_super_like ? 'star' : 'heart' as any} size={11} color="#fff" />
                       </View>
                     )}
                   </View>

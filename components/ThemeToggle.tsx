@@ -45,7 +45,7 @@ export default function ThemeToggle() {
       >
         <Animated.View style={{ transform: [{ rotate }] }}>
           <Ionicons
-            name={isDark ? 'sunny' : 'moon'}
+            name={isDark ? 'sunny' : 'moon' as any}
             size={18}
             color={isDark ? '#FFD60A' : '#636366'}
           />

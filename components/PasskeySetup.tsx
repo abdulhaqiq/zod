@@ -18,7 +18,7 @@ const Logo = ({ color }: { color: string }) => (
   </Svg>
 );
 
-const BULLET_POINTS: { icon: React.ComponentProps<typeof Ionicons>['name']; text: string }[] = [
+const BULLET_POINTS: { icon: React.string; text: string }[] = [
   { icon: 'lock-closed',      text: "Saved securely to your Apple Keychain — only Face ID or Touch ID can unlock it." },
   { icon: 'phone-portrait',   text: 'One tap to sign back in on this device, no password needed.' },
   { icon: 'shield-checkmark', text: 'Your login details are encrypted and never leave your device.' },
@@ -105,7 +105,7 @@ export default function PasskeySetup() {
             {BULLET_POINTS.map((item, i) => (
               <View key={i} style={styles.bulletRow}>
                 <View style={styles.bulletIconWrap}>
-                  <Ionicons name={item.icon} size={16} color={colors.textSecondary} />
+                  <Ionicons name={item.icon as any} size={16} color={colors.textSecondary} />
                 </View>
                 <Text style={[styles.bulletText, { color: colors.textSecondary }]}>{item.text}</Text>
               </View>

@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import type { ComponentProps } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-type IoniconsName = ComponentProps<typeof Ionicons>['name'];
+type IoniconsName = string;
 import { useRef, useState } from 'react';
 import {
   Dimensions,
@@ -152,7 +152,7 @@ function DetailChip({ icon, label, value, colors }: {
       cornerSmoothing={0.8}
       fillColor={colors.surface}
     >
-      <Ionicons name={icon} size={14} color={colors.btnPrimaryBg} />
+      <Ionicons name={icon as any} size={14} color={colors.btnPrimaryBg} />
       <View>
         <Text style={[styles.detailLabel, { color: colors.textSecondary }]}>{label}</Text>
         <Text style={[styles.detailValue, { color: colors.text }]}>{value}</Text>

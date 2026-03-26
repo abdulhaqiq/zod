@@ -352,7 +352,7 @@ function EditRow({
     >
       <Squircle style={styles.editIconWrap} cornerRadius={10} cornerSmoothing={1}
         fillColor={accentIcon ? '#833ab4' : colors.surface2}>
-        <Ionicons name={icon} size={16} color={accentIcon ? '#fff' : colors.text} />
+        <Ionicons name={icon as any} size={16} color={accentIcon ? '#fff' : colors.text} />
       </Squircle>
       <View style={{ flex: 1, gap: 1 }}>
         <Text style={[styles.editLabel, { color: colors.text }]}>{label}</Text>
@@ -386,7 +386,7 @@ function SettingRow({
       ]}
     >
       <Squircle style={styles.settingIconWrap} cornerRadius={10} cornerSmoothing={1} fillColor={colors.surface2}>
-        <Ionicons name={icon} size={17} color={danger ? colors.error : colors.text} />
+        <Ionicons name={icon as any} size={17} color={danger ? colors.error : colors.text} />
       </Squircle>
       <View style={{ flex: 1, gap: 2 }}>
         <Text style={[styles.settingLabel, { color: danger ? colors.error : colors.text }]}>{label}</Text>

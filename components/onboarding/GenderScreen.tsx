@@ -49,7 +49,7 @@ export default function GenderScreen() {
     navReplace('/purpose');
   };
 
-  const GENDER_ICON: Record<string, React.ComponentProps<typeof Ionicons>['name']> = {
+  const GENDER_ICON: Record<string, React.string> = {
     Man: 'male',
     Woman: 'female',
   };
@@ -81,7 +81,7 @@ export default function GenderScreen() {
                 <View style={styles.cardContent}>
                   {iconName && (
                     <Ionicons
-                      name={iconName}
+                      name={iconName as any}
                       size={32}
                       color={active ? colors.bg : colors.textSecondary}
                     />

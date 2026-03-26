@@ -31,7 +31,7 @@ function InfoRow({ label, value, colors, last }: { label: string; value: string;
 // ─── Action row ───────────────────────────────────────────────────────────────
 
 function ActionRow({ icon, label, sub, onPress, colors, last }: {
-  icon: keyof typeof Ionicons.glyphMap;
+  icon: string;
   label: string; sub?: string;
   onPress: () => void; colors: any; last?: boolean;
 }) {
@@ -45,7 +45,7 @@ function ActionRow({ icon, label, sub, onPress, colors, last }: {
       ]}
     >
       <Squircle style={styles.iconWrap} cornerRadius={10} cornerSmoothing={1} fillColor={colors.bg}>
-        <Ionicons name={icon} size={18} color={colors.text} />
+        <Ionicons name={icon as any} size={18} color={colors.text} />
       </Squircle>
       <View style={{ flex: 1 }}>
         <Text style={[styles.rowLabel, { color: colors.text }]}>{label}</Text>
@@ -85,7 +85,7 @@ export default function PurchasesPage() {
         <Squircle style={styles.statusCard} cornerRadius={22} cornerSmoothing={1}
           fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
           <Squircle style={styles.statusIconWrap} cornerRadius={14} cornerSmoothing={1} fillColor={colors.bg}>
-            <Ionicons name={isPro ? 'star' : 'star-outline'} size={28} color={colors.text} />
+            <Ionicons name={isPro ? 'star' : 'star-outline' as any} size={28} color={colors.text} />
           </Squircle>
           <View style={{ flex: 1 }}>
             <Text style={[styles.statusLabel, { color: colors.textSecondary }]}>CURRENT PLAN</Text>

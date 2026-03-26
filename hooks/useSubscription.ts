@@ -102,7 +102,14 @@ export function useSubscription() {
         .then(data => setPlans(data ?? []))
         .catch(() => {});
       apiFetch<MyFeatures>('/subscription/my-features', { token })
-        .then(data => setMyFeatures(data))
+        .then(data => {
+          setMyFeatures(data);
+          // Sync super_likes_remaining into the cached profile so FeedScreen
+          // sees the correct count without needing a separate profile refresh.
+          if (data?.super_likes_remaining !== undefined) {
+            updateProfile({ super_likes_remaining: data.super_likes_remaining });
+          }
+        })
         .catch(() => {});
 
       // Skip native RC SDK entirely in Expo Go — no native store available

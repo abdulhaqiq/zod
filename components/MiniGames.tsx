@@ -512,7 +512,7 @@ function QuizBubble({ msg, colors, isMe, meta, extra, avatarSlot, onRespond, mes
           {QUIZ_QUESTIONS.map((q, i) => (
             <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
               <Ionicons
-                name={aAnswers[i] === bAnswers[i] ? 'heart' : 'close-circle'}
+                name={aAnswers[i] === bAnswers[i] ? 'heart' : 'close-circle' as any}
                 size={14}
                 color={aAnswers[i] === bAnswers[i] ? '#4ade80' : 'rgba(255,255,255,0.3)'}
               />
@@ -624,7 +624,7 @@ function DateBubble({ msg, colors, isMe, meta, extra, avatarSlot, onRespond, mes
             const same  = aPick && bPick && aPick === bPick;
             return (
               <View key={i} style={[gStyles.dateResultRow, { backgroundColor: same ? 'rgba(16,185,129,0.12)' : 'rgba(255,255,255,0.06)' }]}>
-                <Ionicons name={same ? 'heart' : 'checkmark-circle'} size={14} color={same ? '#4ade80' : meta.accent} />
+                <Ionicons name={same ? 'heart' : 'checkmark-circle' as any} size={14} color={same ? '#4ade80' : meta.accent} />
                 <View style={{ flex: 1 }}>
                   <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', fontFamily: 'ProductSans-Regular' }}>{step.q}</Text>
                   {hasAPicks && aPick && bPick ? (
@@ -726,7 +726,7 @@ function DateBubble({ msg, colors, isMe, meta, extra, avatarSlot, onRespond, mes
 
       {inPlacePicking || replied ? (
         <View style={gStyles.answeredRow}>
-          <Ionicons name={replied ? 'heart' : 'time-outline'} size={13} color={replied ? '#4ade80' : 'rgba(255,255,255,0.4)'} />
+          <Ionicons name={replied ? 'heart' : 'time-outline' as any} size={13} color={replied ? '#4ade80' : 'rgba(255,255,255,0.4)'} />
           <Text style={[gStyles.answeredText, !replied && { color: 'rgba(255,255,255,0.4)' }]}>
             {replied ? 'Both planned! View results below ✨' : 'They\'re picking their choices…'}
           </Text>

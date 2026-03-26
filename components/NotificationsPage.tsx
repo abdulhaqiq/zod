@@ -10,7 +10,7 @@ import { useAppTheme } from '@/context/ThemeContext';
 
 type NotifItem = {
   id: string;
-  icon: keyof typeof Ionicons.glyphMap;
+  icon: string;
   label: string;
   sub: string;
 };
@@ -57,7 +57,7 @@ function NotifRow({
   return (
     <View style={[styles.row, !last && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border }]}>
       <Squircle style={styles.iconWrap} cornerRadius={10} cornerSmoothing={1} fillColor={colors.bg}>
-        <Ionicons name={item.icon} size={18} color={colors.text} />
+        <Ionicons name={item.icon as any} size={18} color={colors.text} />
       </Squircle>
       <View style={styles.rowText}>
         <Text style={[styles.rowLabel, { color: colors.text }]}>{item.label}</Text>

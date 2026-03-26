@@ -249,7 +249,7 @@ function WorkProfileCard({ profile, onSwipedLeft, onSwipedRight, colors }: {
             ].map(d => (
               <View key={d.label} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 6 }}>
                 <View style={[{ width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center' }, { backgroundColor: colors.surface2 }]}>
-                  <Ionicons name={d.icon} size={13} color={colors.textSecondary} />
+                  <Ionicons name={d.icon as any} size={13} color={colors.textSecondary} />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={[cardStyles.detailLabel, { color: colors.textSecondary }]}>{d.label}</Text>

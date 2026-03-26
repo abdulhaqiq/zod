@@ -61,7 +61,7 @@ export default function AboutYou() {
                     fillColor={selected ? `${colors.btnPrimaryText}18` : colors.surface2}
                   >
                     <Ionicons
-                      name={g === 'male' ? 'male' : 'female'}
+                      name={g === 'male' ? 'male' : 'female' as any}
                       size={32}
                       color={selected ? colors.btnPrimaryText : colors.textSecondary}
                     />

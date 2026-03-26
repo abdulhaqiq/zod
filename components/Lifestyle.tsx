@@ -2,7 +2,7 @@ import { navPush, navReplace } from '@/utils/nav';
 import { Ionicons } from '@expo/vector-icons';
 import type { ComponentProps } from 'react';
 import { useRouter } from 'expo-router';
-type IoniconsName = ComponentProps<typeof Ionicons>['name'];
+type IoniconsName = string;
 
 import { useState } from 'react';
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -108,7 +108,7 @@ export default function Lifestyle() {
             return (
               <View key={section.key} style={styles.section}>
                 <View style={styles.sectionHeader}>
-                  <Ionicons name={section.icon} size={18} color={colors.textSecondary} />
+                  <Ionicons name={section.icon as any} size={18} color={colors.textSecondary} />
                   <Text style={[styles.sectionTitle, { color: colors.text }]}>{section.title}</Text>
                 </View>
                 <View style={styles.optionRow}>
