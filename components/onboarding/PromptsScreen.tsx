@@ -34,6 +34,7 @@ export default function PromptsScreen() {
       continueDisabled={bio.trim().length < 10}
       loading={saving}
       keyboardAvoiding
+      fallbackHref="/values"
     >
       <Squircle
         style={styles.inputBox}

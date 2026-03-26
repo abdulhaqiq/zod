@@ -293,12 +293,32 @@ export default function ChatsPage({ insets, token }: { insets: any; token: strin
     };
   }, [token]);
 
-  const myId     = profile?.id ?? '';
-  const filtered = search.trim()
-    ? convs.filter(c => c.partner_name.toLowerCase().includes(search.toLowerCase()))
-    : convs;
+  const myId = profile?.id ?? '';
 
-  const hasNoMatches = !loading && convs.length === 0;
+  const searchQ = search.trim().toLowerCase();
+
+  // New matches: matched but no messages sent yet → circles
+  const newMatches = !searchQ
+    ? convs.filter(c => !c.last_message)
+    : [];
+
+  // Active conversations: at least one message exchanged → list
+  const activeConvs = convs.filter(c => {
+    if (!c.last_message) return false;
+    if (searchQ) return c.partner_name.toLowerCase().includes(searchQ);
+    return true;
+  });
+
+  // When searching, also include new matches in the flat list
+  const searchMatches = searchQ
+    ? convs.filter(c => !c.last_message && c.partner_name.toLowerCase().includes(searchQ))
+    : [];
+
+  const hasNoMatches   = !loading && convs.length === 0;
+  const hasNoActive    = !loading && activeConvs.length === 0 && searchMatches.length === 0;
+
+  const openChat = (c: Conversation) =>
+    navPush({ pathname: '/chat', params: { partnerId: c.partner_id, name: c.partner_name, image: c.partner_image ?? '', online: c.is_online ? 'true' : 'false' } });
 
   return (
     <ScrollView
@@ -339,18 +359,18 @@ export default function ChatsPage({ insets, token }: { insets: any; token: strin
         </Squircle>
       </View>
 
-      {/* New Messages row — only show partners who sent unread messages */}
-      {!search && convs.filter(c => c.unread_count > 0 && c.last_message?.sender_id !== myId).length > 0 && (
-        <View style={{ marginBottom: 24 }}>
+      {/* ── New Matches circles (no messages exchanged yet) ──────────────────── */}
+      {!searchQ && newMatches.length > 0 && (
+        <View style={{ marginBottom: 28 }}>
           <Text style={[styles.sectionLabel, { color: colors.textSecondary, paddingHorizontal: 16, marginBottom: 14 }]}>
-            NEW MESSAGES
+            NEW MATCHES
           </Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingHorizontal: 16 }}>
-            {convs.filter(c => c.unread_count > 0 && c.last_message?.sender_id !== myId).map(m => (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 14, paddingHorizontal: 16 }}>
+            {newMatches.map(m => (
               <Pressable
                 key={m.partner_id}
-                onPress={() => navPush({ pathname: '/chat', params: { partnerId: m.partner_id, name: m.partner_name, image: m.partner_image ?? '', online: m.is_online ? 'true' : 'false' } })}
-                style={({ pressed }) => [{ alignItems: 'center', gap: 7 }, pressed && { opacity: 0.75 }]}
+                onPress={() => openChat(m)}
+                style={({ pressed }) => [{ alignItems: 'center', gap: 7, maxWidth: 72 }, pressed && { opacity: 0.75 }]}
               >
                 <View style={styles.matchRingWrap}>
                   <View style={[styles.matchRing, { borderColor: '#6366f1' }]}>
@@ -359,9 +379,9 @@ export default function ChatsPage({ insets, token }: { insets: any; token: strin
                       : <View style={[styles.matchAvatar, { backgroundColor: colors.surface2 }]} />
                     }
                   </View>
-                  {/* Unread badge */}
+                  {/* "NEW" pulse dot */}
                   <View style={{ position: 'absolute', top: 0, right: 0, backgroundColor: '#6366f1', borderRadius: 10, minWidth: 18, height: 18, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4, borderWidth: 2, borderColor: colors.bg }}>
-                    <Text style={{ color: '#fff', fontSize: 10, fontFamily: 'ProductSans-Bold' }}>{m.unread_count > 9 ? '9+' : m.unread_count}</Text>
+                    <Text style={{ color: '#fff', fontSize: 9, fontFamily: 'ProductSans-Bold' }}>NEW</Text>
                   </View>
                   {m.is_online && (
                     <View style={[styles.matchDot, { backgroundColor: colors.bg, bottom: 0, right: 0, top: undefined }]}>
@@ -369,7 +389,9 @@ export default function ChatsPage({ insets, token }: { insets: any; token: strin
                     </View>
                   )}
                 </View>
-                <Text style={[styles.matchName, { color: colors.text }]} numberOfLines={1}>{m.partner_name}</Text>
+                <Text style={[styles.matchName, { color: colors.text }]} numberOfLines={1}>
+                  {m.partner_name.split(' ')[0]}
+                </Text>
               </Pressable>
             ))}
           </ScrollView>
@@ -383,11 +405,15 @@ export default function ChatsPage({ insets, token }: { insets: any; token: strin
         </View>
       )}
 
-      {/* Messages list */}
+      {/* ── Messages list (conversations with at least one message) ─────────── */}
       {!loading && (
         <View style={{ paddingHorizontal: 16 }}>
-          <Text style={[styles.sectionLabel, { color: colors.textSecondary, marginBottom: 12 }]}>MESSAGES</Text>
+          {/* Only show the MESSAGES label when there are active convs */}
+          {(activeConvs.length > 0 || searchMatches.length > 0) && (
+            <Text style={[styles.sectionLabel, { color: colors.textSecondary, marginBottom: 12 }]}>MESSAGES</Text>
+          )}
 
+          {/* Completely empty — no matches at all */}
           {hasNoMatches && (
             <Squircle style={styles.convGroup} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={StyleSheet.hairlineWidth}>
               <View style={{ alignItems: 'center', padding: 32, gap: 8 }}>
@@ -399,7 +425,11 @@ export default function ChatsPage({ insets, token }: { insets: any; token: strin
             </Squircle>
           )}
 
-          {!hasNoMatches && filtered.length === 0 && (
+          {/* Has matches but none have messages yet (all are in circles above) — no list needed */}
+          {!hasNoMatches && hasNoActive && !searchQ && newMatches.length > 0 && null}
+
+          {/* Search returned nothing */}
+          {searchQ && activeConvs.length === 0 && searchMatches.length === 0 && (
             <Squircle style={styles.convGroup} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={StyleSheet.hairlineWidth}>
               <View style={{ alignItems: 'center', padding: 32, gap: 8 }}>
                 <Ionicons name="search-outline" size={28} color={colors.textTertiary} />
@@ -410,13 +440,38 @@ export default function ChatsPage({ insets, token }: { insets: any; token: strin
             </Squircle>
           )}
 
+          {/* New matches that match the search query (flat, no circles while searching) */}
           <View style={{ gap: 10 }}>
-            {filtered.map((c) => {
+            {searchMatches.map((c) => (
+              <Squircle
+                key={c.partner_id}
+                cornerRadius={22} cornerSmoothing={1}
+                fillColor={colors.surface}
+                strokeColor={'#6366f1'}
+                strokeWidth={1.5}
+                style={{ overflow: 'hidden' }}
+              >
+                <ConvRow
+                  conv={c}
+                  isMe={false}
+                  preview="Say hi! 👋"
+                  timeStr=""
+                  hasUnread={false}
+                  colors={colors}
+                  onPress={() => openChat(c)}
+                />
+              </Squircle>
+            ))}
+          </View>
+
+          {/* Active conversations (have messages) */}
+          <View style={{ gap: 10, marginTop: searchMatches.length > 0 ? 10 : 0 }}>
+            {activeConvs.map((c) => {
               const rawContent = c.last_message?.content ?? '';
               const msgType    = c.last_message?.msg_type;
-              const preview    = (rawContent || msgType) ? _previewText(rawContent, msgType) : 'Say hi! 👋';
+              const preview    = _previewText(rawContent, msgType);
               const isMyMsg    = c.last_message?.sender_id === myId;
-              const timeStr    = c.last_message ? _relativeTime(c.last_message.created_at) : '';
+              const timeStr    = _relativeTime(c.last_message!.created_at);
               const hasUnread  = c.unread_count > 0;
               return (
                 <Squircle
@@ -434,7 +489,7 @@ export default function ChatsPage({ insets, token }: { insets: any; token: strin
                     timeStr={timeStr}
                     hasUnread={hasUnread}
                     colors={colors}
-                    onPress={() => navPush({ pathname: '/chat', params: { partnerId: c.partner_id, name: c.partner_name, image: c.partner_image ?? '', online: c.is_online ? 'true' : 'false' } })}
+                    onPress={() => openChat(c)}
                   />
                 </Squircle>
               );

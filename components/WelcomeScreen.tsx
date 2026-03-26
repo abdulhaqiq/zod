@@ -23,6 +23,7 @@ import { apiFetch, authedFetch } from '@/constants/api';
 import {
   useAuth,
   loadRecentAccount,
+  saveRecentAccount,
   type RecentAccount,
 } from '@/context/AuthContext';
 
@@ -66,26 +67,38 @@ export default function WelcomeScreen() {
     });
 
   /** Navigate to passkey setup passing account info so the screen can save it.
-   *  Skips the passkey screen entirely if the user already has a saved account. */
+   *  If the same user is signing in again → skip (already saved).
+   *  If a different user → silently overwrite the saved account.
+   *  If no saved account → show the passkey setup screen to ask permission. */
   const goToPasskeySetup = async (
     account: { name: string | null; phone: string | null; photo: string | null; method: 'phone' | 'apple' },
     next: string,
   ) => {
     const existing = await loadRecentAccount();
-    if (existing) {
-      router.replace(next as any);
+    if (!existing) {
+      // No saved account — show passkey screen to ask the user
+      router.push({
+        pathname: '/passkey' as any,
+        params: {
+          name:   account.name   ?? '',
+          phone:  account.phone  ?? '',
+          photo:  account.photo  ?? '',
+          method: account.method,
+          next,
+        },
+      });
       return;
     }
-    router.push({
-      pathname: '/passkey' as any,
-      params: {
-        name:   account.name   ?? '',
-        phone:  account.phone  ?? '',
-        photo:  account.photo  ?? '',
-        method: account.method,
-        next,
-      },
-    });
+    // Determine if this is the same user (compare by phone for phone accounts)
+    const isSameUser = account.method === 'phone'
+      ? (existing.phone != null && existing.phone === account.phone)
+      : existing.method === 'apple';
+
+    if (!isSameUser) {
+      // Different user — silently overwrite so the card reflects the new user
+      await saveRecentAccount(account);
+    }
+    router.replace(next as any);
   };
 
   const handleAppleSignIn = async (fromQuickSignIn = false) => {

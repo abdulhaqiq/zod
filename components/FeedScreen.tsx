@@ -39,6 +39,7 @@ import DateFilterSheet from '@/components/filters/DateFilterSheet';
 import { apiFetch, WS_V1 } from '@/constants/api';
 import { useAuth } from '@/context/AuthContext';
 import { useAppTheme } from '@/context/ThemeContext';
+import { useLookups } from '@/hooks/useLookups';
 
 const { width: W, height: H } = Dimensions.get('window');
 const CARD_W          = W - 32;
@@ -107,21 +108,86 @@ function LikedCardSkeleton({ colors }: { colors: any }) {
   );
 }
 
-function AppLogo({ color }: { color: string; mode?: AppMode; onPress?: () => void }) {
+function AppLogo({
+  color, bgColor, halalMode, isMuslim, onPress,
+}: {
+  color: string; bgColor: string; halalMode: boolean; isMuslim: boolean; onPress: () => void;
+}) {
   return (
-    <View style={styles.logoBtn}>
+    <Pressable onPress={onPress} hitSlop={8} style={styles.logoBtn}>
       <Text style={[styles.logoText, { color }]}>zod</Text>
-    </View>
+      {isMuslim && (
+        <View style={[
+          styles.halalPill,
+          { backgroundColor: halalMode ? color : 'transparent', borderColor: halalMode ? color : color + '55' },
+        ]}>
+          <Text style={[styles.halalPillLabel, { color: halalMode ? bgColor : color }]}>
+            {halalMode ? 'Halal' : 'Standard'}
+          </Text>
+          <Ionicons name="chevron-down" size={10} color={halalMode ? bgColor : color} />
+        </View>
+      )}
+    </Pressable>
   );
 }
 
-// ─── Mode select modal ────────────────────────────────────────────────────────
-// Work mode is disabled for now — modal is kept but only shows Date option.
-function ModeModal({ visible, mode, onSelect, onClose, colors }: {
-  visible: boolean; mode: AppMode;
-  onSelect: (m: AppMode) => void; onClose: () => void; colors: any;
+// ─── Halal mode bottom-sheet dropdown ────────────────────────────────────────
+function HalalModeSheet({ visible, halalMode, onSelect, onClose, colors }: {
+  visible: boolean; halalMode: boolean;
+  onSelect: (halal: boolean) => void; onClose: () => void; colors: any;
 }) {
-  return null; // Mode switching disabled — only date mode available
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={mStyles.backdrop} onPress={onClose}>
+        <Pressable style={[mStyles.sheet, { backgroundColor: colors.surface }]}>
+          <View style={mStyles.handle} />
+          <Text style={[mStyles.heading, { color: colors.text, marginBottom: 20 }]}>Choose Feed Mode</Text>
+
+          {/* Standard option */}
+          <Pressable
+            style={[
+              mStyles.option,
+              { borderColor: !halalMode ? colors.text : colors.border, marginBottom: 12 },
+            ]}
+            onPress={() => { onSelect(false); onClose(); }}
+          >
+            <Squircle style={mStyles.optIconWrap} cornerRadius={12} cornerSmoothing={1}
+              fillColor={!halalMode ? colors.text : colors.surface2}>
+              <Ionicons name="layers" size={20} color={!halalMode ? colors.bg : colors.textSecondary} />
+            </Squircle>
+            <View style={{ flex: 1 }}>
+              <Text style={[mStyles.optLabel, { color: colors.text }]}>Standard</Text>
+              <Text style={[mStyles.optSub, { color: colors.textSecondary }]}>
+                Full discovery feed with all filters
+              </Text>
+            </View>
+            {!halalMode && <Ionicons name="checkmark-circle" size={22} color={colors.text} />}
+          </Pressable>
+
+          {/* Halal option */}
+          <Pressable
+            style={[
+              mStyles.option,
+              { borderColor: halalMode ? colors.text : colors.border },
+            ]}
+            onPress={() => { onSelect(true); onClose(); }}
+          >
+            <Squircle style={mStyles.optIconWrap} cornerRadius={12} cornerSmoothing={1}
+              fillColor={halalMode ? colors.text : colors.surface2}>
+              <Ionicons name="moon-outline" size={20} color={halalMode ? colors.bg : colors.textSecondary} />
+            </Squircle>
+            <View style={{ flex: 1 }}>
+              <Text style={[mStyles.optLabel, { color: colors.text }]}>Halal Mode</Text>
+              <Text style={[mStyles.optSub, { color: colors.textSecondary }]}>
+                Marriage-focused · Muslim community · Halal filters
+              </Text>
+            </View>
+            {halalMode && <Ionicons name="checkmark-circle" size={22} color={colors.text} />}
+          </Pressable>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
 }
 
 const mStyles = StyleSheet.create({
@@ -1009,9 +1075,10 @@ function RangeSlider({
 
 export default function FeedScreen() {
   const { colors, isDark } = useAppTheme();
-  const { profile, token } = useAuth();
+  const { profile, token, updateProfile } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { lookups } = useLookups();
   const isPro = profile?.subscription_tier === 'pro';
   const [superLikesRemaining, setSuperLikesRemaining] = useState(
     profile?.super_likes_remaining ?? 0,
@@ -1037,6 +1104,39 @@ export default function FeedScreen() {
   const [likedYouCount,  setLikedYouCount] = useState(0);
   const [unreadChats,    setUnreadChats]   = useState(0);
   const [matchedProfile, setMatchedProfile] = useState<MatchedProfile | null>(null);
+
+  // ── Halal mode state ──────────────────────────────────────────────────────
+  // Only users whose religion is specifically Islam/Muslim can use halal mode.
+  const religionLabel = profile?.religion_id
+    ? (lookups['religion']?.find(r => r.id === profile.religion_id)?.label ?? '').toLowerCase()
+    : '';
+  const isMuslim = religionLabel.includes('muslim') || religionLabel.includes('islam');
+  const [halalMode,            setHalalMode]            = useState(profile?.halal_mode_enabled ?? false);
+
+  // Keep local halalMode in sync if the profile refreshes from the server
+  // (e.g. on re-mount or after a background profile fetch).
+  useEffect(() => {
+    if (profile?.halal_mode_enabled !== undefined) {
+      setHalalMode(profile.halal_mode_enabled);
+    }
+  }, [profile?.halal_mode_enabled]);
+  const [halalSheetVisible,    setHalalSheetVisible]    = useState(false);
+  const [halalConfirmVisible,  setHalalConfirmVisible]  = useState(false);
+  const [halalGateMuslim,      setHalalGateMuslim]      = useState(false);
+  const [halalGateId,          setHalalGateId]          = useState(false);
+
+  // Show ID gate for Muslim + halal-enabled users who haven't verified yet.
+  // Re-evaluates whenever verification status changes (e.g. after successful ID scan).
+  useEffect(() => {
+    if (!profile?.id || !isMuslim || !halalMode) return;
+    const idVerified = profile.verification_status === 'verified' && profile.is_verified === true;
+    if (idVerified) {
+      // Already verified — make sure modal is dismissed
+      setHalalGateId(false);
+    } else {
+      setHalalGateId(true);
+    }
+  }, [profile?.id, profile?.verification_status, profile?.is_verified, isMuslim, halalMode]);
 
   // ── WebSocket — real-time match / liked_you events while on the feed ──────
   useEffect(() => {
@@ -1128,9 +1228,10 @@ export default function FeedScreen() {
     if (!token) return;
     setLoadingFeed(true);
     try {
+      const halalParam = halalMode ? '&halal=true' : '';
       const [res, localSwiped] = await Promise.all([
         apiFetch<{ profiles: Profile[]; has_more: boolean }>(
-          `/discover/feed?page=${page}&limit=10`,
+          `/discover/feed?page=${page}&limit=10${halalParam}`,
           { token },
         ),
         getLocalSwipedIds(),
@@ -1168,11 +1269,11 @@ export default function FeedScreen() {
     } finally {
       setLoadingFeed(false);
     }
-  }, [token, getLocalSwipedIds]);
+  }, [token, halalMode, getLocalSwipedIds]);
 
   useEffect(() => {
     if (appMode === 'date') fetchFeed(0, true);
-  }, [appMode, fetchFeed]);
+  }, [appMode, halalMode, fetchFeed]);
 
   useEffect(() => { fetchCounts(); }, [fetchCounts]);
 
@@ -1203,6 +1304,33 @@ export default function FeedScreen() {
     swipedThisSessionRef.current.clear();
     fetchFeed(0, true);
   }, [token, fetchFeed]);
+
+  // ── Halal mode toggle handler ─────────────────────────────────────────────
+  const _applyHalalMode = useCallback(async (halal: boolean) => {
+    setHalalMode(halal);
+    // Persist to profile context so the value survives re-mounts and navigation
+    updateProfile({ halal_mode_enabled: halal });
+    swipedThisSessionRef.current.clear();
+    try { await AsyncStorage.removeItem(swipeCacheKeyRef.current); } catch { /* ignore */ }
+    if (token) {
+      apiFetch('/profile/me', {
+        method: 'PATCH',
+        token,
+        body: JSON.stringify({ halal_mode_enabled: halal }),
+      }).catch(() => {});
+    }
+    fetchFeed(0, true);
+  }, [token, fetchFeed, updateProfile]);
+
+  const handleHalalSelect = useCallback((halal: boolean) => {
+    setHalalSheetVisible(false);
+    if (halal && !halalMode) {
+      // Show the "turn on Halal mode" confirmation before activating
+      setHalalConfirmVisible(true);
+    } else {
+      _applyHalalMode(halal);
+    }
+  }, [halalMode, _applyHalalMode]);
 
   // Show the match celebration for a profile that was on the deck
   const _showMatchIfNeeded = (res: { match: boolean }, p: Profile) => {
@@ -1303,7 +1431,18 @@ export default function FeedScreen() {
               <Ionicons name="refresh-outline" size={20} color={colors.text} />
             </Squircle>
           </Pressable>
-          <AppLogo color={colors.text} />
+          <AppLogo
+            color={colors.text}
+            bgColor={colors.bg}
+            halalMode={halalMode}
+            isMuslim={isMuslim}
+            onPress={() => {
+              if (!isMuslim) { setHalalGateMuslim(true); return; }
+              const idVerified = profile?.verification_status === 'verified' && profile?.is_verified === true;
+              if (!idVerified) { setHalalGateId(true); return; }
+              setHalalSheetVisible(true);
+            }}
+          />
           <Pressable onPress={() => setFilterOpen(true)} hitSlop={8}>
             <Squircle style={styles.iconBtn} cornerRadius={14} cornerSmoothing={1} fillColor={colors.surface2}>
               <Ionicons name="options-outline" size={20} color={colors.text} />
@@ -1311,6 +1450,103 @@ export default function FeedScreen() {
           </Pressable>
         </View>
       )}
+
+      {/* Halal mode selector sheet */}
+      <HalalModeSheet
+        visible={halalSheetVisible}
+        halalMode={halalMode}
+        onSelect={handleHalalSelect}
+        onClose={() => setHalalSheetVisible(false)}
+        colors={colors}
+      />
+
+      {/* Halal mode activation confirmation */}
+      <Modal visible={halalConfirmVisible} transparent animationType="fade" onRequestClose={() => setHalalConfirmVisible(false)}>
+        <Pressable style={mStyles.backdrop} onPress={() => setHalalConfirmVisible(false)}>
+          <Pressable style={[mStyles.sheet, { backgroundColor: colors.surface, gap: 0 }]}>
+            <View style={mStyles.handle} />
+
+            <Squircle style={{ width: 52, height: 52, alignItems: 'center', justifyContent: 'center', alignSelf: 'center', marginBottom: 16 }}
+              cornerRadius={16} cornerSmoothing={1} fillColor={colors.surface2}>
+              <Ionicons name="moon-outline" size={26} color={colors.text} />
+            </Squircle>
+
+            <Text style={[mStyles.heading, { color: colors.text, marginBottom: 8 }]}>Turn on Halal Mode?</Text>
+            <Text style={[mStyles.optSub, { color: colors.textSecondary, textAlign: 'center', marginBottom: 28, lineHeight: 20 }]}>
+              Your profile will be visible to other Muslims in Halal mode. You'll only see people who have also turned it on.
+            </Text>
+
+            <Squircle cornerRadius={18} cornerSmoothing={1} fillColor={colors.text} style={[styles.applyBtn, { marginHorizontal: 0, marginBottom: 12 }]}>
+              <Pressable
+                onPress={() => { setHalalConfirmVisible(false); _applyHalalMode(true); }}
+                style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}
+              >
+                <Text style={[styles.applyBtnText, { color: colors.bg }]}>Turn on Halal Mode</Text>
+              </Pressable>
+            </Squircle>
+
+            <Pressable onPress={() => setHalalConfirmVisible(false)} style={{ alignItems: 'center', paddingVertical: 12 }}>
+              <Text style={[mStyles.optSub, { color: colors.textSecondary }]}>Cancel</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* Gate: must be Muslim */}
+      <Modal visible={halalGateMuslim} transparent animationType="fade" onRequestClose={() => setHalalGateMuslim(false)}>
+        <Pressable style={mStyles.backdrop} onPress={() => setHalalGateMuslim(false)}>
+          <Pressable style={[mStyles.sheet, { backgroundColor: colors.surface, gap: 0 }]}>
+            <View style={mStyles.handle} />
+            <Squircle style={{ width: 52, height: 52, alignItems: 'center', justifyContent: 'center', alignSelf: 'center', marginBottom: 16 }}
+              cornerRadius={16} cornerSmoothing={1} fillColor={colors.surface2}>
+              <Ionicons name="person-circle-outline" size={26} color={colors.text} />
+            </Squircle>
+            <Text style={[mStyles.heading, { color: colors.text, marginBottom: 8 }]}>Muslims Only</Text>
+            <Text style={[mStyles.optSub, { color: colors.textSecondary, textAlign: 'center', marginBottom: 28, lineHeight: 20 }]}>
+              Halal mode is only available to Muslim users. Set your religion on your profile to unlock it.
+            </Text>
+            <Squircle cornerRadius={18} cornerSmoothing={1} fillColor={colors.text} style={[styles.applyBtn, { marginHorizontal: 0, marginBottom: 12 }]}>
+              <Pressable
+                onPress={() => { setHalalGateMuslim(false); router.push('/edit-profile' as any); }}
+                style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}
+              >
+                <Text style={[styles.applyBtnText, { color: colors.bg }]}>Update My Profile</Text>
+              </Pressable>
+            </Squircle>
+            <Pressable onPress={() => setHalalGateMuslim(false)} style={{ alignItems: 'center', paddingVertical: 12 }}>
+              <Text style={[mStyles.optSub, { color: colors.textSecondary }]}>Cancel</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* Gate: must have verified government ID */}
+      <Modal visible={halalGateId} transparent animationType="fade" onRequestClose={() => setHalalGateId(false)}>
+        <Pressable style={mStyles.backdrop} onPress={() => setHalalGateId(false)}>
+          <Pressable style={[mStyles.sheet, { backgroundColor: colors.surface, gap: 0 }]}>
+            <View style={mStyles.handle} />
+            <Squircle style={{ width: 52, height: 52, alignItems: 'center', justifyContent: 'center', alignSelf: 'center', marginBottom: 16 }}
+              cornerRadius={16} cornerSmoothing={1} fillColor={colors.surface2}>
+              <Ionicons name="card-outline" size={26} color={colors.text} />
+            </Squircle>
+            <Text style={[mStyles.heading, { color: colors.text, marginBottom: 8 }]}>ID Verification Required</Text>
+            <Text style={[mStyles.optSub, { color: colors.textSecondary, textAlign: 'center', marginBottom: 28, lineHeight: 20 }]}>
+              Halal mode requires a verified government ID so every profile in the community is real and trustworthy.
+            </Text>
+            <Squircle cornerRadius={18} cornerSmoothing={1} fillColor={colors.text} style={[styles.applyBtn, { marginHorizontal: 0, marginBottom: 12 }]}>
+              <Pressable
+                onPress={() => { setHalalGateId(false); router.push({ pathname: '/verification', params: { tab: 'id' } } as any); }}
+                style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}
+              >
+                <Text style={[styles.applyBtnText, { color: colors.bg }]}>Verify My ID</Text>
+              </Pressable>
+            </Squircle>
+            <Pressable onPress={() => setHalalGateId(false)} style={{ alignItems: 'center', paddingVertical: 12 }}>
+              <Text style={[mStyles.optSub, { color: colors.textSecondary }]}>Cancel</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       {/* Tab content */}
       {activeTab === 'people' && (
@@ -1391,6 +1627,7 @@ export default function FeedScreen() {
         }}
         colors={colors}
         insets={insets}
+        halalMode={halalMode}
       />
 
       {/* Explore overlay */}
@@ -1437,8 +1674,11 @@ const styles = StyleSheet.create({
   exploreHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingBottom: 10, borderBottomWidth: StyleSheet.hairlineWidth },
 
   // Logo
-  logoBtn:       { flexDirection: 'row', alignItems: 'center', gap: 2 },
-  logoText:      { fontFamily: 'PageSerif', fontSize: 26, lineHeight: 30, letterSpacing: -0.5 },
+  logoBtn:        { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  logoText:       { fontFamily: 'PageSerif', fontSize: 26, lineHeight: 30, letterSpacing: -0.5 },
+  halalPill:      { flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 20, borderWidth: 1 },
+  halalPillText:  { fontSize: 12 },
+  halalPillLabel: { fontSize: 11, fontFamily: 'ProductSans-Bold' },
   logoMode:      { fontFamily: 'PageSerif', fontSize: 20, letterSpacing: -0.3 },
 
   // Card stack

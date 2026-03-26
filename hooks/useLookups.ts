@@ -10,6 +10,7 @@ export interface LookupOption {
   id: number;
   emoji?: string;
   label: string;
+  subcategory?: string;
 }
 
 export type LookupMap = Record<string, LookupOption[]>;
@@ -29,10 +30,10 @@ export async function fetchLookups(): Promise<LookupMap> {
   if (_inflight) return _inflight;
   _inflight = (async () => {
     try {
-      const data = await apiFetch<Record<string, Array<{ id: number; emoji?: string; label: string }>>>('/lookup/options');
+      const data = await apiFetch<Record<string, Array<{ id: number; emoji?: string; label: string; subcategory?: string }>>>('/lookup/options');
       const map: LookupMap = {};
       for (const [cat, rows] of Object.entries(data)) {
-        map[cat] = rows.map(r => ({ id: r.id, emoji: r.emoji ?? undefined, label: r.label }));
+        map[cat] = rows.map(r => ({ id: r.id, emoji: r.emoji ?? undefined, label: r.label, subcategory: r.subcategory ?? undefined }));
       }
       _cache = map;
       return map;
@@ -50,7 +51,7 @@ export function useLookups(): { lookups: LookupMap; ready: boolean } {
 
   useEffect(() => {
     if (_cache) { setLookups(_cache); setReady(true); return; }
-    fetchLookups().then(map => { setLookups(map); setReady(true); });
+    fetchLookups().then(map => { setLookups(map); setReady(true); }).catch(() => {});
   }, []);
 
   return { lookups, ready };

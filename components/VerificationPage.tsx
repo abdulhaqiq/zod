@@ -150,8 +150,7 @@ export function FaceTab({ colors, onSwitchToId, onPassed, skipCheck }: { colors:
     return () => clearTimeout(timer);
   }, [state, challengeIdx]);
 
-  // Real-time verification status: WebSocket primary, HTTP poll fallback only
-  // if WS closes before delivering a final result.
+  // WebSocket-only while pending — auto-reconnects if the connection drops
   useEffect(() => {
     if (state !== 'pending' || !profile?.id) {
       wsRef.current?.close();
@@ -160,58 +159,52 @@ export function FaceTab({ colors, onSwitchToId, onPassed, skipCheck }: { colors:
     }
 
     let settled = false;
-    let pollTimer: ReturnType<typeof setInterval> | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
     const applyResult = (data: any) => {
       if (settled) return;
       if (data.status === 'verified') {
         settled = true;
-        pollTimer && clearInterval(pollTimer);
         setMatchScore(data.face_match_score ?? null);
         setState('passed');
         onPassed?.();
       } else if (data.status === 'rejected') {
         settled = true;
-        pollTimer && clearInterval(pollTimer);
         setMatchScore(data.face_match_score ?? null);
         setFailReason(data.rejection_reason ?? 'Verification failed. Please try again.');
         setState('failed');
       }
-      // 'pending' → keep waiting, do nothing
     };
 
-    const startPolling = () => {
-      if (settled || pollTimer) return;
-      pollTimer = setInterval(async () => {
-        if (settled) { clearInterval(pollTimer!); return; }
+    const connect = () => {
+      if (settled) return;
+      const ws = new WebSocket(`${WS_V1}/ws/verify-face/${profile.id}`);
+      wsRef.current = ws;
+      ws.onmessage = (e) => {
         try {
-          const r = await fetch(`${API_V1}/upload/verify-face/status`, {
-            headers: { Authorization: `Bearer ${token}` },
-          });
-          if (r.ok) { const d = await r.json(); if (d?.attempt) applyResult(d.attempt); }
+          const data = JSON.parse(e.data);
+          if (data.status === 'heartbeat') return;
+          applyResult(data);
         } catch {}
-      }, 3000);
+      };
+      ws.onerror = () => ws.close();
+      // Reconnect after 3s if closed before a result arrives
+      ws.onclose = () => {
+        if (!settled) {
+          reconnectTimer = setTimeout(connect, 3000);
+        }
+      };
     };
 
-    const ws = new WebSocket(`${WS_V1}/ws/verify-face/${profile.id}`);
-    wsRef.current = ws;
-    ws.onmessage = (e) => {
-      try {
-        const data = JSON.parse(e.data);
-        if (data.status === 'heartbeat') return; // keep-alive ping, ignore
-        applyResult(data);
-      } catch {}
-    };
-    ws.onerror = () => ws.close();
-    // WS closed without settling → fall back to HTTP polling
-    ws.onclose = () => { if (!settled) startPolling(); };
+    connect();
 
     return () => {
+      settled = true;
       wsRef.current?.close();
       wsRef.current = null;
-      pollTimer && clearInterval(pollTimer);
+      if (reconnectTimer) clearTimeout(reconnectTimer);
     };
-  }, [state, profile?.id, token]);
+  }, [state, profile?.id]);
 
   const startScan = async () => {
     if (!permission?.granted) {
@@ -319,7 +312,7 @@ export function FaceTab({ colors, onSwitchToId, onPassed, skipCheck }: { colors:
           >
             <Ionicons name="card-outline" size={18} color="#22c55e" />
             <View style={{ flex: 1 }}>
-              <Text style={styles.successNextTitle}>Complete ID Verification</Text>
+              <Text style={styles.successNextTitle}>Complete Identity Verification</Text>
               <Text style={styles.successNextSub}>Upload your ID to get fully verified</Text>
             </View>
             <Ionicons name="chevron-forward" size={16} color="#22c55e" />
@@ -562,11 +555,13 @@ interface IDResult {
   id_has_dob: boolean | null;
   id_has_expiry: boolean | null;
   id_has_number: boolean | null;
+  id_name_match: boolean | null;
+  id_dob_match: boolean | null;
   rejection_reason: string | null;
 }
 
 function IDTab({ colors, active = true }: { colors: AppColors; active?: boolean }) {
-  const { token, profile } = useAuth();
+  const { token, profile, updateProfile } = useAuth();
   const [frontUri, setFrontUri] = useState<string | null>(null);
   const [backUri,  setBackUri]  = useState<string | null>(null);
   const [idState,  setIdState]  = useState<IDState>('idle');
@@ -599,31 +594,60 @@ function IDTab({ colors, active = true }: { colors: AppColors; active?: boolean 
       .finally(() => setIdInitializing(false));
   }, [token, active]);
 
-  // WebSocket while pending
+  // WebSocket-only while pending — auto-reconnects if the connection drops
   useEffect(() => {
     if (idState !== 'pending' || !profile?.id) {
       wsIdRef.current?.close();
       wsIdRef.current = null;
       return;
     }
-    const ws = new WebSocket(`${WS_V1}/ws/verify-face/${profile.id}?type=id`);
-    wsIdRef.current = ws;
-    ws.onmessage = (e) => {
-      try {
-        const data = JSON.parse(e.data);
-        if (data.status === 'verified') {
-          setIdResult(data);
-          setIdState('passed');
-          ws.close();
-        } else if (data.status === 'rejected') {
-          setIdResult(data);
-          setIdState('failed');
-          ws.close();
-        }
-      } catch {}
+
+    let settled = false;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const applyResult = (data: any) => {
+      if (settled) return;
+      if (data.status === 'verified') {
+        settled = true;
+        setIdResult(data);
+        setIdState('passed');
+        // Update profile context so FeedScreen halal gate knows we're now verified
+        updateProfile({ verification_status: 'verified', is_verified: true });
+      } else if (data.status === 'rejected') {
+        settled = true;
+        setIdResult(data);
+        setIdState('failed');
+      }
     };
-    ws.onerror = () => ws.close();
-    return () => { wsIdRef.current?.close(); wsIdRef.current = null; };
+
+    const connect = () => {
+      if (settled) return;
+      const ws = new WebSocket(`${WS_V1}/ws/verify-face/${profile.id}?type=id`);
+      wsIdRef.current = ws;
+      ws.onmessage = (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          if (data.status === 'heartbeat') return;
+          applyResult(data);
+        } catch {}
+      };
+      ws.onerror = () => ws.close();
+      // Reconnect after 3s if closed before a result arrives
+      ws.onclose = () => {
+        if (!settled) {
+          reconnectTimer = setTimeout(connect, 3000);
+        }
+      };
+    };
+
+    connect();
+
+    return () => {
+      settled = true;
+      wsIdRef.current?.close();
+      wsIdRef.current = null;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+    };
   }, [idState, profile?.id]);
 
   const submit = async () => {
@@ -647,11 +671,11 @@ function IDTab({ colors, active = true }: { colors: AppColors; active?: boolean 
       if (data.status === 'pending') {
         setIdState('pending');
       } else {
-        setIdResult({ rejection_reason: data.detail ?? 'Submission failed.', id_face_match_score: null, id_has_name: null, id_has_dob: null, id_has_expiry: null, id_has_number: null });
+        setIdResult({ rejection_reason: data.detail ?? 'Submission failed.', id_face_match_score: null, id_has_name: null, id_has_dob: null, id_has_expiry: null, id_has_number: null, id_name_match: null, id_dob_match: null });
         setIdState('failed');
       }
     } catch {
-      setIdResult({ rejection_reason: 'Could not submit. Check your connection.', id_face_match_score: null, id_has_name: null, id_has_dob: null, id_has_expiry: null, id_has_number: null });
+      setIdResult({ rejection_reason: 'Could not submit. Check your connection.', id_face_match_score: null, id_has_name: null, id_has_dob: null, id_has_expiry: null, id_has_number: null, id_name_match: null, id_dob_match: null });
       setIdState('failed');
     }
   };
@@ -676,11 +700,10 @@ function IDTab({ colors, active = true }: { colors: AppColors; active?: boolean 
 
   // ── Passed state ─────────────────────────────────────────────────────────────
   if (idState === 'passed') {
-    const fields = [
-      { label: 'Name detected',   val: idResult?.id_has_name },
-      { label: 'Date of birth',   val: idResult?.id_has_dob },
-      { label: 'Expiry date',     val: idResult?.id_has_expiry },
-      { label: 'ID number',       val: idResult?.id_has_number },
+    const checks = [
+      { label: 'Name matches profile',   val: idResult?.id_name_match ?? idResult?.id_has_name },
+      { label: 'Birth year matches',     val: idResult?.id_dob_match  ?? idResult?.id_has_dob },
+      { label: 'Face matches selfie',    val: idResult?.id_face_match_score != null ? idResult.id_face_match_score >= 70 : true },
     ];
     return (
       <View style={styles.tabContent}>
@@ -691,7 +714,7 @@ function IDTab({ colors, active = true }: { colors: AppColors; active?: boolean 
               <Ionicons name="checkmark" size={28} color="#fff" />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={[styles.idResultTitle, { color: '#22c55e' }]}>ID Verified!</Text>
+              <Text style={[styles.idResultTitle, { color: '#22c55e' }]}>Identity Verified!</Text>
               {idResult?.id_face_match_score != null && (
                 <Text style={[styles.idResultSub, { color: 'rgba(34,197,94,0.7)' }]}>
                   {idResult.id_face_match_score.toFixed(0)}% face match
@@ -700,7 +723,7 @@ function IDTab({ colors, active = true }: { colors: AppColors; active?: boolean 
             </View>
           </View>
           <View style={styles.idFieldList}>
-            {fields.map(f => (
+            {checks.map(f => (
               <View key={f.label} style={styles.idFieldRow}>
                 <Ionicons name={f.val ? 'checkmark-circle' : 'ellipse-outline'} size={15}
                   color={f.val ? '#22c55e' : 'rgba(34,197,94,0.3)'} />
@@ -715,11 +738,10 @@ function IDTab({ colors, active = true }: { colors: AppColors; active?: boolean 
 
   // ── Failed state ─────────────────────────────────────────────────────────────
   if (idState === 'failed') {
-    const fields = idResult ? [
-      { label: 'Name detected',   val: idResult.id_has_name },
-      { label: 'Date of birth',   val: idResult.id_has_dob },
-      { label: 'Expiry date',     val: idResult.id_has_expiry },
-      { label: 'ID number',       val: idResult.id_has_number },
+    const checks = idResult ? [
+      { label: 'Name matches profile',  val: idResult.id_name_match },
+      { label: 'Birth year matches',    val: idResult.id_dob_match },
+      { label: 'Face matches selfie',   val: idResult.id_face_match_score != null ? idResult.id_face_match_score >= 70 : null },
     ] : [];
     return (
       <View style={styles.tabContent}>
@@ -728,7 +750,7 @@ function IDTab({ colors, active = true }: { colors: AppColors; active?: boolean 
           <View style={styles.idResultHeader}>
             <Ionicons name="close-circle" size={40} color={colors.error} />
             <View style={{ flex: 1 }}>
-              <Text style={[styles.idResultTitle, { color: colors.error }]}>Verification Failed</Text>
+              <Text style={[styles.idResultTitle, { color: colors.error }]}>Identity Check Failed</Text>
               {idResult?.id_face_match_score != null && idResult.id_face_match_score > 0 && (
                 <Text style={[styles.idResultSub, { color: 'rgba(255,59,48,0.7)' }]}>
                   {idResult.id_face_match_score.toFixed(0)}% face match (need 70%)
@@ -741,13 +763,13 @@ function IDTab({ colors, active = true }: { colors: AppColors; active?: boolean 
               {idResult.rejection_reason}
             </Text>
           )}
-          {fields.some(f => f.val !== null) && (
+          {checks.some(f => f.val !== null) && (
             <View style={styles.idFieldList}>
-              {fields.map(f => f.val !== null ? (
+              {checks.map(f => f.val !== null ? (
                 <View key={f.label} style={styles.idFieldRow}>
                   <Ionicons name={f.val ? 'checkmark-circle' : 'close-circle'} size={15}
-                    color={f.val ? 'rgba(255,59,48,0.5)' : colors.error} />
-                  <Text style={[styles.idFieldText, { color: f.val ? 'rgba(255,59,48,0.5)' : colors.error }]}>{f.label}</Text>
+                    color={f.val ? 'rgba(34,197,94,0.7)' : colors.error} />
+                  <Text style={[styles.idFieldText, { color: f.val ? 'rgba(34,197,94,0.7)' : colors.error }]}>{f.label}</Text>
                 </View>
               ) : null)}
             </View>
@@ -763,24 +785,60 @@ function IDTab({ colors, active = true }: { colors: AppColors; active?: boolean 
     );
   }
 
-  // ── Pending state ─────────────────────────────────────────────────────────────
+  // ── Pending / Submitting state ────────────────────────────────────────────────
   if (idState === 'pending' || idState === 'submitting') {
+    const isUploading = idState === 'submitting';
+    // All checks are shown as in-progress until the backend returns a real result.
+    // Never show false green ticks — we only know results when the attempt settles.
+    const checks = [
+      { label: 'Name matches your profile' },
+      { label: 'Birth year matches'        },
+      { label: 'Document is readable'      },
+      { label: 'Face matches your selfie'  },
+    ];
     return (
       <View style={styles.tabContent}>
-        <Squircle style={styles.idResultCard} cornerRadius={22} cornerSmoothing={1}
-          fillColor={'rgba(245,158,11,0.08)'} strokeColor={'#f59e0b'} strokeWidth={1}>
-          <View style={styles.idResultHeader}>
-            <ActivityIndicator size="small" color="#f59e0b" />
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.idResultTitle, { color: '#f59e0b' }]}>
-                {idState === 'submitting' ? 'Uploading…' : 'Under Review'}
-              </Text>
-              <Text style={[styles.idResultSub, { color: 'rgba(245,158,11,0.7)' }]}>
-                {idState === 'submitting' ? 'Sending your ID…' : 'Analysing your ID, usually a few seconds'}
-              </Text>
+        {/* Header card */}
+        <View style={[styles.idPendingCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <View style={styles.idPendingTop}>
+            <View style={[styles.idPendingIconWrap, { backgroundColor: colors.surface2 }]}>
+              <ActivityIndicator size="large" color={colors.text} />
             </View>
+            <Text style={[styles.idPendingTitle, { color: colors.text }]}>
+              {isUploading ? 'Uploading Document…' : 'Document Under Review'}
+            </Text>
+            <Text style={[styles.idPendingSub, { color: colors.textSecondary }]}>
+              {isUploading
+                ? 'Please keep the app open while we upload your ID.'
+                : 'Analysing your document — this takes 10–20 seconds. You can close this screen.'}
+            </Text>
           </View>
-        </Squircle>
+
+          {/* Checks list */}
+          <View style={[styles.idPendingDivider, { backgroundColor: colors.border }]} />
+          {checks.map((c, i) => (
+            <View key={c.label} style={[
+              styles.idPendingRow,
+              i < checks.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+            ]}>
+              <View style={[styles.idPendingDot, { backgroundColor: 'transparent', borderColor: colors.border }]} />
+              <Text style={[styles.idPendingRowText, { color: colors.textSecondary }]}>
+                {c.label}
+              </Text>
+              {!isUploading && (
+                <ActivityIndicator size="small" color={colors.textSecondary} style={{ marginLeft: 'auto' }} />
+              )}
+            </View>
+          ))}
+        </View>
+
+        {/* Note */}
+        <View style={[styles.idPendingNote, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <Ionicons name="information-circle-outline" size={16} color={colors.textSecondary} />
+          <Text style={[styles.idPendingNoteText, { color: colors.textSecondary }]}>
+            You'll be notified once your ID is verified. You can close this screen.
+          </Text>
+        </View>
       </View>
     );
   }
@@ -865,7 +923,7 @@ export default function VerificationPage() {
               style={{ marginRight: 5 }}
             />
             <Text style={[styles.tabPillText, { color: tab === t ? colors.bg : colors.textSecondary }]}>
-              {t === 'face' ? 'Face Scan' : 'ID Upload'}
+              {t === 'face' ? 'Face Scan' : 'ID Verify'}
             </Text>
           </View>
         </Pressable>
@@ -877,7 +935,7 @@ export default function VerificationPage() {
     <View style={[styles.safe, { backgroundColor: colors.bg }]}>
       <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <ScreenHeader
-          title="Verification"
+          title="Identity Verification"
           onClose={() => router.back()}
           colors={colors}
         >
@@ -979,6 +1037,19 @@ const styles = StyleSheet.create({
 
   // Pending card
   pendingCard:        { flexDirection: 'row', alignItems: 'flex-start', gap: 10, padding: 14 },
+
+  // ID pending state
+  idPendingCard:      { borderRadius: 22, borderWidth: 1, overflow: 'hidden' },
+  idPendingTop:       { alignItems: 'center', paddingHorizontal: 24, paddingTop: 28, paddingBottom: 20, gap: 10 },
+  idPendingIconWrap:  { width: 72, height: 72, borderRadius: 36, alignItems: 'center', justifyContent: 'center', marginBottom: 4 },
+  idPendingTitle:     { fontSize: 18, fontFamily: 'ProductSans-Black', textAlign: 'center', letterSpacing: -0.2 },
+  idPendingSub:       { fontSize: 13, fontFamily: 'ProductSans-Regular', textAlign: 'center', lineHeight: 19 },
+  idPendingDivider:   { height: StyleSheet.hairlineWidth },
+  idPendingRow:       { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 18, paddingVertical: 14 },
+  idPendingDot:       { width: 20, height: 20, borderRadius: 10, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
+  idPendingRowText:   { fontSize: 13, fontFamily: 'ProductSans-Regular', flex: 1 },
+  idPendingNote:      { flexDirection: 'row', alignItems: 'flex-start', gap: 10, padding: 14, borderRadius: 16, borderWidth: 1 },
+  idPendingNoteText:  { flex: 1, fontSize: 12, fontFamily: 'ProductSans-Regular', lineHeight: 18 },
 
   // Why card
   whyCard:            { padding: 16, gap: 10 },

@@ -150,9 +150,10 @@ interface Props {
   onNavigateToVerification?: () => void;
   colors: any;
   insets: any;
+  halalMode?: boolean;   // when true, only the Halal tab is shown
 }
 
-export default function DateFilterSheet({ visible, onClose, onApply, onNavigateToVerification, colors, insets }: Props) {
+export default function DateFilterSheet({ visible, onClose, onApply, onNavigateToVerification, colors, insets, halalMode = false }: Props) {
   const router = useRouter();
   const navGuardRef = useRef(false);
   const { profile, token, updateProfile } = useAuth();
@@ -161,9 +162,42 @@ export default function DateFilterSheet({ visible, onClose, onApply, onNavigateT
 
   // ── Live lookup data from API (same source as EditProfilePage) ─────────────
   const { lookups } = useLookups();
-  const lo = (cat: string): LookupOption[] => lookups[cat] ?? [];
 
-  const [activeTab,    setActiveTab]    = useState<'basic' | 'pro'>('basic');
+  // Halal-specific fallbacks so filters always render even before DB is seeded
+  const HALAL_FALLBACKS: Record<string, LookupOption[]> = {
+    sect: [
+      { id: -1, label: 'Sunni' }, { id: -2, label: 'Shia' },
+      { id: -3, label: 'Sufi' },  { id: -4, label: 'Any' },
+    ],
+    prayer_frequency: [
+      { id: -10, label: '5× Daily' }, { id: -11, label: 'Regularly' },
+      { id: -12, label: 'Occasionally' },
+    ],
+    marriage_timeline: [
+      { id: -20, label: 'ASAP' },       { id: -21, label: 'Within 1 year' },
+      { id: -22, label: '1–3 years' },  { id: -23, label: 'Eventually' },
+    ],
+  };
+
+  const lo = (cat: string): LookupOption[] =>
+    (lookups[cat] && lookups[cat].length > 0)
+      ? lookups[cat]
+      : (HALAL_FALLBACKS[cat] ?? []);
+
+  // Only users whose religion is specifically Islam/Muslim see the Halal tab.
+  const religionLabel = profile?.religion_id
+    ? (lookups['religion']?.find(r => r.id === profile.religion_id)?.label ?? '').toLowerCase()
+    : '';
+  const isMuslim = religionLabel.includes('muslim') || religionLabel.includes('islam');
+
+  // When halal mode is on, default to halal tab and lock out basic/pro
+  const [activeTab, setActiveTab] = useState<'basic' | 'pro' | 'halal'>(halalMode ? 'halal' : 'basic');
+
+  // Re-sync tab when halalMode prop changes (e.g. user toggles mid-session)
+  useEffect(() => {
+    if (halalMode) setActiveTab('halal');
+    else setActiveTab('basic');
+  }, [halalMode]);
   const [saving,       setSaving]       = useState(false);
 
   // ── Filter state (initialised from saved profile on each open) ────────────
@@ -185,6 +219,12 @@ export default function DateFilterSheet({ visible, onClose, onApply, onNavigateT
   const [education,    setEducation]    = useState<number[]>([]);
   const [familyPlans,  setFamilyPlans]  = useState<number[]>([]);
   const [havingKids,   setHavingKids]   = useState<number[]>([]);
+  // Halal filter state
+  const [sectIds,           setSectIds]           = useState<number[]>([]);
+  const [prayerFreqIds,     setPrayerFreqIds]     = useState<number[]>([]);
+  const [marriageTimeIds,   setMarriageTimeIds]   = useState<number[]>([]);
+  const [waliVerifiedOnly,  setWaliVerifiedOnly]  = useState(false);
+  const [wantsToWork,       setWantsToWork]       = useState<boolean | null>(null);
 
   // Reset nav guard when sheet closes
   useEffect(() => {
@@ -196,7 +236,7 @@ export default function DateFilterSheet({ visible, onClose, onApply, onNavigateT
     if (!visible || !profile) return;
     setVerifiedOnly(profile.filter_verified_only ?? false);
     setAgeMin(profile.filter_age_min ?? 18);
-    setAgeMax(profile.filter_age_max ?? 45);
+    setAgeMax(profile.filter_age_max ?? 80);
     setDistance(profile.filter_max_distance_km != null ? Math.min(profile.filter_max_distance_km, 80) : 80);
     setSigns(profile.filter_star_signs ?? []);
     setInterests(profile.filter_interests ?? []);
@@ -210,16 +250,23 @@ export default function DateFilterSheet({ visible, onClose, onApply, onNavigateT
     setEducation(profile.filter_education_level ?? []);
     setFamilyPlans(profile.filter_family_plans ?? []);
     setHavingKids(profile.filter_have_kids ?? []);
+    setSectIds(profile.filter_sect ?? []);
+    setPrayerFreqIds(profile.filter_prayer_frequency ?? []);
+    setMarriageTimeIds(profile.filter_marriage_timeline ?? []);
+    setWaliVerifiedOnly(profile.filter_wali_verified_only ?? false);
+    setWantsToWork(profile.filter_wants_to_work ?? null);
   }, [visible]);
 
   const toggle = (arr: number[], setArr: (v: number[]) => void, val: number) =>
     setArr(arr.includes(val) ? arr.filter(x => x !== val) : [...arr, val]);
 
   const reset = () => {
-    setVerifiedOnly(false); setAgeMin(18); setAgeMax(45); setDistance(80);
+    setVerifiedOnly(false); setAgeMin(18); setAgeMax(80); setDistance(80);
     setSigns([]); setInterests([]); setLangs([]); setEthnicities([]);
     setExercise([]); setDrinking([]); setSmoking([]); setHeightMin(140);
     setLookingFor([]); setEducation([]); setFamilyPlans([]); setHavingKids([]);
+    setSectIds([]); setPrayerFreqIds([]); setMarriageTimeIds([]);
+    setWaliVerifiedOnly(false); setWantsToWork(null);
   };
 
   const handleApply = async () => {
@@ -229,9 +276,9 @@ export default function DateFilterSheet({ visible, onClose, onApply, onNavigateT
       // Build patch — always include every basic filter so the backend
       // overwrites any stale values.  null = "clear / any".
       const patch: Record<string, any> = {
-        filter_age_min:         ageMin,
-        filter_age_max:         ageMax,
-        filter_max_distance_km: distance,
+        filter_age_min:         ageMin <= 18 ? null : ageMin,
+        filter_age_max:         ageMax >= 80 ? null : ageMax,
+        filter_max_distance_km: distance >= 80 ? null : distance,
         filter_verified_only:   verifiedOnly,
         filter_star_signs:      signs.length     ? signs     : null,
         filter_interests:       interests.length ? interests : null,
@@ -251,6 +298,15 @@ export default function DateFilterSheet({ visible, onClose, onApply, onNavigateT
         patch.filter_education_level = education.length   ? education   : null;
         patch.filter_family_plans    = familyPlans.length ? familyPlans : null;
         patch.filter_have_kids       = havingKids.length  ? havingKids  : null;
+      }
+
+      // Halal filters — always sent when user is Muslim (free tier)
+      if (isMuslim) {
+        patch.filter_sect               = sectIds.length         ? sectIds         : null;
+        patch.filter_prayer_frequency   = prayerFreqIds.length   ? prayerFreqIds   : null;
+        patch.filter_marriage_timeline  = marriageTimeIds.length ? marriageTimeIds : null;
+        patch.filter_wali_verified_only = waliVerifiedOnly;
+        patch.filter_wants_to_work      = wantsToWork;
       }
 
       const updated = await apiFetch<any>('/profile/me/filters', {
@@ -289,29 +345,40 @@ export default function DateFilterSheet({ visible, onClose, onApply, onNavigateT
             <Pressable onPress={onClose} style={({ pressed }) => [styles.sheetClose, pressed && { opacity: 0.6 }]}>
               <Ionicons name="close" size={22} color={colors.text} />
             </Pressable>
-            <Text style={[styles.sheetTitle, { color: colors.text }]}>Discover</Text>
+            <Text style={[styles.sheetTitle, { color: colors.text }]}>{halalMode ? 'Halal Filters' : 'Discover'}</Text>
             <Pressable onPress={reset} hitSlop={8}>
               <Text style={[styles.sheetResetText, { color: colors.textSecondary }]}>Reset</Text>
             </Pressable>
           </View>
 
-          {/* Tabs */}
+          {/* Tabs — in halal mode only the Halal tab is shown */}
           <View style={styles.filterTabRow}>
-            <Pressable onPress={() => setActiveTab('basic')}>
-              <View style={[styles.filterTabPill, activeTab === 'basic' && { backgroundColor: colors.text }]}>
-                <Text style={[styles.filterTabText, { color: activeTab === 'basic' ? colors.bg : colors.textSecondary }]}>Basic</Text>
-              </View>
-            </Pressable>
-            <Pressable onPress={() => setActiveTab('pro')}>
-              <View style={[styles.filterTabPill, activeTab === 'pro' && { backgroundColor: colors.text }]}>
-                <Ionicons name="sparkles" size={11} color={activeTab === 'pro' ? colors.bg : colors.textSecondary} style={{ marginRight: 4 }} />
-                <Text style={[styles.filterTabText, { color: activeTab === 'pro' ? colors.bg : colors.textSecondary }]}>Pro</Text>
-              </View>
-            </Pressable>
+            {!halalMode && (
+              <Pressable onPress={() => setActiveTab('basic')}>
+                <View style={[styles.filterTabPill, activeTab === 'basic' && { backgroundColor: colors.text }]}>
+                  <Text style={[styles.filterTabText, { color: activeTab === 'basic' ? colors.bg : colors.textSecondary }]}>Basic</Text>
+                </View>
+              </Pressable>
+            )}
+            {!halalMode && (
+              <Pressable onPress={() => setActiveTab('pro')}>
+                <View style={[styles.filterTabPill, activeTab === 'pro' && { backgroundColor: colors.text }]}>
+                  <Ionicons name="sparkles" size={11} color={activeTab === 'pro' ? colors.bg : colors.textSecondary} style={{ marginRight: 4 }} />
+                  <Text style={[styles.filterTabText, { color: activeTab === 'pro' ? colors.bg : colors.textSecondary }]}>Pro</Text>
+                </View>
+              </Pressable>
+            )}
+            {halalMode && (
+              <Pressable disabled>
+                <View style={[styles.filterTabPill, { backgroundColor: colors.text }]}>
+                  <Text style={[styles.filterTabText, { color: colors.bg }]}>Halal</Text>
+                </View>
+              </Pressable>
+            )}
           </View>
         </LinearGradient>
 
-        {activeTab === 'basic' ? (
+        {activeTab === 'basic' && !halalMode ? (
           /* ── Basic filters ── */
           <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: insets.bottom + 120, gap: 14 }} showsVerticalScrollIndicator={false}>
 
@@ -319,7 +386,9 @@ export default function DateFilterSheet({ visible, onClose, onApply, onNavigateT
             <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
               <View style={styles.sliderLabelRow}>
                 <SecHead title="AGE RANGE" />
-                <Text style={[styles.sliderValue, { color: colors.text }]}>{ageMin} – {ageMax}</Text>
+                <Text style={[styles.sliderValue, { color: colors.text }]}>
+                  {ageMin <= 18 && ageMax >= 80 ? 'Any' : `${ageMin} – ${ageMax}`}
+                </Text>
               </View>
               <View style={[styles.sliderEdgeRow, { marginTop: 10 }]}>
                 <Text style={[styles.sliderEdge, { color: colors.textSecondary }]}>18</Text>
@@ -334,7 +403,7 @@ export default function DateFilterSheet({ visible, onClose, onApply, onNavigateT
             <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
               <View style={styles.sliderLabelRow}>
                 <SecHead title="MAX DISTANCE" />
-                <Text style={[styles.sliderValue, { color: colors.text }]}>{`${distance} km`}</Text>
+                <Text style={[styles.sliderValue, { color: colors.text }]}>{distance >= 80 ? 'Any' : `${distance} km`}</Text>
               </View>
               <View style={[styles.sliderRow, { marginTop: 10 }]}>
                 <Text style={[styles.sliderSub, { color: colors.textSecondary }]}>1 km</Text>
@@ -605,7 +674,7 @@ export default function DateFilterSheet({ visible, onClose, onApply, onNavigateT
             ))}
           </ScrollView>
 
-        ) : (
+        ) : activeTab === 'pro' ? (
           /* ── Pro tab — locked (non-pro user) ── */
           <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: insets.bottom + 120, gap: 14 }} showsVerticalScrollIndicator={false}>
 
@@ -674,11 +743,122 @@ export default function DateFilterSheet({ visible, onClose, onApply, onNavigateT
               </Squircle>
             ))}
           </ScrollView>
+        ) : null}
+
+        {/* ── Halal filters tab ── */}
+        {activeTab === 'halal' && (
+          <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: insets.bottom + 120, gap: 14 }} showsVerticalScrollIndicator={false}>
+
+            {/* Halal header */}
+            <Squircle style={[styles.filterCard, { gap: 6 }]} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.filterRowTitle, { color: colors.text }]}>Halal Mode Filters</Text>
+                  <Text style={[styles.filterRowSub, { color: colors.textSecondary }]}>
+                    Only shown to other users in Halal mode
+                  </Text>
+                </View>
+              </View>
+            </Squircle>
+
+            {/* Sect */}
+            <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
+              <SecHead title="SECT" />
+              <View style={[styles.filterChipRow, { marginTop: 12 }]}>
+                {lo('sect').map(v => (
+                  <FilterChip
+                    key={v.id} label={v.label}
+                    selected={sectIds.includes(v.id)}
+                    onPress={() => toggle(sectIds, setSectIds, v.id)}
+                    colors={colors}
+                  />
+                ))}
+              </View>
+            </Squircle>
+
+            {/* Prayer frequency */}
+            <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
+              <SecHead title="PRAYER FREQUENCY" />
+              <View style={[styles.filterChipRow, { marginTop: 12 }]}>
+                {lo('prayer_frequency').map(v => (
+                  <FilterChip
+                    key={v.id} label={v.label}
+                    selected={prayerFreqIds.includes(v.id)}
+                    onPress={() => toggle(prayerFreqIds, setPrayerFreqIds, v.id)}
+                    colors={colors}
+                  />
+                ))}
+              </View>
+            </Squircle>
+
+            {/* Marriage timeline */}
+            <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
+              <SecHead title="MARRIAGE TIMELINE" />
+              <View style={[styles.filterChipRow, { marginTop: 12 }]}>
+                {lo('marriage_timeline').map(v => (
+                  <FilterChip
+                    key={v.id} label={v.label}
+                    selected={marriageTimeIds.includes(v.id)}
+                    onPress={() => toggle(marriageTimeIds, setMarriageTimeIds, v.id)}
+                    colors={colors}
+                  />
+                ))}
+              </View>
+            </Squircle>
+
+            {/* Wali verified only */}
+            <Squircle style={[styles.filterCard, { gap: 0 }]} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                <Squircle style={styles.filterRowIcon} cornerRadius={12} cornerSmoothing={1} fillColor={colors.surface2}>
+                  <Ionicons name="shield-checkmark-outline" size={18} color={colors.textSecondary} />
+                </Squircle>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.filterRowTitle, { color: colors.text }]}>Wali Verified Only</Text>
+                  <Text style={[styles.filterRowSub, { color: colors.textSecondary }]}>
+                    Only show profiles with a confirmed guardian
+                  </Text>
+                </View>
+                <Switch
+                  value={waliVerifiedOnly}
+                  onValueChange={setWaliVerifiedOnly}
+                  thumbColor={colors.bg}
+                  trackColor={{ false: colors.surface2, true: colors.text }}
+                />
+              </View>
+            </Squircle>
+
+            {/* Wants to work */}
+            <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
+              <SecHead title="PARTNER CAREER" />
+              <View style={[styles.filterChipRow, { marginTop: 12 }]}>
+                {[
+                  { label: 'No preference', value: null },
+                  { label: 'Works / Career-focused', value: true },
+                  { label: "Doesn't need to work", value: false },
+                ].map(opt => (
+                  <FilterChip
+                    key={String(opt.value)}
+                    label={opt.label}
+                    selected={wantsToWork === opt.value}
+                    onPress={() => setWantsToWork(opt.value)}
+                    colors={colors}
+                  />
+                ))}
+              </View>
+            </Squircle>
+
+          </ScrollView>
         )}
 
         {/* Footer */}
         <View style={[styles.sheetFooter, { borderTopColor: colors.border, paddingBottom: Math.max(insets.bottom, 20), backgroundColor: colors.bg, gap: 10 }]}>
-          {activeTab === 'basic' ? (
+          {activeTab === 'halal' ? (
+            <Squircle cornerRadius={18} cornerSmoothing={1} fillColor={colors.text} style={styles.applyBtn}>
+              <Pressable onPress={handleApply} disabled={saving} style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+                <Text style={[styles.applyBtnText, { color: colors.bg }]}>{saving ? 'Saving…' : 'Apply Halal Filters'}</Text>
+              </Pressable>
+            </Squircle>
+          ) : activeTab === 'basic' && !halalMode ? (
             <>
               <Pressable onPress={() => setActiveTab('pro')}>
                 <Squircle style={styles.upsellBanner} cornerRadius={18} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>

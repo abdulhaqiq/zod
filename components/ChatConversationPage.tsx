@@ -9,11 +9,11 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import {
   RecordingPresets,
   createAudioPlayer,
-  requestRecordingPermissionsAsync,
   setAudioModeAsync,
   useAudioRecorder,
   useAudioRecorderState,
 } from 'expo-audio';
+import * as Linking from 'expo-linking';
 import * as Haptics from 'expo-haptics';
 import * as FileSystem from 'expo-file-system/legacy';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -4709,16 +4709,31 @@ export default function ChatConversationPage() {
     if (recStartingRef.current) return; // guard against double-tap
     recStartingRef.current = true;
     try {
-      const { granted } = await requestRecordingPermissionsAsync();
-      if (!granted) {
-        Alert.alert('Permission needed', 'Please allow microphone access to send voice messages.');
-        return;
-      }
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
       await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
-      await chatRecorder.prepareToRecordAsync(RecordingPresets.HIGH_QUALITY);
+      // iOS automatically prompts for microphone permission on first use because
+      // NSMicrophoneUsageDescription is set in Info.plist. No explicit JS-side
+      // permission request is needed — expo-audio's requestRecordingPermissionsAsync
+      // and expo-camera's requestMicrophonePermissionsAsync both crash or are
+      // undefined in this native build.
+      await chatRecorder.prepareToRecordAsync();
       chatRecorder.record();
       setIsListening(true);
+    } catch (err: any) {
+      const msg: string = err?.message ?? String(err);
+      const isPermission = /permission|denied|not authorized/i.test(msg);
+      if (isPermission) {
+        Alert.alert(
+          'Microphone access needed',
+          'Please allow microphone access in Settings → Zod → Microphone.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Open Settings', onPress: () => Linking.openSettings() },
+          ],
+        );
+      } else {
+        Alert.alert('Could not start recording', msg);
+      }
     } finally {
       recStartingRef.current = false;
     }
@@ -5533,7 +5548,16 @@ export default function ChatConversationPage() {
         isPro={profile?.subscription_tier === 'pro'}
         myInterests={[]}
         onClose={() => setShowProfile(false)}
-        onUnmatch={() => setShowUnmatch(true)}
+        onUnmatch={() => {
+          Alert.alert(
+            'Unmatch',
+            `Are you sure you want to unmatch with ${name}? This cannot be undone.`,
+            [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Unmatch', style: 'destructive', onPress: () => setShowUnmatch(true) },
+            ],
+          );
+        }}
       />
 
       {/* ── Unmatch Modal ── */}

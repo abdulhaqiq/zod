@@ -40,6 +40,7 @@ export default function PurposeScreen() {
       onContinue={handleContinue}
       continueDisabled={selected.length === 0}
       loading={saving}
+      fallbackHref="/gender"
     >
       <ScrollView
         contentContainerStyle={styles.chips}
@@ -60,7 +61,7 @@ export default function PurposeScreen() {
               ]}
             >
               <Text style={[styles.chipText, { color: active ? colors.bg : colors.text }]}>
-                {opt.emoji ? `${opt.emoji} ` : ''}{opt.label}
+                {opt.label}
               </Text>
             </Pressable>
           );

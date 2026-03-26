@@ -40,6 +40,7 @@ export default function HeightScreen() {
       subtitle="Your height is shown on your profile."
       onContinue={handleContinue}
       loading={saving}
+      fallbackHref="/goals"
     >
       {/* Unit toggle */}
       <View style={[styles.toggle, { backgroundColor: colors.surface }]}>

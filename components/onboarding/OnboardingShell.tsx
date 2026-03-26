@@ -11,11 +11,18 @@ import Squircle from '@/components/ui/Squircle';
 import { useAuth } from '@/context/AuthContext';
 import { useAppTheme } from '@/context/ThemeContext';
 
+// Muslim religion lookup ID (from lookup_options table, category='religion')
+const MUSLIM_RELIGION_ID = 49;
+
 interface Props {
   step: number;           // 1-based
+  /** Override total step count shown in the badge. Auto-detected if omitted. */
+  totalSteps?: number;
   title: string;
   subtitle?: string;
   onContinue: () => void;
+  /** Label for the primary action button. Defaults to "Continue". */
+  continueLabel?: string;
   continueDisabled?: boolean;
   loading?: boolean;
   children: React.ReactNode;
@@ -28,13 +35,19 @@ interface Props {
   onRetryNetwork?: () => void;
   /** When true, the body content scrolls so the footer button always stays visible */
   scrollable?: boolean;
+  /** When provided, renders a "Skip" link above the footer button */
+  onSkip?: () => void;
+  /** Fallback route to navigate to when there is no previous screen to go back to */
+  fallbackHref?: string;
 }
 
 export default function OnboardingShell({
   step,
+  totalSteps: totalStepsProp,
   title,
   subtitle,
   onContinue,
+  continueLabel,
   continueDisabled,
   loading,
   children,
@@ -43,12 +56,17 @@ export default function OnboardingShell({
   networkError,
   onRetryNetwork,
   scrollable,
+  onSkip,
+  fallbackHref,
 }: Props) {
   const router = useRouter();
   const { colors } = useAppTheme();
-  const { signOut } = useAuth();
+  const { signOut, profile } = useAuth();
 
-  const TOTAL_STEPS = 10;
+  // Auto-detect whether the user is Muslim to show the correct total step count.
+  // Muslims have an extra "Your faith" step (12 total vs 11 for everyone else).
+  const isMuslim = profile?.religion_id === MUSLIM_RELIGION_ID;
+  const TOTAL_STEPS = totalStepsProp ?? (isMuslim ? 12 : 11);
 
   const handleLogout = () => {
     Alert.alert('Log out', 'Are you sure you want to log out?', [
@@ -62,7 +80,16 @@ export default function OnboardingShell({
       {/* Top bar */}
       <View style={styles.topBar}>
         {!hideBack && (
-          <Pressable onPress={() => router.back()} hitSlop={12}>
+          <Pressable
+            onPress={() => {
+              if (router.canGoBack()) {
+                router.back();
+              } else if (fallbackHref) {
+                router.replace(fallbackHref as any);
+              }
+            }}
+            hitSlop={12}
+          >
             <Squircle
               style={styles.backBtn}
               cornerRadius={14}
@@ -109,13 +136,18 @@ export default function OnboardingShell({
       )}
 
       {/* Footer */}
-      <View style={styles.footer}>
+      <View style={[styles.footer, { backgroundColor: colors.bg }]}>
         <Button
-          title={loading ? 'Saving…' : 'Continue'}
+          title={loading ? 'Saving…' : (continueLabel ?? 'Continue')}
           onPress={onContinue}
           disabled={continueDisabled || loading}
           style={styles.btn}
         />
+        {onSkip && (
+          <Pressable onPress={onSkip} style={styles.skipBtn} hitSlop={12}>
+            <Text style={[styles.skipText, { color: colors.textSecondary }]}>Skip for now</Text>
+          </Pressable>
+        )}
       </View>
     </>
   );
@@ -130,7 +162,11 @@ export default function OnboardingShell({
         >
           {inner}
         </KeyboardAvoidingView>
-      ) : inner}
+      ) : (
+        <View style={{ flex: 1 }}>
+          {inner}
+        </View>
+      )}
 
       {networkError && onRetryNetwork && (
         <NoNetworkOverlay onRetry={onRetryNetwork} />
@@ -147,10 +183,12 @@ const styles = StyleSheet.create({
   stepText: { fontSize: 11, fontFamily: 'ProductSans-Medium', letterSpacing: 0.3 },
   body: { flex: 1, paddingHorizontal: 24, paddingTop: 24 },
   bodyScroll: { flex: 1 },
-  bodyScrollContent: { paddingHorizontal: 24, paddingTop: 24, paddingBottom: 8 },
+  bodyScrollContent: { paddingHorizontal: 24, paddingTop: 24, paddingBottom: 24 },
   title: { fontSize: 32, fontFamily: 'ProductSans-Black', lineHeight: 38, marginBottom: 10 },
   subtitle: { fontSize: 14, fontFamily: 'ProductSans-Regular', lineHeight: 22, marginBottom: 32 },
   footer: { paddingHorizontal: 24, paddingBottom: 24, paddingTop: 12 },
+  skipBtn: { alignItems: 'center', paddingTop: 14 },
+  skipText: { fontSize: 14, fontFamily: 'ProductSans-Medium' },
   btn: { width: '100%' },
   logoutText: { fontSize: 13, fontFamily: 'ProductSans-Medium' },
 });

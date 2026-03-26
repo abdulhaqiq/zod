@@ -7,10 +7,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import {
   RecordingPresets,
+  createAudioPlayer,
   requestRecordingPermissionsAsync,
   setAudioModeAsync,
-  useAudioPlayer,
-  useAudioPlayerStatus,
   useAudioRecorder,
 } from 'expo-audio';
 import { useEffect, useRef, useState } from 'react';
@@ -116,22 +115,52 @@ function ClipCard({
   onDelete: () => void;
   colors: AppColors;
 }) {
-  const player = useAudioPlayer({ uri: clip.url });
-  const status = useAudioPlayerStatus(player);
-  const playing = status.playing;
-  const pos = status.currentTime ?? 0;
+  const playerRef = useRef<any>(null);
+  const subsRef   = useRef<any[]>([]);
 
+  const [playing, setPlaying] = useState(false);
+  const [pos,     setPos]     = useState(0);
+
+  // Tear down the player when the card unmounts
   useEffect(() => {
-    if (status.didJustFinish) {
-      player.seekTo(0);
-    }
-  }, [status.didJustFinish]);
+    return () => {
+      subsRef.current.forEach(s => s.remove());
+      subsRef.current = [];
+      playerRef.current?.remove();
+      playerRef.current = null;
+    };
+  }, []);
 
-  const togglePlay = () => {
+  const togglePlay = async () => {
     if (playing) {
-      player.pause();
-    } else {
+      setPlaying(false);
+      playerRef.current?.pause();
+      return;
+    }
+    await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
+    try {
+      if (playerRef.current) {
+        setPlaying(true);
+        playerRef.current.play();
+        return;
+      }
+      // First tap — create the player lazily
+      const player = createAudioPlayer({ uri: clip.url });
+      subsRef.current = [
+        player.addListener('playbackStatusUpdate', (s: any) => {
+          setPos(s.currentTime ?? 0);
+        }),
+        player.addListener('playToEnd', () => {
+          setPlaying(false);
+          setPos(0);
+          player.seekTo(0);
+        }),
+      ];
+      playerRef.current = player;
+      setPlaying(true);
       player.play();
+    } catch {
+      setPlaying(false);
     }
   };
 
@@ -140,7 +169,11 @@ function ClipCard({
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Delete', style: 'destructive', onPress: () => {
-          player.remove();
+          playerRef.current?.pause();
+          playerRef.current?.remove();
+          playerRef.current = null;
+          subsRef.current.forEach(s => s.remove());
+          subsRef.current = [];
           onDelete();
         },
       },
@@ -231,7 +264,9 @@ function Recorder({
     start();
     return () => {
       timerRef.current && clearInterval(timerRef.current);
-      if (recorder.isRecording) recorder.stop();
+      try {
+        if (recorder.isRecording) recorder.stop();
+      } catch {}
     };
   }, []);
 

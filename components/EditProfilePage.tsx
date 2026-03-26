@@ -179,8 +179,12 @@ function PhotoGrid({
       {
         text: 'Remove', style: 'destructive',
         onPress: () => {
-          const next = [...photos];
-          next[index] = null;
+          // Remove the photo and shift remaining ones left, filling nulls at the end
+          const filled = photos.filter((u): u is string => !!u && u !== photos[index]);
+          const next: (string | null)[] = [
+            ...filled,
+            ...Array(photos.length - filled.length).fill(null),
+          ];
           onPhotosChange(next);
         },
       },
@@ -383,6 +387,31 @@ export default function EditProfilePage() {
   const INTERESTS = toChips('interests');
   const CAUSES    = toChips('causes');
   const QUALITIES = toChips('values_list');
+  const SECT      = toChips('sect');
+  const PRAYER    = toChips('prayer_frequency');
+  const MARRIAGE  = toChips('marriage_timeline');
+
+  // ── Muslim / Halal state ──────────────────────────────────────────────────
+  const religionLabel = profile?.religion_id
+    ? (lookups['religion']?.find(r => r.id === profile.religion_id)?.label ?? '').toLowerCase()
+    : '';
+  const isMuslim = religionLabel.includes('muslim') || religionLabel.includes('islam');
+  const [halalMode, setHalalMode] = useState(profile?.halal_mode_enabled ?? false);
+  const [showSect,     setShowSect]     = useState(false);
+  const [showPrayer,   setShowPrayer]   = useState(false);
+  const [showMarriage, setShowMarriage] = useState(false);
+
+  const saveHalalMode = async (val: boolean) => {
+    setHalalMode(val);
+    await patch({ halal_mode_enabled: val });
+  };
+  const saveSect     = (vals: string[]) => { setShowSect(false);     patch({ sect_id:              vals[0] ? Number(vals[0]) : null }); };
+  const savePrayer   = (vals: string[]) => { setShowPrayer(false);   patch({ prayer_frequency_id:  vals[0] ? Number(vals[0]) : null }); };
+  const saveMarriage = (vals: string[]) => { setShowMarriage(false); patch({ marriage_timeline_id: vals[0] ? Number(vals[0]) : null }); };
+
+  const sectLabel    = lookups['sect']?.find(r => r.id === profile?.sect_id)?.label;
+  const prayerLabel  = lookups['prayer_frequency']?.find(r => r.id === profile?.prayer_frequency_id)?.label;
+  const marriageLabel = lookups['marriage_timeline']?.find(r => r.id === profile?.marriage_timeline_id)?.label;
 
   // ── Email inline edit ─────────────────────────────────────────────────────
   const [editingEmail, setEditingEmail] = useState(false);
@@ -731,6 +760,67 @@ export default function EditProfilePage() {
             </Group>
           </View>
 
+          {/* ── HALAL & FAITH (Muslims only) ────────────────────────── */}
+          {isMuslim && (
+            <View style={styles.section}>
+              <SectionLabel title="HALAL & FAITH" colors={colors} />
+              <Group colors={colors}>
+                {/* Halal mode toggle row */}
+                <View style={[
+                  styles.editRow,
+                  halalMode && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+                ]}>
+                  <Squircle style={styles.editIconWrap} cornerRadius={10} cornerSmoothing={1} fillColor={colors.surface2}>
+                    <Ionicons name="moon-outline" size={16} color={colors.text} />
+                  </Squircle>
+                  <View style={{ flex: 1, gap: 1 }}>
+                    <Text style={[styles.editLabel, { color: colors.text }]}>Halal mode</Text>
+                    <Text style={[styles.editPreview, { color: colors.textSecondary }]}>
+                      {halalMode ? 'Enabled — only visible to Halal users' : 'Disabled'}
+                    </Text>
+                  </View>
+                  <Switch
+                    value={halalMode}
+                    onValueChange={saveHalalMode}
+                    trackColor={{ false: colors.border, true: colors.text }}
+                    thumbColor={colors.bg}
+                  />
+                </View>
+
+                {/* Faith detail rows — only shown when Halal is ON */}
+                {halalMode && (
+                  <>
+                    <EditRow
+                      icon="library-outline"
+                      label="Sect"
+                      value={sectLabel}
+                      preview={sectLabel ? undefined : 'Tap to set'}
+                      onPress={() => setShowSect(true)}
+                      colors={colors}
+                    />
+                    <EditRow
+                      icon="time-outline"
+                      label="Prayer frequency"
+                      value={prayerLabel}
+                      preview={prayerLabel ? undefined : 'Tap to set'}
+                      onPress={() => setShowPrayer(true)}
+                      colors={colors}
+                    />
+                    <EditRow
+                      icon="heart-circle-outline"
+                      label="Marriage timeline"
+                      value={marriageLabel}
+                      preview={marriageLabel ? undefined : 'Tap to set'}
+                      onPress={() => setShowMarriage(true)}
+                      colors={colors}
+                      last
+                    />
+                  </>
+                )}
+              </Group>
+            </View>
+          )}
+
           {/* ── ACCOUNT ─────────────────────────────────────────────────── */}
           <View style={styles.section}>
             <SectionLabel title="ACCOUNT" colors={colors} />
@@ -891,6 +981,39 @@ export default function EditProfilePage() {
         options={QUALITIES}
         selected={qualities}
         onChange={saveQualities}
+        colors={colors}
+      />
+      <ChipSelectorSheet
+        visible={showSect}
+        onClose={() => setShowSect(false)}
+        title="Sect"
+        subtitle="Select your Islamic sect"
+        maxSelect={1}
+        options={SECT}
+        selected={profile?.sect_id ? [String(profile.sect_id)] : []}
+        onChange={saveSect}
+        colors={colors}
+      />
+      <ChipSelectorSheet
+        visible={showPrayer}
+        onClose={() => setShowPrayer(false)}
+        title="Prayer Frequency"
+        subtitle="How often do you pray?"
+        maxSelect={1}
+        options={PRAYER}
+        selected={profile?.prayer_frequency_id ? [String(profile.prayer_frequency_id)] : []}
+        onChange={savePrayer}
+        colors={colors}
+      />
+      <ChipSelectorSheet
+        visible={showMarriage}
+        onClose={() => setShowMarriage(false)}
+        title="Marriage Timeline"
+        subtitle="When are you looking to get married?"
+        maxSelect={1}
+        options={MARRIAGE}
+        selected={profile?.marriage_timeline_id ? [String(profile.marriage_timeline_id)] : []}
+        onChange={saveMarriage}
         colors={colors}
       />
     </View>

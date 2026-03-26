@@ -1,8 +1,9 @@
 import { navPush, navReplace } from '@/utils/nav';
 // Step 2 — Gender
 import { Dimensions } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Squircle from '@/components/ui/Squircle';
 import { useAuth } from '@/context/AuthContext';
@@ -26,10 +27,31 @@ export default function GenderScreen() {
 
   const [selectedId, setSelectedId] = useState<number | null>(profile?.gender_id ?? null);
 
-  const handleContinue = async () => {
+  // Skip this screen if gender was already set before arriving here.
+  // Run once on mount only — we don't want to auto-navigate when the user
+  // selects a gender on this screen (they should press Continue for that).
+  useEffect(() => {
+    if (profile?.gender_id) {
+      navReplace('/purpose');
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Save immediately when a card is tapped so the selection persists
+  // even if the user logs out before pressing Continue.
+  const handleSelect = async (id: number) => {
+    setSelectedId(id);
+    await save({ gender_id: id });
+  };
+
+  const handleContinue = () => {
     if (!selectedId) return;
-    const ok = await save({ gender_id: selectedId });
-    if (ok) navPush('/purpose');
+    navReplace('/purpose');
+  };
+
+  const GENDER_ICON: Record<string, React.ComponentProps<typeof Ionicons>['name']> = {
+    Man: 'male',
+    Woman: 'female',
   };
 
   return (
@@ -40,12 +62,14 @@ export default function GenderScreen() {
       onContinue={handleContinue}
       continueDisabled={!selectedId}
       loading={saving}
+      fallbackHref="/profile"
     >
       <View style={styles.row}>
-        {genders.map(({ id, emoji, label }) => {
+        {genders.map(({ id, label }) => {
           const active = selectedId === id;
+          const iconName = GENDER_ICON[label];
           return (
-            <Pressable key={id} onPress={() => setSelectedId(id)}>
+            <Pressable key={id} onPress={() => handleSelect(id)}>
               <Squircle
                 style={{ width: CARD_W, height: 130 }}
                 cornerRadius={28}
@@ -55,7 +79,13 @@ export default function GenderScreen() {
                 strokeWidth={active ? 0 : 1.5}
               >
                 <View style={styles.cardContent}>
-                  {emoji ? <Text style={[styles.emoji, { color: active ? colors.bg : colors.text }]}>{emoji}</Text> : null}
+                  {iconName && (
+                    <Ionicons
+                      name={iconName}
+                      size={32}
+                      color={active ? colors.bg : colors.textSecondary}
+                    />
+                  )}
                   <Text style={[styles.label, { color: active ? colors.bg : colors.text }]}>
                     {label}
                   </Text>
@@ -85,9 +115,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 10,
-  },
-  emoji: {
-    fontSize: 34,
   },
   label: {
     fontSize: 17,

@@ -18,7 +18,7 @@ export default function PhotosScreen() {
   const router = useRouter();
   const { colors } = useAppTheme();
   const { save, saving } = useProfileSave();
-  const { token, setOnboarded, profile } = useAuth();
+  const { token, profile } = useAuth();
 
   // photos: CDN URLs — initialise from saved profile so restarts show existing uploads
   const [photos, setPhotos] = useState<string[]>(profile?.photos ?? []);
@@ -48,51 +48,58 @@ export default function PhotosScreen() {
       return;
     }
 
+    const remaining = MAX_PHOTOS - photosRef.current.length;
+    if (remaining <= 0) return;
+
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       quality: 0.85,
-      allowsEditing: true,
-      aspect: [3, 4],
+      allowsMultipleSelection: true,
+      selectionLimit: remaining,
     });
 
-    if (result.canceled || !result.assets[0]) return;
+    if (result.canceled || !result.assets.length) return;
 
-    const asset = result.assets[0];
-    const slotIndex = photosRef.current.length;
-    setUploading(slotIndex);
+    // Upload selected photos one by one, filling slots in order
+    for (const asset of result.assets) {
+      if (photosRef.current.length >= MAX_PHOTOS) break;
 
-    try {
-      const form = new FormData();
-      form.append('file', {
-        uri: asset.uri,
-        name: asset.fileName ?? `photo_${Date.now()}.jpg`,
-        type: asset.mimeType ?? 'image/jpeg',
-      } as any);
+      const slotIndex = photosRef.current.length;
+      setUploading(slotIndex);
 
-      const res = await fetch(`${API_V1}/upload/photo`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-        body: form,
-      });
+      try {
+        const form = new FormData();
+        form.append('file', {
+          uri: asset.uri,
+          name: asset.fileName ?? `photo_${Date.now()}.jpg`,
+          type: asset.mimeType ?? 'image/jpeg',
+        } as any);
 
-      const data = await res.json();
+        const res = await fetch(`${API_V1}/upload/photo`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+          body: form,
+        });
 
-      // Analysis rejected the photo — show the specific reason
-      if (!res.ok) {
-        const detail: string = data?.detail ?? 'Please try a different photo.';
-        Alert.alert(getRejectionTitle(detail), detail);
-        return;
+        const data = await res.json();
+
+        if (!res.ok) {
+          const detail: string = data?.detail ?? 'Please try a different photo.';
+          Alert.alert(getRejectionTitle(detail), detail);
+          // Continue trying the remaining selected photos
+          continue;
+        }
+
+        const updated = [...photosRef.current, data.url].slice(0, MAX_PHOTOS);
+        photosRef.current = updated;
+        setPhotos(updated);
+        await save({ photos: updated });
+      } catch {
+        Alert.alert('Upload failed', 'Could not connect to server. Please check your connection.');
+        break;
+      } finally {
+        setUploading(null);
       }
-
-      // Analysis passed — add to grid and persist
-      const updated = [...photosRef.current, data.url].slice(0, MAX_PHOTOS);
-      photosRef.current = updated;
-      setPhotos(updated);
-      await save({ photos: updated });
-    } catch (err: any) {
-      Alert.alert('Upload failed', 'Could not connect to server. Please check your connection.');
-    } finally {
-      setUploading(null);
     }
   };
 
@@ -106,11 +113,8 @@ export default function PhotosScreen() {
 
   const handleContinue = async () => {
     if (photos.length < 3) return;
-    const ok = await save({ photos, is_onboarded: true });
-    if (ok) {
-      await setOnboarded();
-      navReplace('/(tabs)' as any);
-    }
+    const ok = await save({ photos });
+    if (ok) navPush('/religion');
   };
 
   return (
@@ -121,6 +125,7 @@ export default function PhotosScreen() {
       onContinue={handleContinue}
       continueDisabled={photos.length < 3}
       loading={saving}
+      fallbackHref="/prompts"
     >
       <View style={styles.grid}>
         {Array.from({ length: MAX_PHOTOS }).map((_, i) => {

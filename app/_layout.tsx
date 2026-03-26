@@ -2,18 +2,33 @@ import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native
 import { useFonts } from 'expo-font';
 import * as Notifications from 'expo-notifications';
 import { Stack, useRouter, useSegments } from 'expo-router';
+import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useRef, useState } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import 'react-native-reanimated';
 
-import AppSplashScreen from '@/components/AppSplashScreen';
+// Hold the native splash until our JS splash is ready to take over.
+SplashScreen.preventAutoHideAsync();
+
+/**
+ * Lets RootLayoutInner (deep in the provider tree) signal when
+ * routing is resolved so the splash can begin fading out.
+ * splashDone tells inner components when the splash has fully finished.
+ */
+const SplashCtx = createContext<{
+  signalReady: () => void;
+  splashDone: boolean;
+}>({ signalReady: () => {}, splashDone: false });
+
 import { AuthProvider, useAuth, UserProfile } from '@/context/AuthContext';
 import { CallProvider, useCall } from '@/context/CallContext';
 import { AppThemeProvider, useAppTheme } from '@/context/ThemeContext';
 import { API_V1 } from '@/constants/api';
 import { darkColors, lightColors } from '@/constants/appColors';
 import { useAutoLocation } from '@/hooks/useAutoLocation';
+import * as Camera from 'expo-camera';
+import * as MediaLibrary from 'expo-media-library';
 
 // Show match/message banners while the app is in the foreground
 Notifications.setNotificationHandler({
@@ -36,6 +51,7 @@ const ONBOARDING_SCREENS = [
   'passkey',
   'profile', 'gender', 'purpose', 'goals', 'height',
   'interests', 'lifestyle', 'values', 'prompts', 'photos',
+  'religion', 'faith',
 ];
 
 const MIN_PHOTOS = 3;
@@ -43,6 +59,8 @@ const MIN_PHOTOS = 3;
 // Goal IDs start at 267 (items with emoji in values_list).
 // Personal values (251-266) have no emoji and are saved at a later step.
 const GOAL_ID_MIN = 267;
+
+const MUSLIM_RELIGION_ID = 49;
 
 function firstIncompleteStep(p: UserProfile): string {
   if (!p.full_name || !p.date_of_birth)                           return '/profile';
@@ -55,7 +73,9 @@ function firstIncompleteStep(p: UserProfile): string {
   if (!p.values_list?.some(id => id < GOAL_ID_MIN))             return '/values';
   if (!p.bio)                                                    return '/prompts';
   if ((p.photos?.length ?? 0) < MIN_PHOTOS)                     return '/photos';
-  return '/photos';
+  // Religion is always the final onboarding step entry point.
+  // Muslims with halal mode on will be pushed to /faith from the religion screen itself.
+  return '/religion';
 }
 
 (Text as any).defaultProps = (Text as any).defaultProps ?? {};
@@ -109,19 +129,29 @@ function RootLayoutInner() {
   const { isDark, syncFromBackend, setApiFetch } = useAppTheme();
   const { token, isLoading, isOnboarded, profile, isNetworkError } = useAuth();
   const { setIncomingCall } = useCall();
+  const { signalReady, splashDone } = useContext(SplashCtx);
   const router = useRouter();
   const segments = useSegments();
 
-  // splashDone: the animated intro has finished and been unmounted
-  const [splashDone, setSplashDone] = useState(false);
-  // routingDone: the guard has made its first routing decision
-  // The splash only starts fading out once this is true, so it always
-  // hides onto the correct screen — never a flash of the wrong one.
-  const [routingDone, setRoutingDone] = useState(false);
+  // Track whether we've already signalled the splash — avoids double-firing.
+  const routingSignalledRef = useRef(false);
   // covering: instant opaque black overlay shown during post-splash
   // auth redirects (e.g. logout while on the feed screen).
   const [covering, setCovering] = useState(false);
   const coverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Request all permissions silently once user is authenticated ──────────
+  // iOS shows its own native dialogs; no custom modal needed.
+  const permRequestedRef = useRef(false);
+  useEffect(() => {
+    if (!splashDone || !token || permRequestedRef.current) return;
+    permRequestedRef.current = true;
+    (async () => {
+      try { await Camera.requestCameraPermissionsAsync(); }        catch {}
+      try { await MediaLibrary.requestPermissionsAsync(); }        catch {}
+      try { await Camera.requestMicrophonePermissionsAsync(); }    catch {}
+    })();
+  }, [splashDone, token]);
 
   // Auto-update location on every app open (non-blocking, best-effort)
   useAutoLocation();
@@ -258,7 +288,10 @@ function RootLayoutInner() {
     // If there's a network error, routing is handled by the NoConnectionScreen —
     // don't redirect the user anywhere.
     if (isNetworkError) {
-      if (!routingDone) setTimeout(() => setRoutingDone(true), 0);
+      if (!routingSignalledRef.current) {
+        routingSignalledRef.current = true;
+        signalReady();
+      }
       return;
     }
 
@@ -310,13 +343,20 @@ function RootLayoutInner() {
       // Block access to all other screens until the required scan is completed.
       router.replace('/face-scan-required' as any);
       didNavigate = true;
+
+    } else if (isLoggedIn && isOnboarded && isOnOnboardingScreen) {
+      // User just completed onboarding while on an onboarding screen (e.g. pressed
+      // Finish on FaithScreen or Continue on ReligionScreen). Redirect to the app.
+      router.replace('/(tabs)' as any);
+      didNavigate = true;
     }
 
     // Signal splash it may begin fading out — routing has been decided.
     // We use a short timeout so router.replace() has one JS tick to register
     // the new route before the splash starts revealing the screen.
-    if (!routingDone) {
-      setTimeout(() => setRoutingDone(true), didNavigate ? 100 : 0);
+    if (!routingSignalledRef.current) {
+      routingSignalledRef.current = true;
+      setTimeout(signalReady, didNavigate ? 100 : 0);
     }
 
   }, [authReady, isLoggedIn, isOnboarded, isNetworkError, profile?.face_scan_required, profile?.id_scan_required, segments]);
@@ -363,6 +403,8 @@ function RootLayoutInner() {
             <Stack.Screen name="admin-verifications"  options={{ headerShown: false }} />
             <Stack.Screen name="zod-work"             options={{ headerShown: false }} />
             <Stack.Screen name="work-edit-profile"    options={{ headerShown: false }} />
+            <Stack.Screen name="religion"             options={{ headerShown: false }} />
+            <Stack.Screen name="faith"               options={{ headerShown: false }} />
             <Stack.Screen name="face-scan-required"   options={{ headerShown: false, gestureEnabled: false }} />
             <Stack.Screen name="modal"                options={{ presentation: 'modal', title: 'Modal' }} />
           </Stack>
@@ -370,32 +412,23 @@ function RootLayoutInner() {
 
         <StatusBar style={isDark ? 'light' : 'dark'} />
 
-        {/* Animated splash — stays visible until auth check AND routing are both done.
-            Fades out only after the correct screen is already in the stack. */}
-        {!splashDone && (
-          <AppSplashScreen ready={routingDone} onFinish={() => setSplashDone(true)} />
-        )}
-
-        {/* No connection overlay — shown on top after splash fades out.
-            Stays visible while retrying (isLoading=true) so the Stack never
-            flashes through; NoConnectionScreen shows a spinner when loading. */}
+        {/* No connection overlay — shown on top after splash fades out. */}
         {isNetworkError && splashDone && (
           <View style={StyleSheet.absoluteFill}>
             <NoConnectionScreen />
           </View>
         )}
 
-        {/* Instant black cover for post-splash auth redirects (e.g. logout).
-            Prevents the feed from flashing while router.replace fires. */}
+        {/* Instant black cover for post-splash auth redirects (e.g. logout). */}
         {covering && <View style={styles.cover} />}
 
-        {/* Opaque cover while auth is bootstrapping — prevents the welcome screen
-            from flashing through before the splash animation even starts */}
+        {/* Opaque cover while auth is bootstrapping. */}
         {isLoading && !splashDone && (
           <View style={[styles.cover, { backgroundColor: bgColor }]} />
         )}
 
-      </View>
+
+              </View>
     </ThemeProvider>
   );
 }
@@ -428,13 +461,34 @@ export default function RootLayout() {
     'PageSerif':           require('../PAGE SERIF (Demo_Font).otf'),
   });
 
-  if (!fontsLoaded) return null;
+  const [splashReady, setSplashReady] = useState(false);
+  const [splashDone,  setSplashDone]  = useState(false);
+
+  const splashCtx = useMemo(
+    () => ({ signalReady: () => setSplashReady(true), splashDone }),
+    [splashDone],
+  );
+
+  // Hide the native splash only when fonts AND auth routing are both ready.
+  // This gives a single seamless Zod-logo screen — no JS overlay, no black flicker.
+  useEffect(() => {
+    if (!fontsLoaded || !splashReady) return;
+    SplashScreen.hideAsync()
+      .catch(() => {})
+      .finally(() => setSplashDone(true));
+  }, [fontsLoaded, splashReady]);
 
   return (
-    <AppThemeProvider>
-      <AuthProvider>
-        <CallProviderBridge />
-      </AuthProvider>
-    </AppThemeProvider>
+    <View style={{ flex: 1, backgroundColor: '#000000' }}>
+      {fontsLoaded && (
+        <SplashCtx.Provider value={splashCtx}>
+          <AppThemeProvider>
+            <AuthProvider>
+              <CallProviderBridge />
+            </AuthProvider>
+          </AppThemeProvider>
+        </SplashCtx.Provider>
+      )}
+    </View>
   );
 }

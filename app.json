@@ -8,10 +8,15 @@
     "scheme": "zod",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/images/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#000000"
+    },
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.zod.ai",
-      "buildNumber": "5",
+      "buildNumber": "6",
       "infoPlist": {
         "CFBundleDevelopmentRegion": "en",
         "CFBundleLocalizations": [
@@ -19,7 +24,11 @@
         ],
         "CFBundleAllowMixedLocalizations": false,
         "ITSAppUsesNonExemptEncryption": false,
-        "NSMicrophoneUsageDescription": "Allow Zod to use your microphone for voice calls."
+        "NSMicrophoneUsageDescription": "Allow Zod to record voice messages and calls.",
+        "NSCameraUsageDescription": "Allow Zod to take photos for your profile and face verification.",
+        "NSPhotoLibraryUsageDescription": "Zod uses your photo library so you can select and upload profile photos. For example, choose an existing photo to display on your dating profile.",
+        "NSPhotoLibraryAddUsageDescription": "Zod saves photos you take within the app — such as profile pictures or identity-verification images — to your photo library so you can access them later.",
+        "NSContactsUsageDescription": "Allow Zod to find your friends who are already on Zod."
       }
     },
     "android": {
@@ -51,7 +60,7 @@
         "expo-splash-screen",
         {
           "image": "./assets/images/splash-icon.png",
-          "imageWidth": 200,
+          "imageWidth": 420,
           "resizeMode": "contain",
           "backgroundColor": "#000000",
           "dark": {
@@ -62,8 +71,8 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow Zod to use your camera for face verification.",
-          "microphonePermission": false
+          "cameraPermission": "Allow Zod to take photos for your profile and face verification.",
+          "microphonePermission": "Allow Zod to record voice messages and calls."
         }
       ],
       "@react-native-community/datetimepicker",

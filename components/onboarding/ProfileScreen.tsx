@@ -138,6 +138,7 @@ export default function ProfileScreen() {
       loading={saving}
       hideBack
       keyboardAvoiding
+      scrollable
       networkError={anyNetworkError}
       onRetryNetwork={clearAllNetworkErrors}
     >

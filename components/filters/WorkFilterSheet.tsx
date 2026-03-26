@@ -181,7 +181,7 @@ export default function WorkFilterSheet({ visible, onClose, colors, insets, onAp
             <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
               <View style={styles.sliderLabelRow}>
                 <SecHead title="MAX DISTANCE" />
-                <Text style={[styles.sliderValue, { color: colors.text }]}>{`${distance} km`}</Text>
+                <Text style={[styles.sliderValue, { color: colors.text }]}>{distance >= 80 ? 'Any' : `${distance} km`}</Text>
               </View>
               <View style={[styles.sliderRow, { marginTop: 10 }]}>
                 <Text style={[styles.sliderSub, { color: colors.textSecondary }]}>1 km</Text>

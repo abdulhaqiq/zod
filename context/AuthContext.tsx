@@ -69,6 +69,25 @@ export interface UserProfile {
   religion_id: number | null;        // lookup_options id (category=religion)
   ethnicity_id: number | null;       // lookup_options id (category=ethnicity)
 
+  // Halal profile fields
+  sect_id:              number | null;  // lookup_options id (category=sect)
+  prayer_frequency_id:  number | null;  // lookup_options id (category=prayer_frequency)
+  marriage_timeline_id: number | null;  // lookup_options id (category=marriage_timeline)
+  wali_email:           string | null;
+  wali_verified:        boolean;
+  blur_photos_halal:    boolean;
+  halal_mode_enabled:   boolean;
+
+  // Notification preferences
+  notif_new_match:     boolean;
+  notif_new_message:   boolean;
+  notif_super_like:    boolean;
+  notif_liked_profile: boolean;
+  notif_profile_views: boolean;
+  notif_ai_picks:      boolean;
+  notif_promotions:    boolean;
+  notif_dating_tips:   boolean;
+
   mood_emoji: string | null;
   mood_text: string | null;
 
@@ -119,6 +138,12 @@ export interface UserProfile {
   filter_smoking:         number[] | null;
   filter_height_min:      number | null;
   filter_height_max:      number | null;
+  // Halal-specific filters
+  filter_sect:               number[] | null;
+  filter_prayer_frequency:   number[] | null;
+  filter_marriage_timeline:  number[] | null;
+  filter_wali_verified_only: boolean;
+  filter_wants_to_work:      boolean | null;
 
   university:                string | null;
   university_email:          string | null;
@@ -366,8 +391,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   async function _clearSession() {
     await SecureStore.deleteItemAsync(ACCESS_KEY);
     await SecureStore.deleteItemAsync(REFRESH_KEY);
-    // QUICK_SIGNIN_KEY is intentionally NOT deleted here — it persists across
-    // logouts so the user can tap "Continue as [Name]" next time they open the app.
+    // Clear quick-sign-in and recent-account data on explicit logout so that
+    // a different user opening the app on the same device doesn't see the
+    // previous user's "Continue as" card or get silently signed in as them.
+    await SecureStore.deleteItemAsync(QUICK_SIGNIN_KEY);
+    await SecureStore.deleteItemAsync(RECENT_ACCOUNT_KEY);
   }
 
   async function _doRefresh(refresh: string): Promise<string | null> {

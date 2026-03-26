@@ -16,7 +16,7 @@ import {
 import Button from '@/components/ui/Button';
 import Squircle from '@/components/ui/Squircle';
 import { authedFetch, apiFetch } from '@/constants/api';
-import { useAuth, loadRecentAccount } from '@/context/AuthContext';
+import { useAuth, loadRecentAccount, saveRecentAccount } from '@/context/AuthContext';
 import { useAppTheme } from '@/context/ThemeContext';
 import { getDeviceInfo } from '@/utils/deviceInfo';
 
@@ -88,11 +88,24 @@ export default function VerifyPhone() {
 
       const dest = me.is_onboarded ? '/(tabs)' : '/gender';
 
-      // Only show passkey setup if there's no existing saved account
       const existing = await loadRecentAccount();
-      if (existing) {
+      const isSameUser = existing?.phone != null && existing.phone === (me.phone ?? null);
+
+      if (existing && isSameUser) {
+        // Same user returning — skip passkey setup, they already saved their account
+        router.replace(dest as any);
+      } else if (existing && !isSameUser) {
+        // Different user on this device — overwrite the saved account silently
+        // (the previous user explicitly logged out, so the device is now theirs)
+        await saveRecentAccount({
+          name:   me.full_name   ?? null,
+          phone:  me.phone       ?? null,
+          photo:  me.photos?.[0] ?? null,
+          method: 'phone',
+        });
         router.replace(dest as any);
       } else {
+        // No saved account yet — offer to save for quick sign-in next time
         router.push({
           pathname: '/passkey' as any,
           params: {

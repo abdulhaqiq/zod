@@ -42,6 +42,7 @@ export default function LifestyleScreen() {
       onContinue={handleContinue}
       continueDisabled={!allAnswered}
       loading={saving}
+      fallbackHref="/interests"
     >
       <ScrollView showsVerticalScrollIndicator={false} style={styles.scroll}>
         {questions.map((q) => (
@@ -62,7 +63,6 @@ export default function LifestyleScreen() {
                       },
                     ]}
                   >
-                    {opt.emoji ? <Text style={styles.chipEmoji}>{opt.emoji}</Text> : null}
                     <Text style={[styles.chipText, { color: active ? colors.bg : colors.text }]}>{opt.label}</Text>
                   </Pressable>
                 );
@@ -80,7 +80,6 @@ const styles = StyleSheet.create({
   section:   { marginBottom: 28 },
   qLabel:    { fontSize: 12, fontFamily: 'ProductSans-Medium', marginBottom: 10, letterSpacing: 1 },
   row:       { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  chip:      { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 100, borderWidth: 1.5 },
-  chipEmoji: { fontSize: 14 },
-  chipText:  { fontSize: 14, fontFamily: 'ProductSans-Medium' },
+  chip:     { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 100, borderWidth: 1.5 },
+  chipText: { fontSize: 14, fontFamily: 'ProductSans-Medium' },
 });

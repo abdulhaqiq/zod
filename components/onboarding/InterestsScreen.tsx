@@ -38,6 +38,7 @@ export default function InterestsScreen() {
       onContinue={handleContinue}
       continueDisabled={selected.length === 0}
       loading={saving}
+      fallbackHref="/height"
     >
       <ScrollView showsVerticalScrollIndicator={false}>
         <View style={styles.grid}>
@@ -55,7 +56,6 @@ export default function InterestsScreen() {
                   },
                 ]}
               >
-                {item.emoji ? <Text style={styles.chipEmoji}>{item.emoji}</Text> : null}
                 <Text style={[styles.chipText, { color: active ? colors.bg : colors.text }]}>{item.label}</Text>
               </Pressable>
             );
@@ -68,7 +68,6 @@ export default function InterestsScreen() {
 
 const styles = StyleSheet.create({
   grid:      { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 8, paddingBottom: 16 },
-  chip:      { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 100, borderWidth: 1.5 },
-  chipEmoji: { fontSize: 15 },
-  chipText:  { fontSize: 14, fontFamily: 'ProductSans-Medium' },
+  chip:     { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 100, borderWidth: 1.5 },
+  chipText: { fontSize: 14, fontFamily: 'ProductSans-Medium' },
 });
