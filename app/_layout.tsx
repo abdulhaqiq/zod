@@ -30,6 +30,7 @@ import { darkColors, lightColors } from '@/constants/appColors';
 import { useAutoLocation } from '@/hooks/useAutoLocation';
 import * as Camera from 'expo-camera';
 import * as MediaLibrary from 'expo-media-library';
+import * as TrackingTransparency from 'expo-tracking-transparency';
 
 // Show match/message banners while the app is in the foreground
 Notifications.setNotificationHandler({
@@ -148,6 +149,13 @@ function RootLayoutInner() {
     if (!splashDone || !token || permRequestedRef.current) return;
     permRequestedRef.current = true;
     (async () => {
+      // ATT must fire before any data collection on iOS 14+
+      try {
+        const { status } = await TrackingTransparency.getTrackingPermissionsAsync();
+        if (status === 'undetermined') {
+          await TrackingTransparency.requestTrackingPermissionsAsync();
+        }
+      } catch {}
       try { await Camera.requestCameraPermissionsAsync(); }        catch {}
       try { await MediaLibrary.requestPermissionsAsync(); }        catch {}
       try { await Camera.requestMicrophonePermissionsAsync(); }    catch {}
