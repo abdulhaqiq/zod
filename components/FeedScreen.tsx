@@ -7,6 +7,7 @@ import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useImperativeHandle, useRef, useState, forwardRef } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Animated,
   Dimensions,
@@ -25,6 +26,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image as ExpoImage } from 'expo-image';
+import { createAudioPlayer, setAudioModeAsync } from 'expo-audio';
 import Squircle from '@/components/ui/Squircle';
 import MatchScreen, { type MatchedProfile } from '@/components/MatchScreen';
 import MyProfilePage from '@/components/MyProfilePage';
@@ -201,6 +203,33 @@ const mStyles = StyleSheet.create({
   optSub:       { fontSize: 12, fontFamily: 'ProductSans-Regular', marginTop: 2 },
 });
 
+// ─── Report sheet styles ──────────────────────────────────────────────────────
+const rStyles = StyleSheet.create({
+  backdrop:     { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
+  sheet:        { borderTopLeftRadius: 32, borderTopRightRadius: 32, maxHeight: '92%' },
+  handle:       { width: 36, height: 4, borderRadius: 2, backgroundColor: 'rgba(128,128,128,0.35)', alignSelf: 'center', marginTop: 14, marginBottom: 4 },
+
+  header:       { alignItems: 'center', paddingHorizontal: 24, paddingTop: 16, paddingBottom: 20, gap: 8 },
+  headerIcon:   { width: 56, height: 56, alignItems: 'center', justifyContent: 'center', marginBottom: 4 },
+  title:        { fontSize: 22, fontFamily: 'PageSerif', textAlign: 'center' },
+  sub:          { fontSize: 13, fontFamily: 'ProductSans-Regular', textAlign: 'center', lineHeight: 19 },
+
+  grid:         { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 16, gap: 10, marginBottom: 16 },
+  gridItem:     { width: '47%' },
+  gridCard:     { padding: 14, gap: 10, minHeight: 90, position: 'relative' },
+  gridIconWrap: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  gridLabel:    { fontSize: 13, fontFamily: 'ProductSans-Bold', lineHeight: 18 },
+  gridCheck:    { position: 'absolute', top: 10, right: 10, width: 18, height: 18, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
+
+  customInput:  { borderRadius: 14, borderWidth: 1, padding: 14, fontSize: 14, fontFamily: 'ProductSans-Regular', minHeight: 90, textAlignVertical: 'top', marginBottom: 4 },
+  charCount:    { fontSize: 11, fontFamily: 'ProductSans-Regular', textAlign: 'right' },
+
+  doneWrap:     { alignItems: 'center', paddingHorizontal: 28, paddingTop: 20, paddingBottom: 36, gap: 12 },
+  doneIcon:     { width: 72, height: 72, alignItems: 'center', justifyContent: 'center', marginBottom: 4 },
+  doneTitle:    { fontSize: 22, fontFamily: 'PageSerif', textAlign: 'center' },
+  doneSub:      { fontSize: 14, fontFamily: 'ProductSans-Regular', textAlign: 'center', lineHeight: 22 },
+});
+
 // ─── Nav tabs ─────────────────────────────────────────────────────────────────
 
 const BASE_DATE_NAV_TABS = [
@@ -233,7 +262,9 @@ interface Profile {
   languages: string[];
   last_active_at?: string;
   has_voice?: boolean;
+  voice_prompts?: { topic: string; url: string; duration_sec: number }[];
   mood?: { emoji: string; text: string } | null;
+  halal?: { blurPhotos?: boolean; halalMode?: boolean; sect?: string; prayerFrequency?: string; marriageTimeline?: string; waliVerified?: boolean };
 }
 
 // ─── Data ─────────────────────────────────────────────────────────────────────
@@ -370,6 +401,67 @@ const SuperLikeBtn = ({
   );
 }
 
+// ─── Voice clip player (used inside ProfileCard) ─────────────────────────────
+
+function VoiceClipRow({ clip, colors }: { clip: { topic: string; url: string; duration_sec: number }; colors: any }) {
+  const playerRef = useRef<any>(null);
+  const [playing, setPlaying] = useState(false);
+  const [pos, setPos] = useState(0);
+
+  useEffect(() => {
+    return () => {
+      playerRef.current?.remove();
+      playerRef.current = null;
+    };
+  }, []);
+
+  const toggle = async () => {
+    if (playing) {
+      playerRef.current?.pause();
+      setPlaying(false);
+      return;
+    }
+    await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
+    if (!playerRef.current) {
+      const p = createAudioPlayer({ uri: clip.url });
+      p.addListener('playbackStatusUpdate', (s: any) => setPos(s.currentTime ?? 0));
+      p.addListener('playToEnd', () => { setPlaying(false); setPos(0); p.seekTo(0); });
+      playerRef.current = p;
+    }
+    setPlaying(true);
+    playerRef.current.play();
+  };
+
+  const progress = clip.duration_sec > 0 ? Math.min(pos / clip.duration_sec, 1) : 0;
+  const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s) % 60).padStart(2, '0')}`;
+
+  return (
+    <View style={[vcStyles.row, { backgroundColor: colors.surface2 }]}>
+      <View style={{ flex: 1 }}>
+        <Text style={[vcStyles.topic, { color: colors.textSecondary }]}>{clip.topic}</Text>
+        <View style={[vcStyles.track, { backgroundColor: colors.border }]}>
+          <View style={[vcStyles.fill, { width: `${progress * 100}%` as any, backgroundColor: colors.text }]} />
+        </View>
+      </View>
+      <View style={{ alignItems: 'flex-end', gap: 4 }}>
+        <Pressable onPress={toggle} style={[vcStyles.playBtn, { backgroundColor: colors.text }]}>
+          <Ionicons name={playing ? 'pause' : 'play'} size={14} color={colors.bg} />
+        </Pressable>
+        <Text style={[vcStyles.dur, { color: colors.textSecondary }]}>{fmt(playing ? pos : clip.duration_sec)}</Text>
+      </View>
+    </View>
+  );
+}
+
+const vcStyles = StyleSheet.create({
+  row:     { flexDirection: 'row', alignItems: 'center', gap: 12, borderRadius: 14, padding: 12, marginBottom: 8 },
+  topic:   { fontSize: 12, fontFamily: 'ProductSans-Bold', marginBottom: 6 },
+  track:   { height: 3, borderRadius: 2, overflow: 'hidden' },
+  fill:    { height: 3 },
+  playBtn: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  dur:     { fontSize: 11, fontFamily: 'ProductSans-Regular' },
+});
+
 // ─── Profile Card (scrollable + swipeable) ────────────────────────────────────
 
 export interface ProfileCardHandle {
@@ -389,6 +481,7 @@ const ProfileCard = forwardRef<ProfileCardHandle, {
   isPro: boolean;
   superLikesRemaining: number;
 }>(function ProfileCard({ profile, onSwipedLeft, onSwipedRight, onSuperLike, onReport, onBlock, colors, isPro, superLikesRemaining }, ref) {
+  const halalBlur = profile.halal?.blurPhotos === true;
   const position = useRef(new Animated.ValueXY()).current;
   const superStampAnim = useRef(new Animated.Value(0)).current;
 
@@ -508,7 +601,22 @@ const ProfileCard = forwardRef<ProfileCardHandle, {
       >
         {/* Photo */}
         <View style={styles.photoContainer}>
-          <ExpoImage source={{ uri: profile.images[0] }} style={styles.photo} contentFit="cover" cachePolicy="disk" />
+          <ExpoImage
+            source={{ uri: profile.images[0] }}
+            style={styles.photo}
+            contentFit="cover"
+            cachePolicy="disk"
+            blurRadius={halalBlur ? 60 : 0}
+          />
+          {/* Halal blur overlay with unlock hint */}
+          {halalBlur && (
+            <View style={styles.halalBlurOverlay} pointerEvents="none">
+              <View style={styles.halalBlurBadge}>
+                <Ionicons name="moon" size={14} color="#fff" />
+                <Text style={styles.halalBlurText}>Photos hidden until matched</Text>
+              </View>
+            </View>
+          )}
           <LinearGradient
             colors={['transparent', 'rgba(0,0,0,0.55)', 'rgba(0,0,0,0.92)']}
             locations={[0.45, 0.75, 1]}
@@ -560,6 +668,23 @@ const ProfileCard = forwardRef<ProfileCardHandle, {
                   <Text style={styles.moodText} numberOfLines={1}>{profile.mood.text}</Text>
                 </View>
               )}
+              {/* Quick preview: lookingFor + top interests */}
+              {profile.lookingFor ? (
+                <View style={styles.overlayLookingRow}>
+                  <Ionicons name="heart" size={11} color="rgba(255,255,255,0.85)" />
+                  <Text style={styles.overlayLookingText} numberOfLines={1}>{profile.lookingFor}</Text>
+                </View>
+              ) : null}
+              {profile.interests?.length > 0 && (
+                <View style={styles.overlayInterestRow}>
+                  {profile.interests.slice(0, 3).map(item => (
+                    <View key={item.label} style={styles.overlayInterestChip}>
+                      <Text style={styles.overlayInterestEmoji}>{item.emoji}</Text>
+                      <Text style={styles.overlayInterestLabel}>{item.label}</Text>
+                    </View>
+                  ))}
+                </View>
+              )}
               <View style={styles.scrollHint}>
                 <Ionicons name="chevron-down" size={13} color="rgba(255,255,255,0.6)" />
                 <Text style={styles.scrollHintText}>Scroll to see more</Text>
@@ -580,6 +705,19 @@ const ProfileCard = forwardRef<ProfileCardHandle, {
             <View style={styles.sec}>
               <Text style={[styles.secLabel, { color: colors.textSecondary }]}>ABOUT</Text>
               <Text style={[styles.aboutText, { color: colors.text }]}>{profile.about}</Text>
+            </View>
+            <View style={[styles.divider, { backgroundColor: colors.border }]} />
+          </> : null}
+
+          {profile.voice_prompts && profile.voice_prompts.length > 0 ? <>
+            <View style={styles.sec}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                <Ionicons name="mic" size={12} color={colors.textSecondary} />
+                <Text style={[styles.secLabel, { color: colors.textSecondary }]}>VOICE PROMPTS</Text>
+              </View>
+              {profile.voice_prompts.map((clip, i) => (
+                <VoiceClipRow key={i} clip={clip} colors={colors} />
+              ))}
             </View>
             <View style={[styles.divider, { backgroundColor: colors.border }]} />
           </> : null}
@@ -605,7 +743,7 @@ const ProfileCard = forwardRef<ProfileCardHandle, {
           </>}
 
           {profile.images[1] && <>
-            <ExpoImage source={{ uri: profile.images[1] }} style={styles.inlinePhoto} contentFit="cover" cachePolicy="disk" />
+            <ExpoImage source={{ uri: profile.images[1] }} style={styles.inlinePhoto} contentFit="cover" cachePolicy="disk" blurRadius={halalBlur ? 60 : 0} />
             <View style={[styles.divider, { backgroundColor: colors.border }]} />
           </>}
 
@@ -644,7 +782,7 @@ const ProfileCard = forwardRef<ProfileCardHandle, {
           </>}
 
           {profile.images[2] && <>
-            <ExpoImage source={{ uri: profile.images[2] }} style={styles.inlinePhoto} contentFit="cover" cachePolicy="disk" />
+            <ExpoImage source={{ uri: profile.images[2] }} style={styles.inlinePhoto} contentFit="cover" cachePolicy="disk" blurRadius={halalBlur ? 60 : 0} />
             <View style={[styles.divider, { backgroundColor: colors.border }]} />
           </>}
 
@@ -1155,7 +1293,9 @@ export default function FeedScreen() {
   // ── Report / Block state ──────────────────────────────────────────────────
   const [reportTargetId,      setReportTargetId]      = useState<string | null>(null);
   const [reportReason,        setReportReason]        = useState<string | null>(null);
+  const [reportCustomReason,  setReportCustomReason]  = useState('');
   const [reportSubmitting,    setReportSubmitting]    = useState(false);
+  const [reportDone,          setReportDone]          = useState(false);
 
   // Show ID gate for Muslim + halal-enabled users who haven't verified yet.
   // Re-evaluates whenever verification status changes (e.g. after successful ID scan).
@@ -1365,14 +1505,26 @@ export default function FeedScreen() {
     try {
       await apiFetch('/moderation/report', {
         token, method: 'POST',
-        body: JSON.stringify({ reported_id: reportTargetId, reason: reportReason }),
+        body: JSON.stringify({
+          reported_id: reportTargetId,
+          reason: reportReason,
+          ...(reportReason === 'other' && reportCustomReason.trim()
+            ? { custom_reason: reportCustomReason.trim() }
+            : {}),
+        }),
       });
     } catch { /* silent — report is best-effort */ }
     setReportSubmitting(false);
-    setReportTargetId(null);
-    // Remove the reported profile from feed
+    setReportDone(true);
     setProfiles(prev => prev.filter(p => p.id !== reportTargetId));
-  }, [token, reportTargetId, reportReason]);
+  }, [token, reportTargetId, reportReason, reportCustomReason]);
+
+  const closeReport = useCallback(() => {
+    setReportTargetId(null);
+    setReportReason(null);
+    setReportCustomReason('');
+    setReportDone(false);
+  }, []);
 
   const handleBlockPress = useCallback(async (profileId: string) => {
     // Immediately remove from UI
@@ -1638,68 +1790,127 @@ export default function FeedScreen() {
       </Modal>
 
       {/* Report modal */}
-      {(() => {
-        const REPORT_REASONS: { key: string; label: string; icon: string }[] = [
-          { key: 'fake_profile',          label: 'Fake profile',           icon: 'person-remove-outline' },
-          { key: 'inappropriate_photos',  label: 'Inappropriate photos',   icon: 'images-outline' },
-          { key: 'harassment',            label: 'Harassment',             icon: 'warning-outline' },
-          { key: 'spam',                  label: 'Spam or scam',           icon: 'ban-outline' },
-          { key: 'underage',              label: 'Underage user',          icon: 'shield-outline' },
-          { key: 'hate_speech',           label: 'Hate speech',            icon: 'alert-circle-outline' },
-          { key: 'other',                 label: 'Something else',         icon: 'ellipsis-horizontal-circle-outline' },
-        ];
-        return (
-          <Modal visible={!!reportTargetId} transparent animationType="fade" onRequestClose={() => setReportTargetId(null)}>
-            <Pressable style={mStyles.backdrop} onPress={() => setReportTargetId(null)}>
-              <Pressable style={[mStyles.sheet, { backgroundColor: colors.surface, gap: 0 }]}>
-                <View style={mStyles.handle} />
-                <Squircle style={{ width: 52, height: 52, alignItems: 'center', justifyContent: 'center', alignSelf: 'center', marginBottom: 16 }}
-                  cornerRadius={16} cornerSmoothing={1} fillColor={colors.surface2}>
-                  <Ionicons name="flag-outline" size={26} color={colors.error} />
+      <Modal visible={!!reportTargetId} transparent animationType="slide" onRequestClose={closeReport}>
+        <Pressable style={rStyles.backdrop} onPress={closeReport}>
+          <Pressable style={[rStyles.sheet, { backgroundColor: colors.surface }]}>
+            <View style={rStyles.handle} />
+
+            {reportDone ? (
+              /* ── Success state ── */
+              <View style={rStyles.doneWrap}>
+                <Squircle style={rStyles.doneIcon} cornerRadius={28} cornerSmoothing={1} fillColor={'#22c55e18'}>
+                  <Ionicons name="checkmark-circle" size={36} color="#22c55e" />
                 </Squircle>
-                <Text style={[mStyles.heading, { color: colors.text, marginBottom: 4 }]}>Report Profile</Text>
-                <Text style={[mStyles.optSub, { color: colors.textSecondary, textAlign: 'center', marginBottom: 20 }]}>
-                  Select a reason — your report is anonymous.
+                <Text style={[rStyles.doneTitle, { color: colors.text }]}>Report Submitted</Text>
+                <Text style={[rStyles.doneSub, { color: colors.textSecondary }]}>
+                  Thank you for helping keep our community safe. Your report is anonymous and will be reviewed shortly.
                 </Text>
-
-                {REPORT_REASONS.map(r => (
-                  <Pressable key={r.key} onPress={() => setReportReason(r.key)}
-                    style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}>
-                    <Squircle
-                      cornerRadius={12} cornerSmoothing={1}
-                      fillColor={reportReason === r.key ? colors.btnPrimaryBg + '22' : colors.surface2}
-                      strokeColor={reportReason === r.key ? colors.btnPrimaryBg : colors.border}
-                      strokeWidth={reportReason === r.key ? 1.5 : 1}
-                      style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 11, paddingHorizontal: 14, marginBottom: 8 }}
-                    >
-                      <Ionicons name={r.icon as any} size={18} color={reportReason === r.key ? colors.btnPrimaryBg : colors.textSecondary} />
-                      <Text style={{ flex: 1, fontSize: 14, fontFamily: 'ProductSans-Medium', color: colors.text }}>{r.label}</Text>
-                      {reportReason === r.key && <Ionicons name="checkmark-circle" size={18} color={colors.btnPrimaryBg} />}
-                    </Squircle>
-                  </Pressable>
-                ))}
-
-                <Squircle cornerRadius={18} cornerSmoothing={1}
-                  fillColor={reportReason ? colors.error : colors.surface2}
-                  style={[styles.applyBtn, { marginHorizontal: 0, marginTop: 8, marginBottom: 12, opacity: reportReason ? 1 : 0.45 }]}>
-                  <Pressable
-                    disabled={!reportReason || reportSubmitting}
-                    onPress={handleReportSubmit}
-                    style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}
-                  >
-                    <Text style={[styles.applyBtnText, { color: '#fff' }]}>
-                      {reportSubmitting ? 'Submitting…' : 'Submit Report'}
-                    </Text>
+                <Squircle cornerRadius={18} cornerSmoothing={1} fillColor={colors.text}
+                  style={{ height: 52, overflow: 'hidden', marginTop: 8 }}>
+                  <Pressable onPress={closeReport} style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+                    <Text style={[styles.applyBtnText, { color: colors.bg }]}>Done</Text>
                   </Pressable>
                 </Squircle>
-                <Pressable onPress={() => setReportTargetId(null)} style={{ alignItems: 'center', paddingVertical: 12 }}>
-                  <Text style={[mStyles.optSub, { color: colors.textSecondary }]}>Cancel</Text>
-                </Pressable>
-              </Pressable>
-            </Pressable>
-          </Modal>
-        );
-      })()}
+              </View>
+            ) : (
+              /* ── Select reason state ── */
+              <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                {/* Header */}
+                <View style={rStyles.header}>
+                  <Squircle style={rStyles.headerIcon} cornerRadius={20} cornerSmoothing={1} fillColor="#ff3b3018">
+                    <Ionicons name="flag" size={22} color="#ff3b30" />
+                  </Squircle>
+                  <Text style={[rStyles.title, { color: colors.text }]}>Report Profile</Text>
+                  <Text style={[rStyles.sub, { color: colors.textSecondary }]}>
+                    Your report is completely anonymous
+                  </Text>
+                </View>
+
+                {/* Reason grid */}
+                <View style={rStyles.grid}>
+                  {[
+                    { key: 'fake_profile',         label: 'Fake profile',        icon: 'person-remove-outline', color: '#f97316' },
+                    { key: 'inappropriate_photos',  label: 'Inappropriate\nphotos', icon: 'images-outline',     color: '#ec4899' },
+                    { key: 'harassment',            label: 'Harassment',          icon: 'warning-outline',       color: '#eab308' },
+                    { key: 'spam',                  label: 'Spam',                icon: 'mail-unread-outline',   color: '#8b5cf6' },
+                    { key: 'scam',                  label: 'Scam',                icon: 'cash-outline',          color: '#ef4444' },
+                    { key: 'underage',              label: 'Underage user',       icon: 'shield-outline',        color: '#3b82f6' },
+                    { key: 'hate_speech',           label: 'Hate speech',         icon: 'megaphone-outline',     color: '#dc2626' },
+                    { key: 'other',                 label: 'Other',               icon: 'ellipsis-horizontal-circle-outline', color: colors.textSecondary },
+                  ].map(r => {
+                    const selected = reportReason === r.key;
+                    return (
+                      <Pressable
+                        key={r.key}
+                        onPress={() => setReportReason(r.key)}
+                        style={({ pressed }) => [rStyles.gridItem, { opacity: pressed ? 0.75 : 1 }]}
+                      >
+                        <Squircle
+                          cornerRadius={18} cornerSmoothing={1}
+                          fillColor={selected ? r.color + '20' : colors.surface2}
+                          strokeColor={selected ? r.color : colors.border}
+                          strokeWidth={selected ? 1.5 : StyleSheet.hairlineWidth}
+                          style={rStyles.gridCard}
+                        >
+                          <View style={[rStyles.gridIconWrap, { backgroundColor: selected ? r.color + '22' : colors.surface }]}>
+                            <Ionicons name={r.icon as any} size={20} color={selected ? r.color : colors.textSecondary} />
+                          </View>
+                          <Text style={[rStyles.gridLabel, { color: selected ? colors.text : colors.textSecondary }]}>{r.label}</Text>
+                          {selected && (
+                            <View style={[rStyles.gridCheck, { backgroundColor: r.color }]}>
+                              <Ionicons name="checkmark" size={10} color="#fff" />
+                            </View>
+                          )}
+                        </Squircle>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+
+                {/* Custom reason input — shown only when "other" is selected */}
+                {reportReason === 'other' && (
+                  <View style={{ paddingHorizontal: 20, marginBottom: 4 }}>
+                    <TextInput
+                      style={[rStyles.customInput, { backgroundColor: colors.surface2, color: colors.text, borderColor: colors.border }]}
+                      placeholder="Tell us what happened…"
+                      placeholderTextColor={colors.textSecondary}
+                      value={reportCustomReason}
+                      onChangeText={setReportCustomReason}
+                      multiline
+                      maxLength={300}
+                      returnKeyType="done"
+                    />
+                    <Text style={[rStyles.charCount, { color: colors.textSecondary }]}>{reportCustomReason.length}/300</Text>
+                  </View>
+                )}
+
+                {/* Submit button */}
+                <View style={{ paddingHorizontal: 20, paddingBottom: Math.max(insets.bottom, 24) + 8, marginTop: 8 }}>
+                  <Squircle cornerRadius={18} cornerSmoothing={1}
+                    fillColor={reportReason ? '#ef4444' : colors.surface2}
+                    style={{ height: 54, overflow: 'hidden', opacity: reportReason ? 1 : 0.4 }}>
+                    <Pressable
+                      disabled={!reportReason || reportSubmitting}
+                      onPress={handleReportSubmit}
+                      style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+                    >
+                      {reportSubmitting
+                        ? <ActivityIndicator size="small" color="#fff" />
+                        : <Ionicons name="flag" size={18} color="#fff" />}
+                      <Text style={{ fontSize: 16, fontFamily: 'ProductSans-Bold', color: '#fff' }}>
+                        {reportSubmitting ? 'Submitting…' : 'Submit Report'}
+                      </Text>
+                    </Pressable>
+                  </Squircle>
+                  <Pressable onPress={closeReport} style={{ alignItems: 'center', paddingVertical: 14 }}>
+                    <Text style={{ fontSize: 14, fontFamily: 'ProductSans-Medium', color: colors.textSecondary }}>Cancel</Text>
+                  </Pressable>
+                </View>
+              </ScrollView>
+            )}
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       {/* Tab content */}
       {activeTab === 'people' && (
@@ -1852,6 +2063,19 @@ const styles = StyleSheet.create({
   locationText:   { fontSize: 13, fontFamily: 'ProductSans-Regular', color: 'rgba(255,255,255,0.7)' },
   scrollHint:     { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
   scrollHintText: { fontSize: 11, fontFamily: 'ProductSans-Regular', color: 'rgba(255,255,255,0.55)' },
+
+  // Halal blur overlay
+  halalBlurOverlay:  { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center', zIndex: 2 },
+  halalBlurBadge:    { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(0,0,0,0.55)', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)' },
+  halalBlurText:     { fontSize: 13, fontFamily: 'ProductSans-Bold', color: '#fff' },
+
+  // Overlay interest chips + lookingFor
+  overlayLookingRow:    { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 5 },
+  overlayLookingText:   { fontSize: 12, fontFamily: 'ProductSans-Medium', color: 'rgba(255,255,255,0.85)' },
+  overlayInterestRow:   { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 },
+  overlayInterestChip:  { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(255,255,255,0.18)', paddingHorizontal: 9, paddingVertical: 4, borderRadius: 20 },
+  overlayInterestEmoji: { fontSize: 12 },
+  overlayInterestLabel: { fontSize: 11, fontFamily: 'ProductSans-Medium', color: '#fff' },
 
   // Active now + voice badges
   activeDot:      { position: 'absolute', top: 14, left: 14, flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: 'rgba(0,0,0,0.5)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 20 },
