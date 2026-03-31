@@ -62,10 +62,11 @@ export default function PurchasesPage() {
   const { colors } = useAppTheme();
   const { profile } = useAuth();
   const router = useRouter();
-  const { restore: restorePurchases, loading } = useSubscription();
+  const { restore: restorePurchases, loading, myFeatures } = useSubscription();
 
   const tier = profile?.subscription_tier;
   const isPro = tier && tier !== 'free';
+  const aiBalance = myFeatures?.ai_credits_balance ?? 0;
 
   const handleRestore = async () => {
     try {
@@ -154,6 +155,36 @@ export default function PurchasesPage() {
           </Squircle>
         </View>
 
+        {/* ── AI Credits ───────────────────────────────────────────────── */}
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>AI CREDITS</Text>
+          <Squircle style={styles.group} cornerRadius={22} cornerSmoothing={1}
+            fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
+            <Pressable
+              onPress={() => navPush('/ai-credits' as any)}
+              style={({ pressed }) => [
+                styles.row,
+                pressed && { opacity: 0.6 },
+              ]}
+            >
+              <Squircle style={[styles.iconWrap, { backgroundColor: 'rgba(234,179,8,0.12)' }]} cornerRadius={10} cornerSmoothing={1} fillColor="rgba(234,179,8,0.12)">
+                <Ionicons name="flash" size={18} color="#f59e0b" />
+              </Squircle>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.rowLabel, { color: colors.text }]}>AI Credits</Text>
+                <Text style={[styles.rowSub, { color: colors.textSecondary }]}>
+                  Power AI features across the app
+                </Text>
+              </View>
+              <View style={styles.balanceBadge}>
+                <Ionicons name="flash" size={11} color="#f59e0b" />
+                <Text style={styles.balanceNum}>{aiBalance}</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} style={{ marginLeft: 6 }} />
+            </Pressable>
+          </Squircle>
+        </View>
+
         {loading && (
           <ActivityIndicator style={{ marginTop: 20 }} color={colors.text} />
         )}
@@ -163,6 +194,7 @@ export default function PurchasesPage() {
           Apple takes a 15–30% commission on in-app purchases.
         </Text>
       </ScrollView>
+
     </View>
   );
 }
@@ -186,4 +218,6 @@ const styles = StyleSheet.create({
   rowSub:         { fontSize: 12, fontFamily: 'ProductSans-Regular', marginTop: 2 },
   iconWrap:       { width: 34, height: 34, alignItems: 'center', justifyContent: 'center' },
   footer:         { fontSize: 12, fontFamily: 'ProductSans-Regular', textAlign: 'center', marginTop: 28, lineHeight: 18 },
+  balanceBadge:   { flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: 'rgba(234,179,8,0.12)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10 },
+  balanceNum:     { fontSize: 14, fontFamily: 'ProductSans-Bold', color: '#f59e0b' },
 });

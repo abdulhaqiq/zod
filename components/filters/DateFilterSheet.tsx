@@ -378,8 +378,8 @@ export default function DateFilterSheet({ visible, onClose, onApply, onNavigateT
           </View>
         </LinearGradient>
 
-        {activeTab === 'basic' && !halalMode ? (
-          /* ── Basic filters ── */
+        {/* ── Basic tab ── */}
+        {activeTab === 'basic' && !halalMode && (
           <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: insets.bottom + 120, gap: 14 }} showsVerticalScrollIndicator={false}>
 
             {/* Age range */}
@@ -520,8 +520,10 @@ export default function DateFilterSheet({ visible, onClose, onApply, onNavigateT
               </View>
             </Squircle>
           </ScrollView>
+        )}
 
-        ) : isPro ? (
+        {/* ── Pro tab ── */}
+        {activeTab === 'pro' && !halalMode && (isPro ? (
           /* ── Pro filters — unlocked ── */
           <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: insets.bottom + 120, gap: 14 }} showsVerticalScrollIndicator={false}>
 
@@ -673,8 +675,7 @@ export default function DateFilterSheet({ visible, onClose, onApply, onNavigateT
               </Squircle>
             ))}
           </ScrollView>
-
-        ) : activeTab === 'pro' ? (
+        ) : (
           /* ── Pro tab — locked (non-pro user) ── */
           <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: insets.bottom + 120, gap: 14 }} showsVerticalScrollIndicator={false}>
 
@@ -743,9 +744,9 @@ export default function DateFilterSheet({ visible, onClose, onApply, onNavigateT
               </Squircle>
             ))}
           </ScrollView>
-        ) : null}
+        ))}
 
-        {/* ── Halal filters tab ── */}
+        {/* ── Halal tab ── */}
         {activeTab === 'halal' && (
           <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: insets.bottom + 120, gap: 14 }} showsVerticalScrollIndicator={false}>
 

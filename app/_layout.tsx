@@ -409,6 +409,7 @@ function RootLayoutInner() {
             <Stack.Screen name="legal"           options={{ headerShown: false }} />
             <Stack.Screen name="get-help"        options={{ headerShown: false }} />
             <Stack.Screen name="purchases"              options={{ headerShown: false }} />
+            <Stack.Screen name="ai-credits"             options={{ headerShown: false }} />
             <Stack.Screen name="admin-verifications"  options={{ headerShown: false }} />
             <Stack.Screen name="zod-work"             options={{ headerShown: false }} />
             <Stack.Screen name="work-edit-profile"    options={{ headerShown: false }} />

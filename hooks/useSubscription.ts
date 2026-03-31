@@ -18,7 +18,7 @@ import Purchases, {
 } from 'react-native-purchases';
 import { NativeModules } from 'react-native';
 import { apiFetch } from '@/constants/api';
-import { RC_ENTITLEMENT, RC_OFFERING } from '@/constants/iap';
+import { RC_ENTITLEMENT, RC_OFFERING, type AiCreditPack } from '@/constants/iap';
 import { useAuth } from '@/context/AuthContext';
 
 // Structured feature types stored in DB
@@ -58,6 +58,14 @@ export type MyFeatures = {
   super_likes_resets_in_days: number | null;
   profile_boosts_limit: number;
   features: PlanFeature[];
+  /** Free-tier daily like quota. -1 = unlimited (paid tiers). */
+  daily_likes_limit: number;
+  daily_likes_used: number;
+  daily_likes_remaining: number;
+  /** AI Credits wallet. */
+  ai_credits_balance: number;
+  /** Monthly grant for this tier (0 for free). */
+  ai_credits_monthly: number;
 };
 
 /**
@@ -79,13 +87,14 @@ export type SubscriptionStatus = {
 export function useSubscription() {
   const { token, updateProfile } = useAuth();
 
-  const [offering,    setOffering]    = useState<PurchasesOffering | null>(null);
-  const [plans,       setPlans]       = useState<BackendPlan[]>([]);
-  const [myFeatures,  setMyFeatures]  = useState<MyFeatures | null>(null);
-  const [status,      setStatus]      = useState<SubscriptionStatus | null>(null);
-  const [loading,     setLoading]     = useState(false);
-  const [purchasing,  setPurchasing]  = useState(false);
-  const [error,       setError]       = useState<string | null>(null);
+  const [offering,         setOffering]         = useState<PurchasesOffering | null>(null);
+  const [plans,            setPlans]            = useState<BackendPlan[]>([]);
+  const [myFeatures,       setMyFeatures]       = useState<MyFeatures | null>(null);
+  const [status,           setStatus]           = useState<SubscriptionStatus | null>(null);
+  const [loading,          setLoading]          = useState(false);
+  const [purchasing,       setPurchasing]       = useState(false);
+  const [purchasingCredits,setPurchasingCredits]= useState(false);
+  const [error,            setError]            = useState<string | null>(null);
   const configuredToken = useRef<string | null>(null);
 
   // ── Configure RevenueCat SDK — key fetched from backend ──────────────────
@@ -242,6 +251,56 @@ export function useSubscription() {
     }
   }, [token, updateProfile]);
 
+  // ── Purchase AI credit pack (consumable) ─────────────────────────────────
+
+  const purchaseAiCredits = useCallback(async (pack: AiCreditPack): Promise<{ success: boolean; newBalance?: number; error?: string }> => {
+    setPurchasingCredits(true);
+    setError(null);
+    try {
+      if (!IS_EXPO_GO) {
+        // Fetch the product from RevenueCat by product ID
+        const offerings = await Purchases.getOfferings();
+        const allPackages = Object.values(offerings.all ?? {}).flatMap(o => o.availablePackages);
+        const pkg = allPackages.find(p => p.product?.identifier === pack.id);
+
+        if (pkg) {
+          const { customerInfo } = await Purchases.purchasePackage(pkg);
+          const rcCustomerId = customerInfo.originalAppUserId;
+          const data = await apiFetch<{ credits_added: number; new_balance: number }>(
+            '/subscription/ai-credits/topup',
+            {
+              method: 'POST',
+              token: token ?? undefined,
+              body: JSON.stringify({ pack_id: pack.id, revenuecat_customer_id: rcCustomerId }),
+            },
+          );
+          // Update local myFeatures balance
+          setMyFeatures(prev => prev ? { ...prev, ai_credits_balance: data.new_balance } : prev);
+          return { success: true, newBalance: data.new_balance };
+        }
+      }
+
+      // In Expo Go or if product not found in RC — call backend directly (dev/test only)
+      const data = await apiFetch<{ credits_added: number; new_balance: number }>(
+        '/subscription/ai-credits/topup',
+        {
+          method: 'POST',
+          token: token ?? undefined,
+          body: JSON.stringify({ pack_id: pack.id, revenuecat_customer_id: 'dev_test' }),
+        },
+      );
+      setMyFeatures(prev => prev ? { ...prev, ai_credits_balance: data.new_balance } : prev);
+      return { success: true, newBalance: data.new_balance };
+    } catch (e: any) {
+      if (e?.userCancelled) return { success: false };
+      const msg = e?.message ?? 'Purchase failed. Please try again.';
+      setError(msg);
+      return { success: false, error: msg };
+    } finally {
+      setPurchasingCredits(false);
+    }
+  }, [token]);
+
   // ── Convenience getters ───────────────────────────────────────────────────
 
   const weeklyPackage: PurchasesPackage | null =
@@ -286,9 +345,11 @@ export function useSubscription() {
     status,
     loading,
     purchasing,
+    purchasingCredits,
     error,
     purchase,
     restore,
+    purchaseAiCredits,
     refetch: fetchStatus,
   };
 }

@@ -114,8 +114,8 @@ function FeatureCell({ value, colors }: { value: boolean | string; colors: any }
     );
   }
   return (
-    <Squircle style={[styles.cellBadge, styles.cellBadgeWide]} cornerRadius={8} cornerSmoothing={1} fillColor={colors.surface2}>
-      <Text style={[styles.cellQty, { color: colors.text }]}>{value}</Text>
+    <Squircle style={styles.cellBadgeWide} cornerRadius={8} cornerSmoothing={1} fillColor={colors.surface2}>
+      <Text style={[styles.cellQty, { color: colors.text }]} numberOfLines={1}>{value}</Text>
     </Squircle>
   );
 }
@@ -126,12 +126,13 @@ const FALLBACK_FEATURES_PRO: PlanFeature[] = [
   { key: 'unlimited_likes',    label: 'Unlimited likes',    icon: 'heart',            type: 'bool',     value: true },
   { key: 'see_who_liked_you',  label: 'See who liked you',  icon: 'eye',              type: 'bool',     value: true },
   { key: 'rewind',             label: 'Rewind last swipe',  icon: 'refresh-circle',   type: 'bool',     value: true },
-  { key: 'super_likes',        label: 'Super Likes',        icon: 'star',             type: 'quantity', limit: 5,  period: 'weekly',  display: '5 / week' },
-  { key: 'profile_boosts',     label: 'Profile Boosts',     icon: 'rocket',           type: 'quantity', limit: 1,  period: 'monthly', display: '1 / month' },
+  { key: 'super_likes',        label: 'Super Likes',        icon: 'star',             type: 'quantity', limit: 5,  period: 'weekly',  display: '5/wk' },
+  { key: 'profile_boosts',     label: 'Profile Boosts',     icon: 'rocket',           type: 'quantity', limit: 1,  period: 'monthly', display: '1/mo' },
   { key: 'advanced_filters',   label: 'Advanced filters',   icon: 'options',          type: 'bool',     value: true },
-  { key: 'ai_smart_matching',  label: 'AI Smart Matching',  icon: 'sparkles',         type: 'label',    display: 'Standard' },
+  { key: 'ai_smart_matching',  label: 'AI Smart Matching',  icon: 'sparkles',         type: 'bool',     value: true },
+  { key: 'ai_credits',         label: 'AI Credits',         icon: 'flash',            type: 'quantity', limit: 10, period: 'monthly', display: '10/mo' },
   { key: 'travel_mode',        label: 'Travel Mode',        icon: 'airplane',         type: 'bool',     value: true },
-  { key: 'priority_visibility',label: 'Priority visibility',icon: 'trending-up',      type: 'label',    display: 'Standard' },
+  { key: 'priority_visibility',label: 'Priority visibility',icon: 'trending-up',      type: 'bool',     value: true },
   { key: 'read_receipts',      label: 'Read receipts',      icon: 'chatbubble',       type: 'bool',     value: false },
   { key: 'no_ads',             label: 'No ads',             icon: 'ban',              type: 'bool',     value: true },
   { key: 'incognito',          label: 'Incognito browsing', icon: 'eye-off',          type: 'bool',     value: false },
@@ -142,10 +143,11 @@ const FALLBACK_FEATURES_PP: PlanFeature[] = [
   { key: 'unlimited_likes',    label: 'Unlimited likes',    icon: 'heart',            type: 'bool',     value: true },
   { key: 'see_who_liked_you',  label: 'See who liked you',  icon: 'eye',              type: 'bool',     value: true },
   { key: 'rewind',             label: 'Rewind last swipe',  icon: 'refresh-circle',   type: 'bool',     value: true },
-  { key: 'super_likes',        label: 'Super Likes',        icon: 'star',             type: 'quantity', limit: 10, period: 'weekly',  display: '10 / week' },
-  { key: 'profile_boosts',     label: 'Profile Boosts',     icon: 'rocket',           type: 'quantity', limit: 2,  period: 'monthly', display: '2 / month' },
+  { key: 'super_likes',        label: 'Super Likes',        icon: 'star',             type: 'quantity', limit: 10, period: 'weekly',  display: '10/wk' },
+  { key: 'profile_boosts',     label: 'Profile Boosts',     icon: 'rocket',           type: 'quantity', limit: 2,  period: 'monthly', display: '2/mo' },
   { key: 'advanced_filters',   label: 'Advanced filters',   icon: 'options',          type: 'bool',     value: true },
   { key: 'ai_smart_matching',  label: 'AI Smart Matching',  icon: 'sparkles',         type: 'label',    display: 'Priority' },
+  { key: 'ai_credits',         label: 'AI Credits',         icon: 'flash',            type: 'quantity', limit: 25, period: 'monthly', display: '25/mo' },
   { key: 'travel_mode',        label: 'Travel Mode',        icon: 'airplane',         type: 'bool',     value: true },
   { key: 'priority_visibility',label: 'Priority visibility',icon: 'trending-up',      type: 'label',    display: '2×' },
   { key: 'read_receipts',      label: 'Read receipts',      icon: 'chatbubble',       type: 'bool',     value: true },
@@ -190,6 +192,16 @@ export default function SubscriptionPage() {
   const [gcCode, setGcCode]                 = useState('');
   const [gcResult, setGcResult]             = useState<import('@/hooks/useGiftCard').RedeemResult | null>(null);
   const gcInputRef = useRef<TextInput>(null);
+
+  // Auto-format code as XXXX-XXXX-XXXX
+  const formatGcCode = (raw: string) => {
+    const clean = raw.replace(/[^A-Z0-9]/g, '').slice(0, 12);
+    const parts = [clean.slice(0, 4), clean.slice(4, 8), clean.slice(8, 12)].filter(Boolean);
+    return parts.join('-');
+  };
+  const handleGcChange = (text: string) => {
+    setGcCode(formatGcCode(text.toUpperCase()));
+  };
 
   const isPro     = profile?.subscription_tier === 'pro' || profile?.subscription_tier === 'premium_plus' || status?.isPro === true;
   const expiresAt = status?.expiresAt ?? null;
@@ -392,7 +404,7 @@ export default function SubscriptionPage() {
               <Ionicons name="star" size={13} color={colors.text} />
               <Text style={[styles.quotaText, { color: colors.text }]}>
                 {slRemaining} / {slLimit} super likes this week
-                {slResetsIn !== null ? `  ·  resets in ${slResetsIn}d` : ''}
+                {slResetsIn != null ? `  ·  resets in ${slResetsIn}d` : ''}
               </Text>
             </View>
           )}
@@ -566,12 +578,28 @@ export default function SubscriptionPage() {
             {gcResult ? (
               /* ── Success state ── */
               <View style={styles.gcSuccess}>
-                <Squircle style={styles.gcSuccessIcon} cornerRadius={26} cornerSmoothing={1} fillColor={colors.surface2}>
-                  <Ionicons name="checkmark" size={36} color={colors.text} />
-                </Squircle>
+                {/* Success card visual */}
+                <View style={styles.gcSuccessCard}>
+                  <View style={styles.gcCardTopRow}>
+                    <Ionicons name="star" size={18} color="#f59e0b" />
+                    <Text style={styles.gcCardTierText}>
+                      {gcResult.tier === 'premium_plus' ? 'PREMIUM+' : 'ZOD PRO'}
+                    </Text>
+                  </View>
+                  <View style={styles.gcCardCheckRow}>
+                    <View style={styles.gcCardCheckCircle}>
+                      <Ionicons name="checkmark" size={28} color="#f59e0b" />
+                    </View>
+                  </View>
+                  <Text style={styles.gcCardActivatedText}>ACTIVATED</Text>
+                </View>
 
-                <Text style={[styles.gcSuccessTitle, { color: colors.text }]}>Redeemed!</Text>
-                <Text style={[styles.gcSuccessSub, { color: colors.textSecondary }]}>{gcResult.plan_name}</Text>
+                <View style={styles.gcSuccessTextWrap}>
+                  <Text style={[styles.gcSuccessTitle, { color: colors.text }]}>You're all set!</Text>
+                  <Text style={[styles.gcSuccessSub, { color: colors.textSecondary }]}>
+                    {gcResult.plan_name} · {gcResult.duration_days} days
+                  </Text>
+                </View>
 
                 <Squircle
                   style={styles.gcInfoBox}
@@ -610,37 +638,49 @@ export default function SubscriptionPage() {
                   ) : null}
                 </Squircle>
 
-                <Pressable onPress={handleGcDone} style={({ pressed }) => [pressed && { opacity: 0.8 }]}>
+                <Pressable onPress={handleGcDone} style={({ pressed }) => [{ width: '100%' }, pressed && { opacity: 0.82 }]}>
                   <Squircle style={styles.gcPrimaryBtn} cornerRadius={50} cornerSmoothing={1} fillColor={colors.text}>
-                    <Text style={[styles.gcPrimaryBtnText, { color: colors.bg }]}>Continue</Text>
+                    <Text style={[styles.gcPrimaryBtnText, { color: colors.bg }]}>Start Using Pro</Text>
                   </Squircle>
                 </Pressable>
               </View>
             ) : (
               /* ── Input state ── */
               <View style={styles.gcBody}>
-                <Squircle style={styles.gcIconWrap} cornerRadius={20} cornerSmoothing={1} fillColor={colors.surface2}>
-                  <Ionicons name="gift-outline" size={28} color={colors.text} />
-                </Squircle>
 
-                <Text style={[styles.gcTitle, { color: colors.text }]}>Redeem Gift Card</Text>
-                <Text style={[styles.gcSub, { color: colors.textSecondary }]}>
-                  Enter your code to unlock a Pro subscription instantly.
-                </Text>
+                {/* Visual gift card */}
+                <View style={styles.gcCardVisual}>
+                  <View style={styles.gcCardTopRow}>
+                    <Ionicons name="gift-outline" size={16} color="#f59e0b" />
+                    <Text style={styles.gcCardTierText}>ZOD PRO</Text>
+                  </View>
+                  <View style={styles.gcCardDots}>
+                    <Text style={styles.gcCardDotsText}>• • • •{'   '}• • • •{'   '}• • • •</Text>
+                  </View>
+                  <View style={[styles.gcCardCircle, styles.gcCardCircleLeft]} />
+                  <View style={[styles.gcCardCircle, styles.gcCardCircleRight]} />
+                </View>
 
-                {/* Code input inside a Squircle */}
+                <View style={styles.gcTitleWrap}>
+                  <Text style={[styles.gcTitle, { color: colors.text }]}>Redeem Gift Card</Text>
+                  <Text style={[styles.gcSub, { color: colors.textSecondary }]}>
+                    Enter your 12-character code to unlock Pro instantly.
+                  </Text>
+                </View>
+
+                {/* Segmented code input */}
                 <Squircle
                   style={styles.gcInputWrap}
-                  cornerRadius={16} cornerSmoothing={1}
+                  cornerRadius={18} cornerSmoothing={1}
                   fillColor={colors.surface}
-                  strokeColor={gcError ? '#ef4444' : colors.border}
-                  strokeWidth={gcError ? 1.5 : StyleSheet.hairlineWidth}
+                  strokeColor={gcError ? '#ef4444' : gcCode.length > 0 ? colors.text : colors.border}
+                  strokeWidth={gcError ? 1.5 : gcCode.length > 0 ? 1.5 : StyleSheet.hairlineWidth}
                 >
                   <TextInput
                     ref={gcInputRef}
                     value={gcCode}
-                    onChangeText={t => setGcCode(t.toUpperCase())}
-                    placeholder="XXXX-XXXX-XXXX"
+                    onChangeText={handleGcChange}
+                    placeholder="XXXX – XXXX – XXXX"
                     placeholderTextColor={colors.textTertiary}
                     autoCapitalize="characters"
                     autoCorrect={false}
@@ -650,7 +690,7 @@ export default function SubscriptionPage() {
                     editable={!redeemingGiftCard}
                   />
                   {gcCode.length > 0 && !redeemingGiftCard ? (
-                    <Pressable onPress={() => setGcCode('')} hitSlop={10}>
+                    <Pressable onPress={() => setGcCode('')} hitSlop={12}>
                       <Squircle style={styles.gcClearBtn} cornerRadius={10} cornerSmoothing={1} fillColor={colors.surface2}>
                         <Ionicons name="close" size={12} color={colors.textSecondary} />
                       </Squircle>
@@ -671,28 +711,33 @@ export default function SubscriptionPage() {
                   </Squircle>
                 ) : null}
 
-                <Pressable
-                  onPress={redeemingGiftCard ? undefined : handleGcSubmit}
-                  style={({ pressed }) => [pressed && !redeemingGiftCard && { opacity: 0.8 }]}
-                >
-                  <Squircle
-                    style={styles.gcPrimaryBtn}
-                    cornerRadius={50} cornerSmoothing={1}
-                    fillColor={gcCode.trim().length > 0 ? colors.text : colors.surface2}
+                <View style={styles.gcBtnStack}>
+                  <Pressable
+                    onPress={redeemingGiftCard ? undefined : handleGcSubmit}
+                    style={({ pressed }) => [{ width: '100%' }, pressed && !redeemingGiftCard && { opacity: 0.82 }]}
                   >
-                    {redeemingGiftCard ? (
-                      <ActivityIndicator color={colors.bg} />
-                    ) : (
-                      <Text style={[styles.gcPrimaryBtnText, {
-                        color: gcCode.trim().length > 0 ? colors.bg : colors.textSecondary,
-                      }]}>Redeem</Text>
-                    )}
-                  </Squircle>
-                </Pressable>
+                    <Squircle
+                      style={styles.gcPrimaryBtn}
+                      cornerRadius={50} cornerSmoothing={1}
+                      fillColor={gcCode.replace(/-/g, '').length >= 12 ? colors.text : colors.surface2}
+                    >
+                      {redeemingGiftCard ? (
+                        <ActivityIndicator color={colors.bg} />
+                      ) : (
+                        <Text style={[styles.gcPrimaryBtnText, {
+                          color: gcCode.replace(/-/g, '').length >= 12 ? colors.bg : colors.textSecondary,
+                        }]}>Redeem</Text>
+                      )}
+                    </Squircle>
+                  </Pressable>
 
-                <Pressable onPress={handleGcDone} style={styles.gcCancelBtn}>
-                  <Text style={[styles.gcCancelText, { color: colors.textSecondary }]}>Cancel</Text>
-                </Pressable>
+                  <Pressable
+                    onPress={handleGcDone}
+                    style={({ pressed }) => [styles.gcCancelBtn, pressed && { opacity: 0.5 }]}
+                  >
+                    <Text style={[styles.gcCancelText, { color: colors.textSecondary }]}>Cancel</Text>
+                  </Pressable>
+                </View>
               </View>
             )}
           </View>
@@ -746,9 +791,9 @@ const styles = StyleSheet.create({
   featureLabelWrap:   { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
   featureDot:         { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
   featureText:        { fontSize: 13, fontFamily: 'ProductSans-Regular', flex: 1 },
-  cellBadge:          { width: 26, height: 26, alignItems: 'center', justifyContent: 'center' },
-  cellBadgeWide:      { width: 52, paddingHorizontal: 6 },
-  cellQty:            { fontSize: 10, fontFamily: 'ProductSans-Bold', textAlign: 'center' },
+  cellBadge:     { width: 26, height: 26, alignItems: 'center', justifyContent: 'center' },
+  cellBadgeWide: { minWidth: 54, paddingHorizontal: 10, paddingVertical: 6, alignItems: 'center', justifyContent: 'center' },
+  cellQty:       { fontSize: 10, fontFamily: 'ProductSans-Bold', textAlign: 'center' },
 
   footerLinks:   { alignItems: 'center', justifyContent: 'center', paddingVertical: 4, gap: 4 },
   giftCardBtn:   { alignItems: 'center' },
@@ -784,43 +829,75 @@ const styles = StyleSheet.create({
 
   // Gift card modal
   gcOverlay:  { flex: 1, justifyContent: 'flex-end' },
-  gcBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.5)' },
+  gcBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.55)' },
   gcSheet: {
-    borderTopLeftRadius: 32,
-    borderTopRightRadius: 32,
+    borderTopLeftRadius: 36,
+    borderTopRightRadius: 36,
     borderTopWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 20,
     paddingBottom: Platform.OS === 'ios' ? 44 : 24,
     paddingTop: 14,
     ...Platform.select({
-      ios:     { shadowColor: '#000', shadowOffset: { width: 0, height: -6 }, shadowOpacity: 0.12, shadowRadius: 24 },
+      ios:     { shadowColor: '#000', shadowOffset: { width: 0, height: -8 }, shadowOpacity: 0.15, shadowRadius: 28 },
       android: { elevation: 24 },
     }),
   },
-  gcHandle:   { width: 40, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: 24 },
+  gcHandle: { width: 36, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: 20 },
+
+  // Visual gift card
+  gcCardVisual: {
+    width: '100%',
+    height: 130,
+    backgroundColor: '#0f0f1a',
+    borderRadius: 20,
+    padding: 18,
+    justifyContent: 'space-between',
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(245,158,11,0.25)',
+  },
+  gcCardTopRow:    { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  gcCardTierText:  { color: '#f59e0b', fontFamily: 'ProductSans-Bold', fontSize: 11, letterSpacing: 1.8 },
+  gcCardDots:      { alignItems: 'flex-start' },
+  gcCardDotsText:  { color: 'rgba(255,255,255,0.25)', fontFamily: 'ProductSans-Bold', fontSize: 14, letterSpacing: 2 },
+  gcCardCircle:    {
+    position: 'absolute', width: 90, height: 90, borderRadius: 45,
+    backgroundColor: 'rgba(245,158,11,0.07)',
+  },
+  gcCardCircleLeft:  { bottom: -30, left: -20 },
+  gcCardCircleRight: { top: -30, right: -20, backgroundColor: 'rgba(99,102,241,0.08)' },
 
   // Input state
-  gcBody:     { alignItems: 'center', gap: 14 },
-  gcIconWrap: { width: 64, height: 64, alignItems: 'center', justifyContent: 'center' },
-  gcTitle:    { fontSize: 22, fontFamily: 'ProductSans-Black', textAlign: 'center' },
-  gcSub:      { fontSize: 13, fontFamily: 'ProductSans-Regular', textAlign: 'center', lineHeight: 20, paddingHorizontal: 12 },
-  gcInputWrap:{ flexDirection: 'row', alignItems: 'center', width: '100%', paddingHorizontal: 16, paddingVertical: 16, gap: 10 },
-  gcInput:    { flex: 1, fontSize: 18, fontFamily: 'ProductSans-Bold', letterSpacing: 3, textAlign: 'center' },
-  gcClearBtn: { width: 22, height: 22, alignItems: 'center', justifyContent: 'center' },
-  gcErrorPill:{ flexDirection: 'row', alignItems: 'center', gap: 8, width: '100%', paddingHorizontal: 14, paddingVertical: 10 },
-  gcErrorText:{ flex: 1, color: '#ef4444', fontSize: 12, fontFamily: 'ProductSans-Regular', lineHeight: 17 },
-  gcPrimaryBtn:     { width: '100%', paddingVertical: 17, alignItems: 'center' },
+  gcBody:      { alignItems: 'center', gap: 16 },
+  gcTitleWrap: { alignItems: 'center', gap: 4 },
+  gcTitle:     { fontSize: 22, fontFamily: 'ProductSans-Black', textAlign: 'center' },
+  gcSub:       { fontSize: 13, fontFamily: 'ProductSans-Regular', textAlign: 'center', lineHeight: 20, paddingHorizontal: 8 },
+  gcInputWrap: { flexDirection: 'row', alignItems: 'center', width: '100%', paddingHorizontal: 18, paddingVertical: 18, gap: 10 },
+  gcInput:     { flex: 1, fontSize: 20, fontFamily: 'ProductSans-Bold', letterSpacing: 4, textAlign: 'center' },
+  gcClearBtn:  { width: 22, height: 22, alignItems: 'center', justifyContent: 'center' },
+  gcErrorPill: { flexDirection: 'row', alignItems: 'center', gap: 8, width: '100%', paddingHorizontal: 14, paddingVertical: 10 },
+  gcErrorText: { flex: 1, color: '#ef4444', fontSize: 12, fontFamily: 'ProductSans-Regular', lineHeight: 17 },
+  gcBtnStack:       { width: '100%', gap: 4, alignItems: 'center' },
+  gcPrimaryBtn:     { width: '100%', paddingVertical: 17, alignItems: 'center', justifyContent: 'center' },
   gcPrimaryBtnText: { fontSize: 16, fontFamily: 'ProductSans-Black' },
-  gcCancelBtn: { paddingVertical: 10 },
-  gcCancelText:{ fontSize: 14, fontFamily: 'ProductSans-Regular' },
+  gcCancelBtn:      { paddingVertical: 12, paddingHorizontal: 32 },
+  gcCancelText:     { fontSize: 14, fontFamily: 'ProductSans-Medium', textAlign: 'center' },
 
   // Success state
-  gcSuccess:      { alignItems: 'center', gap: 14, paddingTop: 4 },
-  gcSuccessIcon:  { width: 80, height: 80, alignItems: 'center', justifyContent: 'center' },
-  gcSuccessTitle: { fontSize: 24, fontFamily: 'ProductSans-Black', textAlign: 'center' },
-  gcSuccessSub:   { fontSize: 14, fontFamily: 'ProductSans-Regular', textAlign: 'center' },
-  gcInfoBox:      { width: '100%', padding: 16, gap: 0 },
-  gcInfoRow:      { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 2 },
-  gcInfoIcon:     { width: 26, height: 26, alignItems: 'center', justifyContent: 'center' },
-  gcInfoText:     { fontSize: 13, fontFamily: 'ProductSans-Regular', flex: 1 },
+  gcSuccess:        { alignItems: 'center', gap: 16, paddingTop: 4 },
+  gcSuccessCard:    {
+    width: '100%', height: 130, backgroundColor: '#0f0f1a',
+    borderRadius: 20, padding: 18, justifyContent: 'space-between',
+    overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(245,158,11,0.35)',
+  },
+  gcCardCheckRow:   { alignItems: 'center' },
+  gcCardCheckCircle:{ width: 50, height: 50, borderRadius: 25, backgroundColor: 'rgba(245,158,11,0.15)', alignItems: 'center', justifyContent: 'center' },
+  gcCardActivatedText: { color: '#f59e0b', fontFamily: 'ProductSans-Bold', fontSize: 11, letterSpacing: 2 },
+  gcSuccessTextWrap:{ alignItems: 'center', gap: 4 },
+  gcSuccessTitle:   { fontSize: 24, fontFamily: 'ProductSans-Black', textAlign: 'center' },
+  gcSuccessSub:     { fontSize: 14, fontFamily: 'ProductSans-Regular', textAlign: 'center', color: 'rgba(0,0,0,0.5)' },
+  gcInfoBox:        { width: '100%', padding: 16, gap: 0 },
+  gcInfoRow:        { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 4 },
+  gcInfoIcon:       { width: 26, height: 26, alignItems: 'center', justifyContent: 'center' },
+  gcInfoText:       { fontSize: 13, fontFamily: 'ProductSans-Regular', flex: 1 },
 });

@@ -52,7 +52,7 @@ export default function PhotosScreen() {
     if (remaining <= 0) return;
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       quality: 0.85,
       allowsMultipleSelection: true,
       selectionLimit: remaining,

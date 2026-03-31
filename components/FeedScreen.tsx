@@ -600,22 +600,29 @@ const ProfileCard = forwardRef<ProfileCardHandle, {
         contentContainerStyle={{ paddingBottom: 24 }}
       >
         {/* Photo */}
-        <View style={styles.photoContainer}>
+        <View style={[styles.photoContainer, { overflow: 'hidden' }]}>
           <ExpoImage
             source={{ uri: profile.images[0] }}
             style={styles.photo}
             contentFit="cover"
             cachePolicy="disk"
-            blurRadius={halalBlur ? 60 : 0}
           />
-          {/* Halal blur overlay with unlock hint */}
+          {/* Halal blur — native Image with blurRadius layered on top */}
           {halalBlur && (
-            <View style={styles.halalBlurOverlay} pointerEvents="none">
-              <View style={styles.halalBlurBadge}>
-                <Ionicons name="moon" size={14} color="#fff" />
-                <Text style={styles.halalBlurText}>Photos hidden until matched</Text>
+            <>
+              <Image
+                source={{ uri: profile.images[0] }}
+                style={[StyleSheet.absoluteFill, { zIndex: 2 }]}
+                blurRadius={25}
+                resizeMode="cover"
+              />
+              <View style={[styles.halalBlurOverlay, { zIndex: 3 }]}>
+                <View style={styles.halalBlurBadge}>
+                  <Ionicons name="moon" size={14} color="#fff" />
+                  <Text style={styles.halalBlurText}>Photos hidden until matched</Text>
+                </View>
               </View>
-            </View>
+            </>
           )}
           <LinearGradient
             colors={['transparent', 'rgba(0,0,0,0.55)', 'rgba(0,0,0,0.92)']}
@@ -743,7 +750,12 @@ const ProfileCard = forwardRef<ProfileCardHandle, {
           </>}
 
           {profile.images[1] && <>
-            <ExpoImage source={{ uri: profile.images[1] }} style={styles.inlinePhoto} contentFit="cover" cachePolicy="disk" blurRadius={halalBlur ? 60 : 0} />
+            <View style={{ overflow: 'hidden' }}>
+              <ExpoImage source={{ uri: profile.images[1] }} style={styles.inlinePhoto} contentFit="cover" cachePolicy="disk" />
+              {halalBlur && (
+                <Image source={{ uri: profile.images[1] }} style={[StyleSheet.absoluteFill, { zIndex: 2 }]} blurRadius={25} resizeMode="cover" />
+              )}
+            </View>
             <View style={[styles.divider, { backgroundColor: colors.border }]} />
           </>}
 
@@ -782,7 +794,12 @@ const ProfileCard = forwardRef<ProfileCardHandle, {
           </>}
 
           {profile.images[2] && <>
-            <ExpoImage source={{ uri: profile.images[2] }} style={styles.inlinePhoto} contentFit="cover" cachePolicy="disk" blurRadius={halalBlur ? 60 : 0} />
+            <View style={{ overflow: 'hidden' }}>
+              <ExpoImage source={{ uri: profile.images[2] }} style={styles.inlinePhoto} contentFit="cover" cachePolicy="disk" />
+              {halalBlur && (
+                <Image source={{ uri: profile.images[2] }} style={[StyleSheet.absoluteFill, { zIndex: 2 }]} blurRadius={25} resizeMode="cover" />
+              )}
+            </View>
             <View style={[styles.divider, { backgroundColor: colors.border }]} />
           </>}
 
@@ -1235,7 +1252,7 @@ export default function FeedScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { lookups } = useLookups();
-  const isPro = profile?.subscription_tier === 'pro';
+  const isPro = profile?.subscription_tier === 'pro' || profile?.subscription_tier === 'premium_plus';
   const [superLikesRemaining, setSuperLikesRemaining] = useState(
     profile?.super_likes_remaining ?? 0,
   );
@@ -1244,6 +1261,41 @@ export default function FeedScreen() {
   useEffect(() => {
     setSuperLikesRemaining(profile?.super_likes_remaining ?? 0);
   }, [profile?.super_likes_remaining, profile?.subscription_tier]);
+
+  // ── Daily likes quota ────────────────────────────────────────────────────
+  const FREE_DAILY_LIMIT = 20;
+  const DAILY_LIKES_CACHE_KEY = 'daily_likes_remaining_v1';
+  const [dailyLikesRemaining, setDailyLikesRemaining] = useState<number | null>(null); // null = loading
+  const [dailyLimitReached,   setDailyLimitReached]   = useState(false);
+  const [showUpgradeWall,     setShowUpgradeWall]      = useState(false);
+  const [isUnlimitedLikes,    setIsUnlimitedLikes]     = useState(false);
+
+  // Load cached value instantly to avoid flicker, then sync from API
+  useEffect(() => {
+    AsyncStorage.getItem(DAILY_LIKES_CACHE_KEY).then(cached => {
+      if (cached !== null) {
+        const n = parseInt(cached, 10);
+        if (!isNaN(n)) setDailyLikesRemaining(n);
+      }
+    }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!token) return;
+    apiFetch<{ daily_likes_limit: number; daily_likes_remaining: number }>(
+      '/subscription/my-features', { token }
+    ).then(data => {
+      if (data.daily_likes_remaining === -1) {
+        setIsUnlimitedLikes(true);
+        AsyncStorage.removeItem(DAILY_LIKES_CACHE_KEY).catch(() => {});
+        return;
+      }
+      setIsUnlimitedLikes(false);
+      setDailyLikesRemaining(data.daily_likes_remaining);
+      AsyncStorage.setItem(DAILY_LIKES_CACHE_KEY, String(data.daily_likes_remaining)).catch(() => {});
+      if (data.daily_likes_remaining <= 0) setDailyLimitReached(true);
+    }).catch(() => {});
+  }, [token, isPro]);
 
   const [profiles,       setProfiles]     = useState<Profile[]>([]);
   const [loadingFeed,    setLoadingFeed]  = useState(false);
@@ -1439,6 +1491,7 @@ export default function FeedScreen() {
       });
       setHasMore(res.has_more);
       setFeedPage(page);
+      return true; // success
     } catch (err: any) {
       // On a halal-gate 403 the backend returns a specific message. Clear the
       // deck so stale standard-feed cards don't show under the Halal pill.
@@ -1446,9 +1499,11 @@ export default function FeedScreen() {
       if (/halal mode/i.test(msg) || /403/i.test(msg)) {
         setProfiles([]);
         setHasMore(false);
+        return false; // signal 403 so caller can retry after PATCH lands
       }
       // Any other network/server error: keep existing profiles so the deck
       // doesn't vanish on a transient failure.
+      return true;
     } finally {
       setLoadingFeed(false);
     }
@@ -1544,18 +1599,32 @@ export default function FeedScreen() {
     updateProfile({ halal_mode_enabled: halal });
     swipedThisSessionRef.current.clear();
     try { await AsyncStorage.removeItem(swipeCacheKeyRef.current); } catch { /* ignore */ }
-    // IMPORTANT: await the PATCH before fetching the feed — the backend guards
-    // halal=true requests by checking me.halal_mode_enabled in the DB. If we
-    // fire-and-forget the PATCH and immediately fetch, the DB still has the old
-    // value and the backend returns 403, leaving the feed silently empty.
+
     if (token) {
-      try {
-        await apiFetch('/profile/me', {
-          method: 'PATCH',
-          token,
-          body: JSON.stringify({ halal_mode_enabled: halal }),
-        });
-      } catch { /* ignore — profile context already updated optimistically */ }
+      const patch = () => apiFetch('/profile/me', {
+        method: 'PATCH',
+        token,
+        body: JSON.stringify({ halal_mode_enabled: halal }),
+      }).catch(() => { /* ignore — profile context already updated optimistically */ });
+
+      if (halal) {
+        // Fire PATCH and feed fetch simultaneously — no more sequential round-trips.
+        // Best case (PATCH lands first or ties): first fetch succeeds, one request total.
+        // Worst case (fetch races ahead of PATCH): first fetch gets a 403, we wait
+        // for the PATCH to finish then retry exactly once. No unnecessary double-fetch.
+        const patchPromise = patch();
+        const firstOk = await fetchFeed(0, true);
+        if (!firstOk) {
+          // Feed hit the halal gate (403) — PATCH hadn't landed yet. Wait for it then retry.
+          await patchPromise;
+          fetchFeed(0, true);
+        }
+        return; // skip the fetchFeed call below
+      } else {
+        // Turning halal OFF → standard feed uses halal=false (no DB gate).
+        // Fire-and-forget so the feed reloads instantly without waiting for the PATCH.
+        patch();
+      }
     }
     fetchFeed(0, true);
   }, [token, fetchFeed, updateProfile]);
@@ -1600,19 +1669,56 @@ export default function FeedScreen() {
   };
 
   const handleSwipeRight = (profileId: string) => {
+    // Block free users who have exhausted daily likes
+    if (!isUnlimitedLikes && dailyLimitReached) {
+      setShowUpgradeWall(true);
+      return;
+    }
+
     const swiped = profiles[0];
     swipedThisSessionRef.current.add(profileId);
+
+    // Optimistically decrement daily counter for free users
+    if (!isPro) {
+      const newRemaining = Math.max(0, (dailyLikesRemaining ?? FREE_DAILY_LIMIT) - 1);
+      setDailyLikesRemaining(newRemaining);
+      AsyncStorage.setItem(DAILY_LIKES_CACHE_KEY, String(newRemaining)).catch(() => {});
+      if (newRemaining <= 0) setDailyLimitReached(true);
+    }
+
     removeTop();
     if (!token || !swiped) return;
-    apiFetch<{ match: boolean }>('/discover/swipe', {
+    apiFetch<{ match: boolean; daily_likes_remaining?: number | null }>('/discover/swipe', {
       token, method: 'POST',
       body: JSON.stringify({ swiped_id: profileId, direction: 'right', mode: 'date' }),
     })
       .then(res => {
-        markSwipedLocally(profileId);             // persist only after backend confirms
+        markSwipedLocally(profileId);
         _showMatchIfNeeded(res, swiped);
+        // Sync authoritative remaining count from backend
+        if (!isPro && res.daily_likes_remaining != null && res.daily_likes_remaining !== -1) {
+          setDailyLikesRemaining(res.daily_likes_remaining);
+          AsyncStorage.setItem(DAILY_LIKES_CACHE_KEY, String(res.daily_likes_remaining)).catch(() => {});
+          if (res.daily_likes_remaining <= 0) {
+            setDailyLimitReached(true);
+            setShowUpgradeWall(true);
+          }
+        }
       })
-      .catch(() => {});
+      .catch((err: any) => {
+        // Re-add the like count if backend rejected (e.g. limit was already hit)
+        if (!isPro) {
+          setDailyLikesRemaining(r => {
+            const restored = (r ?? 0) + 1;
+            AsyncStorage.setItem(DAILY_LIKES_CACHE_KEY, String(restored)).catch(() => {});
+            return restored;
+          });
+        }
+        if (err?.status === 403 && err?.headers?.['x-error-code'] === 'daily_limit_reached') {
+          setDailyLimitReached(true);
+          setShowUpgradeWall(true);
+        }
+      });
   };
 
   const handleSuperLike = (profileId: string) => {
@@ -1690,6 +1796,56 @@ export default function FeedScreen() {
             </Squircle>
           </Pressable>
         </View>
+      )}
+
+      {/* Daily likes indicator — shown for all users in date/halal feed */}
+      {showTopBar && (appMode === 'date' || halalMode) && (
+        <Pressable
+          onPress={() => !isUnlimitedLikes && navPush('/subscription' as any)}
+          style={({ pressed }) => [{ alignSelf: 'center', marginTop: -4, marginBottom: 6 }, pressed && !isUnlimitedLikes && { opacity: 0.7 }]}
+        >
+          <Squircle
+            style={dailyStyles.likePill}
+            cornerRadius={20} cornerSmoothing={1}
+            fillColor={
+              isUnlimitedLikes ? 'rgba(34,197,94,0.1)'
+              : dailyLimitReached ? 'rgba(239,68,68,0.12)'
+              : colors.surface2
+            }
+            strokeColor={
+              isUnlimitedLikes ? 'rgba(34,197,94,0.3)'
+              : dailyLimitReached ? 'rgba(239,68,68,0.35)'
+              : colors.border
+            }
+            strokeWidth={1}
+          >
+            <Ionicons
+              name={isUnlimitedLikes ? 'infinite' : dailyLimitReached ? 'lock-closed' : 'heart'}
+              size={12}
+              color={isUnlimitedLikes ? '#22c55e' : dailyLimitReached ? '#ef4444' : colors.text}
+            />
+            <Text style={[dailyStyles.likePillText, {
+              color: isUnlimitedLikes ? '#22c55e' : dailyLimitReached ? '#ef4444' : colors.text
+            }]}>
+              {isUnlimitedLikes
+                ? 'Unlimited likes'
+                : dailyLimitReached
+                  ? 'Limit reached · Resets at 12 AM UTC'
+                  : dailyLikesRemaining === null
+                    ? 'Loading likes...'
+                    : `${dailyLikesRemaining} free likes left · resets midnight UTC`}
+            </Text>
+            {!isUnlimitedLikes && !dailyLimitReached && dailyLikesRemaining !== null && (
+              <View style={[dailyStyles.likeBar, { backgroundColor: colors.surface }]}>
+                <View style={[
+                  dailyStyles.likeBarFill,
+                  { width: `${(dailyLikesRemaining / FREE_DAILY_LIMIT) * 100}%` as any,
+                    backgroundColor: dailyLikesRemaining <= 5 ? '#ef4444' : colors.text }
+                ]} />
+              </View>
+            )}
+          </Squircle>
+        </Pressable>
       )}
 
       {/* Halal mode selector sheet */}
@@ -1962,10 +2118,8 @@ export default function FeedScreen() {
           return (
             <Pressable
               key={item.id}
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                setActiveTab(item.id);
-              }}
+              onPressIn={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)}
+              onPress={() => setActiveTab(item.id)}
               style={styles.navItem}
               hitSlop={8}
             >
@@ -2025,6 +2179,55 @@ export default function FeedScreen() {
           onDismiss={() => setMatchedProfile(null)}
         />
       )}
+
+      {/* Daily free likes upgrade wall */}
+      <Modal visible={showUpgradeWall} transparent animationType="fade" onRequestClose={() => setShowUpgradeWall(false)}>
+        <Pressable style={dailyStyles.wallBackdrop} onPress={() => setShowUpgradeWall(false)}>
+          <Pressable style={[dailyStyles.wallSheet, { backgroundColor: colors.surface }]}>
+            <View style={dailyStyles.wallHandle} />
+
+            <Squircle style={dailyStyles.wallIconWrap} cornerRadius={22} cornerSmoothing={1} fillColor="rgba(239,68,68,0.1)">
+              <Ionicons name="heart" size={32} color="#ef4444" />
+            </Squircle>
+
+            <Text style={[dailyStyles.wallTitle, { color: colors.text }]}>You've used all 20 free likes</Text>
+            <Text style={[dailyStyles.wallSub, { color: colors.textSecondary }]}>
+              Your 20 daily likes reset at midnight UTC. Upgrade to Pro for unlimited likes, super likes, and more.
+            </Text>
+
+            <View style={dailyStyles.wallPerks}>
+              {[
+                { icon: 'heart',           text: 'Unlimited likes every day' },
+                { icon: 'star',            text: 'Super likes to stand out' },
+                { icon: 'eye',             text: 'See who liked you' },
+                { icon: 'sparkles',        text: 'AI Smart Matching' },
+              ].map(p => (
+                <View key={p.text} style={dailyStyles.wallPerkRow}>
+                  <Squircle style={dailyStyles.wallPerkIcon} cornerRadius={10} cornerSmoothing={1} fillColor={colors.surface2}>
+                    <Ionicons name={p.icon as any} size={14} color={colors.text} />
+                  </Squircle>
+                  <Text style={[dailyStyles.wallPerkText, { color: colors.text }]}>{p.text}</Text>
+                </View>
+              ))}
+            </View>
+
+            <Pressable
+              onPress={() => { setShowUpgradeWall(false); navPush('/subscription' as any); }}
+              style={({ pressed }) => [{ width: '100%' }, pressed && { opacity: 0.85 }]}
+            >
+              <Squircle style={dailyStyles.wallCta} cornerRadius={50} cornerSmoothing={1} fillColor={colors.text}>
+                <Text style={[dailyStyles.wallCtaText, { color: colors.bg }]}>Upgrade to Pro</Text>
+              </Squircle>
+            </Pressable>
+
+            <Pressable onPress={() => setShowUpgradeWall(false)} style={dailyStyles.wallDismiss}>
+              <Text style={[dailyStyles.wallDismissText, { color: colors.textSecondary }]}>
+                Wait until midnight UTC
+              </Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -2212,4 +2415,30 @@ const styles = StyleSheet.create({
 
   // Chats — moved to ChatsPage.tsx
 
+});
+
+// ─── Daily likes styles ───────────────────────────────────────────────────────
+
+const dailyStyles = StyleSheet.create({
+  // Pill in top bar
+  likePill:      { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 6 },
+  likePillText:  { fontSize: 11, fontFamily: 'ProductSans-Bold' },
+  likeBar:       { height: 3, width: 52, borderRadius: 2, overflow: 'hidden' },
+  likeBarFill:   { height: 3, borderRadius: 2 },
+
+  // Upgrade wall modal
+  wallBackdrop:    { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
+  wallSheet:       { borderTopLeftRadius: 34, borderTopRightRadius: 34, paddingHorizontal: 24, paddingTop: 14, paddingBottom: 40, alignItems: 'center', gap: 14 },
+  wallHandle:      { width: 36, height: 4, borderRadius: 2, backgroundColor: 'rgba(128,128,128,0.3)', marginBottom: 6 },
+  wallIconWrap:    { width: 72, height: 72, alignItems: 'center', justifyContent: 'center', marginBottom: 4 },
+  wallTitle:       { fontSize: 22, fontFamily: 'ProductSans-Black', textAlign: 'center' },
+  wallSub:         { fontSize: 13, fontFamily: 'ProductSans-Regular', textAlign: 'center', lineHeight: 20 },
+  wallPerks:       { width: '100%', gap: 10, marginVertical: 4 },
+  wallPerkRow:     { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  wallPerkIcon:    { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
+  wallPerkText:    { fontSize: 14, fontFamily: 'ProductSans-Regular', flex: 1 },
+  wallCta:         { width: '100%', paddingVertical: 17, alignItems: 'center', justifyContent: 'center' },
+  wallCtaText:     { fontSize: 16, fontFamily: 'ProductSans-Black' },
+  wallDismiss:     { paddingVertical: 10 },
+  wallDismissText: { fontSize: 13, fontFamily: 'ProductSans-Regular' },
 });

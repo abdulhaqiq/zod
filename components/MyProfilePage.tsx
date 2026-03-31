@@ -420,7 +420,7 @@ function SettingRow({
 export default function MyProfilePage({ colors, insets }: { colors: AppColors; insets: any }) {
   const router = useRouter();
   const { token, signOut, profile, updateProfile } = useAuth();
-  const { status: subStatus, refetch: refetchSub } = useSubscription();
+  const { status: subStatus, refetch: refetchSub, myFeatures } = useSubscription();
   // Use live subscription status from /subscription/status if available,
   // falling back to the profile cache so the banner is never stale.
   const isPro = subStatus?.isPro ?? profile?.subscription_tier === 'pro';
@@ -748,6 +748,41 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
         </Pressable>
       </View>
 
+
+      {/* ── AI Credits card ─────────────────────────────────────────────── */}
+      <View style={{ paddingHorizontal: 16, marginTop: 10 }}>
+        <Pressable
+          onPress={() => navPush('/ai-credits' as any)}
+          style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}
+        >
+          <Squircle
+            style={styles.creditsBanner}
+            cornerRadius={18} cornerSmoothing={1}
+            fillColor={colors.surface}
+            strokeColor={'rgba(234,179,8,0.3)'}
+            strokeWidth={1}
+          >
+            {/* Left: icon + label */}
+            <Squircle style={styles.creditsIconWrap} cornerRadius={12} cornerSmoothing={1} fillColor="rgba(234,179,8,0.12)">
+              <Ionicons name="flash" size={18} color="#f59e0b" />
+            </Squircle>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.creditsTitle, { color: colors.text }]}>AI Credits</Text>
+              <Text style={[styles.creditsSub, { color: colors.textSecondary }]}>
+                {myFeatures?.ai_credits_monthly
+                  ? `${myFeatures.ai_credits_monthly}/month included with your plan`
+                  : 'Power all AI features in the app'}
+              </Text>
+            </View>
+            {/* Right: balance badge */}
+            <View style={styles.creditsBalancePill}>
+              <Ionicons name="flash" size={11} color="#f59e0b" />
+              <Text style={styles.creditsBalanceNum}>{myFeatures?.ai_credits_balance ?? 0}</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={13} color={colors.textSecondary} style={{ marginLeft: 4 }} />
+          </Squircle>
+        </Pressable>
+      </View>
 
       {/* ── AI Profile Score ────────────────────────────────────────────── */}
       <View style={{ paddingHorizontal: 16, marginTop: 14 }}>
@@ -1452,6 +1487,13 @@ const styles = StyleSheet.create({
   subBannerPlan:        { fontSize: 13, fontFamily: 'ProductSans-Bold' },
   subBannerSub:         { fontSize: 12, fontFamily: 'ProductSans-Regular' },
   subBannerCta:         { fontSize: 12, fontFamily: 'ProductSans-Bold' },
+
+  creditsBanner:        { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 14, paddingVertical: 12, width: '100%' },
+  creditsIconWrap:      { width: 38, height: 38, alignItems: 'center', justifyContent: 'center' },
+  creditsTitle:         { fontSize: 14, fontFamily: 'ProductSans-Bold' },
+  creditsSub:           { fontSize: 11, fontFamily: 'ProductSans-Regular', marginTop: 1 },
+  creditsBalancePill:   { flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: 'rgba(234,179,8,0.12)', paddingHorizontal: 9, paddingVertical: 5, borderRadius: 10 },
+  creditsBalanceNum:    { fontSize: 14, fontFamily: 'ProductSans-Bold', color: '#f59e0b' },
 
 
   section:           { paddingHorizontal: 16, marginTop: 22, gap: 6 },

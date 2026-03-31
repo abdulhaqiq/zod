@@ -35,31 +35,40 @@ export default function Photos() {
 
   const pickImage = async (slotIndex?: number) => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Permission needed', 'Please allow access to your photos.');
+    // 'limited' means the user granted access to specific photos — still usable
+    if (status !== 'granted' && status !== 'limited') {
+      Alert.alert(
+        'Photo Access Required',
+        'Please go to Settings → Privacy → Photos and allow Zod to access your photos.',
+        [{ text: 'OK' }],
+      );
       return;
     }
     const remaining = MAX_PHOTOS - photos.length;
     if (remaining <= 0) return;
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsMultipleSelection: slotIndex === undefined,
-      selectionLimit: slotIndex !== undefined ? 1 : remaining,
-      quality: 0.85,
-    });
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsMultipleSelection: slotIndex === undefined,
+        selectionLimit: slotIndex !== undefined ? 1 : remaining,
+        quality: 0.85,
+      });
 
-    if (!result.canceled) {
-      const uris = result.assets.map(a => a.uri);
-      if (slotIndex !== undefined && uris.length === 1) {
-        setPhotos(prev => {
-          const next = [...prev];
-          next[slotIndex] = uris[0];
-          return next;
-        });
-      } else {
-        setPhotos(prev => [...prev, ...uris].slice(0, MAX_PHOTOS));
+      if (!result.canceled) {
+        const uris = result.assets.map(a => a.uri);
+        if (slotIndex !== undefined && uris.length === 1) {
+          setPhotos(prev => {
+            const next = [...prev];
+            next[slotIndex] = uris[0];
+            return next;
+          });
+        } else {
+          setPhotos(prev => [...prev, ...uris].slice(0, MAX_PHOTOS));
+        }
       }
+    } catch {
+      Alert.alert('Could not open photos', 'Please try again.');
     }
   };
 

@@ -191,7 +191,7 @@ export default function FaceScanRequiredPage() {
               <Text style={[styles.hint, { color: colors.textSecondary }]}>
                 {scanTab === 'id'
                   ? 'Upload a valid government-issued ID to continue'
-                  : 'Takes about 30 seconds · Your face is never stored'}
+                  : 'Takes about 30 seconds · Stored securely for identity verification only'}
               </Text>
 
               <Pressable
