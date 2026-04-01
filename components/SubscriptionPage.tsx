@@ -1,20 +1,17 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  KeyboardAvoidingView,
-  Modal,
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
-import type { PurchasesPackage } from 'react-native-purchases';
+import Purchases, { type PurchasesPackage } from 'react-native-purchases';
 import ScreenHeader from '@/components/ui/ScreenHeader';
 import Squircle from '@/components/ui/Squircle';
 import {
@@ -22,14 +19,13 @@ import {
   type BackendPlan,
   type PlanFeature,
 } from '@/hooks/useSubscription';
-import { useGiftCard } from '@/hooks/useGiftCard';
 import { useAppTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type PlanTier      = 'pro' | 'premium_plus';
-type BillingPeriod = 'weekly' | 'monthly' | 'sixmonths';
+type BillingPeriod = 'weekly' | 'monthly' | 'threemonths';
 
 // ─── Feature display helpers ──────────────────────────────────────────────────
 
@@ -169,7 +165,10 @@ export default function SubscriptionPage() {
     myFeatures,
     weeklyPackage,
     monthlyPackage,
-    sixMonthPackage,
+    threeMonthPackage,
+    premiumWeeklyPackage,
+    premiumMonthlyPackage,
+    premiumThreeMonthPackage,
     status,
     purchasing,
     error,
@@ -177,31 +176,8 @@ export default function SubscriptionPage() {
     restore,
   } = useSubscription();
 
-  const {
-    redeem: redeemGiftCard,
-    redeeming: redeemingGiftCard,
-    error: gcError,
-    clearError: clearGcError,
-  } = useGiftCard();
-
   const [tier,    setTier]    = useState<PlanTier>('pro');
   const [billing, setBilling] = useState<BillingPeriod>('monthly');
-
-  // Gift card modal state
-  const [gcModalVisible, setGcModalVisible] = useState(false);
-  const [gcCode, setGcCode]                 = useState('');
-  const [gcResult, setGcResult]             = useState<import('@/hooks/useGiftCard').RedeemResult | null>(null);
-  const gcInputRef = useRef<TextInput>(null);
-
-  // Auto-format code as XXXX-XXXX-XXXX
-  const formatGcCode = (raw: string) => {
-    const clean = raw.replace(/[^A-Z0-9]/g, '').slice(0, 12);
-    const parts = [clean.slice(0, 4), clean.slice(4, 8), clean.slice(8, 12)].filter(Boolean);
-    return parts.join('-');
-  };
-  const handleGcChange = (text: string) => {
-    setGcCode(formatGcCode(text.toUpperCase()));
-  };
 
   const isPro     = profile?.subscription_tier === 'pro' || profile?.subscription_tier === 'premium_plus' || status?.isPro === true;
   const expiresAt = status?.expiresAt ?? null;
@@ -235,19 +211,19 @@ export default function SubscriptionPage() {
 
   // ── Plan lookup helpers ───────────────────────────────────────────────────────
 
-  const intervalKey: BackendPlan['interval'] = billing === 'sixmonths' ? 'sixmonth' : billing as any;
+  const intervalKey: BackendPlan['interval'] = billing === 'threemonths' ? 'threemonth' : billing as any;
 
   const getPlan = (t: PlanTier, b: BillingPeriod): BackendPlan | null =>
-    planByInterval(t, b === 'sixmonths' ? 'sixmonth' : b as any);
+    planByInterval(t, b === 'threemonths' ? 'threemonth' : b as any);
 
   // Fallback display values if DB not yet loaded
   const fallbackPrice: Record<PlanTier, Record<BillingPeriod, string>> = {
-    pro:          { weekly: '$4.99/wk',  monthly: '$14.99/mo', sixmonths: '$10.00/mo' },
-    premium_plus: { weekly: '$6.99/wk',  monthly: '$19.99/mo', sixmonths: '$15.00/mo' },
+    pro:          { weekly: '$4.99/wk',  monthly: '$14.99/mo', threemonths: '$11.67/mo' },
+    premium_plus: { weekly: '$9.99/wk',  monthly: '$24.99/mo', threemonths: '$18.33/mo' },
   };
   const fallbackDesc: Record<PlanTier, Record<BillingPeriod, string>> = {
-    pro:          { weekly: 'Billed weekly, cancel anytime', monthly: 'Billed monthly, cancel anytime', sixmonths: 'Billed $59.99 every 6 months · Save 33%' },
-    premium_plus: { weekly: 'Billed weekly, cancel anytime', monthly: 'Billed monthly, cancel anytime', sixmonths: 'Billed $89.99 every 6 months · Save 25%' },
+    pro:          { weekly: 'Billed weekly, cancel anytime', monthly: 'Billed monthly, cancel anytime', threemonths: 'Billed $34.99 every 3 months · Save 22%' },
+    premium_plus: { weekly: 'Billed weekly, cancel anytime', monthly: 'Billed monthly, cancel anytime', threemonths: 'Billed $54.99 every 3 months · Save 27%' },
   };
 
   const getPriceDisplay = (t: PlanTier, b: BillingPeriod) =>
@@ -257,14 +233,22 @@ export default function SubscriptionPage() {
   const getBadge        = (t: PlanTier, b: BillingPeriod) =>
     getPlan(t, b)?.badge         ?? null;
 
-  // ── RC packages for actual IAP ────────────────────────────────────────────────
+  // ── RC packages for actual IAP (tier-aware) ──────────────────────────────────
 
-  const rcPackageMap: Record<BillingPeriod, PurchasesPackage | null> = {
-    weekly:    weeklyPackage,
-    monthly:   monthlyPackage,
-    sixmonths: sixMonthPackage,
+  const proPackageMap: Record<BillingPeriod, PurchasesPackage | null> = {
+    weekly:     weeklyPackage,
+    monthly:    monthlyPackage,
+    threemonths: threeMonthPackage,
   };
-  const storeAvailable = weeklyPackage !== null || monthlyPackage !== null || sixMonthPackage !== null;
+  const premiumPackageMap: Record<BillingPeriod, PurchasesPackage | null> = {
+    weekly:     premiumWeeklyPackage,
+    monthly:    premiumMonthlyPackage,
+    threemonths: premiumThreeMonthPackage,
+  };
+  const rcPackageMap = tier === 'premium_plus' ? premiumPackageMap : proPackageMap;
+  const storeAvailable =
+    weeklyPackage !== null || monthlyPackage !== null || threeMonthPackage !== null ||
+    premiumWeeklyPackage !== null || premiumMonthlyPackage !== null || premiumThreeMonthPackage !== null;
 
   // ── CTA text ──────────────────────────────────────────────────────────────────
 
@@ -307,30 +291,6 @@ export default function SubscriptionPage() {
     }
   };
 
-  const handleGiftCard = () => {
-    clearGcError();
-    setGcCode('');
-    setGcResult(null);
-    setGcModalVisible(true);
-    setTimeout(() => gcInputRef.current?.focus(), 300);
-  };
-
-  const handleGcSubmit = async () => {
-    const trimmed = gcCode.trim().toUpperCase();
-    if (!trimmed) return;
-    const result = await redeemGiftCard(trimmed);
-    if (result) {
-      setGcResult(result);
-    }
-  };
-
-  const handleGcDone = () => {
-    setGcModalVisible(false);
-    setGcCode('');
-    setGcResult(null);
-    if (gcResult) router.back();
-  };
-
   const handleRestore = async () => {
     if (!storeAvailable) {
       Alert.alert('Store not available', 'Restore purchases requires a development or production build.');
@@ -345,8 +305,8 @@ export default function SubscriptionPage() {
     }
   };
 
-  const billingPeriods: BillingPeriod[] = ['sixmonths', 'monthly', 'weekly'];
-  const billingLabel: Record<BillingPeriod, string> = { sixmonths: '6 Months', monthly: 'Monthly', weekly: 'Weekly' };
+  const billingPeriods: BillingPeriod[] = ['threemonths', 'monthly', 'weekly'];
+  const billingLabel: Record<BillingPeriod, string> = { threemonths: '3 Months', monthly: 'Monthly', weekly: 'Weekly' };
 
   // Features for the currently selected tier
   const activePlanFeatures = tier === 'pro' ? proFeatures : ppFeatures;
@@ -465,10 +425,10 @@ export default function SubscriptionPage() {
           })}
         </Squircle>
 
-        {/* ── Gift Card + Restore ───────────────────────────────────────── */}
+        {/* ── Promo Code + Restore ──────────────────────────────────────── */}
         <View style={styles.footerLinks}>
           <Pressable
-            onPress={redeemingGiftCard ? undefined : handleGiftCard}
+            onPress={() => Purchases.presentCodeRedemptionSheet()}
             style={({ pressed }) => [styles.giftCardBtn, pressed && { opacity: 0.6 }]}
           >
             <Squircle
@@ -478,10 +438,8 @@ export default function SubscriptionPage() {
               strokeColor={colors.border}
               strokeWidth={StyleSheet.hairlineWidth}
             >
-              <Ionicons name="gift-outline" size={14} color={colors.text} />
-              <Text style={[styles.giftCardText, { color: colors.text }]}>
-                {redeemingGiftCard ? 'Redeeming…' : 'Redeem Gift Card'}
-              </Text>
+              <Ionicons name="pricetag-outline" size={14} color={colors.text} />
+              <Text style={[styles.giftCardText, { color: colors.text }]}>Redeem Promo Code</Text>
             </Squircle>
           </Pressable>
           <Pressable onPress={handleRestore} style={({ pressed }) => [styles.restoreBtn, pressed && { opacity: 0.6 }]}>
@@ -559,18 +517,11 @@ export default function SubscriptionPage() {
         </View>
       </View>
 
-      {/* ── Gift Card Modal ──────────────────────────────────────────── */}
-      <Modal
-        visible={gcModalVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={handleGcDone}
-      >
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          style={styles.gcOverlay}
-        >
-          <Pressable style={styles.gcBackdrop} onPress={handleGcDone} />
+      {/* Gift card redemption has been fully removed per Apple guideline 3.1.1.
+          Redemption is available exclusively at https://zod.dhabli.com/redeem */}
+      {false && (
+        <View>
+          <Pressable style={styles.gcBackdrop} onPress={() => {}} />
 
           <View style={[styles.gcSheet, { backgroundColor: colors.bg, borderTopColor: colors.border }]}>
             <View style={[styles.gcHandle, { backgroundColor: colors.border }]} />
@@ -741,8 +692,8 @@ export default function SubscriptionPage() {
               </View>
             )}
           </View>
-        </KeyboardAvoidingView>
-      </Modal>
+        </View>
+      )}
 
     </View>
   );

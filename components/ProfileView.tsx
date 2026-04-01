@@ -4,6 +4,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 type IoniconsName = string;
 import { useRef, useState } from 'react';
 import {
+  Alert,
   Dimensions,
   FlatList,
   Image,
@@ -19,6 +20,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Squircle from '@/components/ui/Squircle';
 import { useAppTheme } from '@/context/ThemeContext';
+import { apiFetch } from '@/constants/api';
+import { useAuth } from '@/context/AuthContext';
 
 const { width: W } = Dimensions.get('window');
 
@@ -167,6 +170,7 @@ export default function ProfileView() {
   const router   = useRouter();
   const insets   = useSafeAreaInsets();
   const { colors } = useAppTheme();
+  const { token } = useAuth();
   const { id }   = useLocalSearchParams<{ id: string }>();
 
   const profile = EXTENDED_PROFILES[id ?? '1'] ?? EXTENDED_PROFILES['1'];
@@ -174,6 +178,60 @@ export default function ProfileView() {
   const [photoIndex, setPhotoIndex] = useState(0);
   const [superLiked, setSuperLiked] = useState(false);
   const [liked,      setLiked]      = useState(false);
+
+  const handleReport = () => {
+    const reasons = [
+      { label: 'Fake profile',         key: 'fake_profile' },
+      { label: 'Inappropriate photos', key: 'inappropriate_photos' },
+      { label: 'Harassment',           key: 'harassment' },
+      { label: 'Spam',                 key: 'spam' },
+      { label: 'Underage',             key: 'underage' },
+      { label: 'Hate speech',          key: 'hate_speech' },
+      { label: 'Scam',                 key: 'scam' },
+      { label: 'Other',                key: 'other' },
+    ];
+    Alert.alert(
+      `Report ${profile.name}`,
+      'Why are you reporting this profile?',
+      [
+        ...reasons.map(r => ({
+          text: r.label,
+          onPress: () => {
+            if (!token) return;
+            apiFetch('/moderation/report', {
+              token, method: 'POST',
+              body: JSON.stringify({ reported_id: id, reason: r.key }),
+            }).catch(() => {});
+            Alert.alert('Report submitted', 'Thank you for helping keep our community safe. Your report is anonymous and will be reviewed within 24 hours.');
+          },
+        })),
+        { text: 'Cancel', style: 'cancel' },
+      ],
+    );
+  };
+
+  const handleBlock = () => {
+    Alert.alert(
+      `Block ${profile.name}`,
+      `${profile.name} will no longer be able to see your profile or contact you. They won't be notified.`,
+      [
+        {
+          text: 'Block',
+          style: 'destructive',
+          onPress: () => {
+            if (token) {
+              apiFetch('/moderation/block', {
+                token, method: 'POST',
+                body: JSON.stringify({ blocked_id: id }),
+              }).catch(() => {});
+            }
+            router.back();
+          },
+        },
+        { text: 'Cancel', style: 'cancel' },
+      ],
+    );
+  };
 
   const onPhotoScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const idx = Math.round(e.nativeEvent.contentOffset.x / W);
@@ -394,13 +452,13 @@ export default function ProfileView() {
 
           {/* Report / Block */}
           <View style={[styles.section, { gap: 8 }]}>
-            <Pressable style={({ pressed }) => [pressed && { opacity: 0.7 }]}>
+            <Pressable onPress={handleReport} style={({ pressed }) => [pressed && { opacity: 0.7 }]}>
               <View style={styles.dangerRow}>
                 <Ionicons name="flag-outline" size={16} color={colors.error} />
                 <Text style={[styles.dangerText, { color: colors.error }]}>Report {profile.name}</Text>
               </View>
             </Pressable>
-            <Pressable style={({ pressed }) => [pressed && { opacity: 0.7 }]}>
+            <Pressable onPress={handleBlock} style={({ pressed }) => [pressed && { opacity: 0.7 }]}>
               <View style={styles.dangerRow}>
                 <Ionicons name="ban-outline" size={16} color={colors.error} />
                 <Text style={[styles.dangerText, { color: colors.error }]}>Block {profile.name}</Text>

@@ -18,7 +18,7 @@ import Purchases, {
 } from 'react-native-purchases';
 import { NativeModules } from 'react-native';
 import { apiFetch } from '@/constants/api';
-import { RC_ENTITLEMENT, RC_OFFERING, type AiCreditPack } from '@/constants/iap';
+import { RC_ENTITLEMENT, RC_OFFERING, RC_PREMIUM_OFFERING, RC_PREMIUM_ENTITLEMENT, type AiCreditPack } from '@/constants/iap';
 import { useAuth } from '@/context/AuthContext';
 
 // Structured feature types stored in DB
@@ -41,7 +41,7 @@ export type BackendPlan = {
   name: string;
   tier: 'pro' | 'premium_plus';
   apple_product_id: string;
-  interval: 'weekly' | 'monthly' | 'sixmonth' | 'annual';
+  interval: 'weekly' | 'monthly' | 'threemonth' | 'sixmonth' | 'annual';
   price_display: string;
   price_usd: number;
   badge: string | null;
@@ -88,6 +88,7 @@ export function useSubscription() {
   const { token, updateProfile } = useAuth();
 
   const [offering,         setOffering]         = useState<PurchasesOffering | null>(null);
+  const [premiumOffering,  setPremiumOffering]  = useState<PurchasesOffering | null>(null);
   const [plans,            setPlans]            = useState<BackendPlan[]>([]);
   const [myFeatures,       setMyFeatures]       = useState<MyFeatures | null>(null);
   const [status,           setStatus]           = useState<SubscriptionStatus | null>(null);
@@ -146,12 +147,14 @@ export function useSubscription() {
       const offerings = await Purchases.getOfferings();
       const off = offerings.all[RC_OFFERING] ?? offerings.current;
       setOffering(off ?? null);
+      const premOff = offerings.all[RC_PREMIUM_OFFERING] ?? null;
+      setPremiumOffering(premOff);
     } catch (e: any) {
       setError(e?.message ?? 'Failed to load offerings');
     }
   }, []);
 
-  // ── Fetch subscription status from backend ────────────────────────────────
+  // ── Fetch subscription status + feature limits from backend ─────────────
 
   const fetchStatus = useCallback(async () => {
     if (!token) return;
@@ -161,8 +164,20 @@ export function useSubscription() {
         { token },
       );
       setStatus({ isPro: data.is_pro, tier: data.tier, expiresAt: data.expires_at });
-      // Keep the cached profile in sync so isPro checks everywhere are accurate
       updateProfile({ subscription_tier: data.tier });
+    } catch { /* ignore */ }
+  }, [token, updateProfile]);
+
+  const fetchMyFeatures = useCallback(async () => {
+    if (!token) return;
+    try {
+      const feat = await apiFetch<MyFeatures>('/subscription/my-features', { token });
+      if (feat) {
+        setMyFeatures(feat);
+        if (feat.super_likes_remaining !== undefined) {
+          updateProfile({ super_likes_remaining: feat.super_likes_remaining });
+        }
+      }
     } catch { /* ignore */ }
   }, [token, updateProfile]);
 
@@ -173,7 +188,9 @@ export function useSubscription() {
     setError(null);
     try {
       const { customerInfo } = await Purchases.purchasePackage(pkg);
-      const entitlement = customerInfo.entitlements.active[RC_ENTITLEMENT];
+      const entitlement =
+        customerInfo.entitlements.active[RC_PREMIUM_ENTITLEMENT] ??
+        customerInfo.entitlements.active[RC_ENTITLEMENT];
 
       if (entitlement) {
         const rcCustomerId = customerInfo.originalAppUserId;
@@ -187,6 +204,8 @@ export function useSubscription() {
         );
         setStatus({ isPro: data.is_pro, tier: data.tier, expiresAt: data.expires_at });
         updateProfile({ subscription_tier: data.tier });
+        // Refresh feature limits (super_likes, ai_credits, etc.) for the new tier
+        fetchMyFeatures();
         return true;
       }
       return false;
@@ -218,7 +237,7 @@ export function useSubscription() {
     } finally {
       setPurchasing(false);
     }
-  }, [token, updateProfile]);
+  }, [token, updateProfile, fetchMyFeatures]);
 
   // ── Restore purchases ─────────────────────────────────────────────────────
 
@@ -227,7 +246,9 @@ export function useSubscription() {
     setError(null);
     try {
       const customerInfo = await Purchases.restorePurchases();
-      const entitlement = customerInfo.entitlements.active[RC_ENTITLEMENT];
+      const entitlement =
+        customerInfo.entitlements.active[RC_PREMIUM_ENTITLEMENT] ??
+        customerInfo.entitlements.active[RC_ENTITLEMENT];
       if (entitlement) {
         const rcCustomerId = customerInfo.originalAppUserId;
         const data = await apiFetch<{ is_pro: boolean; tier: string; expires_at: string | null }>(
@@ -240,6 +261,8 @@ export function useSubscription() {
         );
         setStatus({ isPro: data.is_pro, tier: data.tier, expiresAt: data.expires_at });
         updateProfile({ subscription_tier: data.tier });
+        // Refresh feature limits for the restored tier
+        fetchMyFeatures();
         return true;
       }
       return false;
@@ -249,7 +272,7 @@ export function useSubscription() {
     } finally {
       setLoading(false);
     }
-  }, [token, updateProfile]);
+  }, [token, updateProfile, fetchMyFeatures]);
 
   // ── Purchase AI credit pack (consumable) ─────────────────────────────────
 
@@ -301,7 +324,7 @@ export function useSubscription() {
     }
   }, [token]);
 
-  // ── Convenience getters ───────────────────────────────────────────────────
+  // ── Convenience getters — Pro (default offering) ─────────────────────────
 
   const weeklyPackage: PurchasesPackage | null =
     offering?.availablePackages.find(p => p.identifier === '$rc_weekly') ??
@@ -311,13 +334,27 @@ export function useSubscription() {
     offering?.availablePackages.find(p => p.identifier === '$rc_monthly') ??
     offering?.monthly ?? null;
 
-  const sixMonthPackage: PurchasesPackage | null =
-    offering?.availablePackages.find(p => p.identifier === '$rc_six_month') ??
-    offering?.sixMonth ?? null;
+  const threeMonthPackage: PurchasesPackage | null =
+    offering?.availablePackages.find(p => p.identifier === '$rc_three_month') ??
+    offering?.threeMonth ?? null;
 
   const yearlyPackage: PurchasesPackage | null =
     offering?.availablePackages.find(p => p.identifier === '$rc_annual') ??
     offering?.annual ?? null;
+
+  // ── Convenience getters — Premium+ (premium offering) ────────────────────
+
+  const premiumWeeklyPackage: PurchasesPackage | null =
+    premiumOffering?.availablePackages.find(p => p.identifier === '$rc_weekly') ??
+    premiumOffering?.weekly ?? null;
+
+  const premiumMonthlyPackage: PurchasesPackage | null =
+    premiumOffering?.availablePackages.find(p => p.identifier === '$rc_monthly') ??
+    premiumOffering?.monthly ?? null;
+
+  const premiumThreeMonthPackage: PurchasesPackage | null =
+    premiumOffering?.availablePackages.find(p => p.identifier === '$rc_three_month') ??
+    premiumOffering?.threeMonth ?? null;
 
   // Derived plan lists from backend catalog
   const proPlans     = plans.filter(p => p.tier === 'pro');
@@ -332,6 +369,7 @@ export function useSubscription() {
 
   return {
     offering,
+    premiumOffering,
     plans,
     proPlans,
     premiumPlans,
@@ -340,8 +378,11 @@ export function useSubscription() {
     getMyFeature,
     weeklyPackage,
     monthlyPackage,
-    sixMonthPackage,
+    threeMonthPackage,
     yearlyPackage,
+    premiumWeeklyPackage,
+    premiumMonthlyPackage,
+    premiumThreeMonthPackage,
     status,
     loading,
     purchasing,
@@ -350,6 +391,9 @@ export function useSubscription() {
     purchase,
     restore,
     purchaseAiCredits,
+    /** Re-fetch subscription status from the backend */
     refetch: fetchStatus,
+    /** Re-fetch feature limits (super_likes, ai_credits, etc.) */
+    refetchFeatures: fetchMyFeatures,
   };
 }

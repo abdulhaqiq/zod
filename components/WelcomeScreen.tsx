@@ -53,6 +53,7 @@ export default function WelcomeScreen() {
   const router = useRouter();
   const [appleLoading,  setAppleLoading]  = useState(false);
   const [quickLoading,  setQuickLoading]  = useState(false);
+  const [eulaAccepted,  setEulaAccepted]  = useState(false);
   // null = loading, undefined = no recent account, RecentAccount = has one
   const [recentAccount, setRecentAccount] = useState<RecentAccount | null | undefined>(null);
   const [showOtherMethods, setShowOtherMethods] = useState(false);
@@ -226,7 +227,13 @@ export default function WelcomeScreen() {
             {hasRecent && !showOtherMethods ? (
               /* ── Quick sign-in card ──────────────────────────────── */
               <>
-                <TouchableOpacity activeOpacity={0.82} onPress={handleQuickSignIn} disabled={quickLoading}>
+                <TouchableOpacity activeOpacity={0.82} onPress={() => {
+                    if (!eulaAccepted) {
+                      Alert.alert('Please agree first', 'You must accept our Terms of Service and Community Guidelines before continuing.');
+                      return;
+                    }
+                    handleQuickSignIn();
+                  }} disabled={quickLoading}>
                   <Squircle
                     style={styles.recentBtn}
                     cornerRadius={22}
@@ -271,8 +278,14 @@ export default function WelcomeScreen() {
               /* ── Standard auth buttons ───────────────────────────── */
               <View style={styles.authButtons}>
                 <TouchableOpacity
-                  style={styles.btnApple}
-                  onPress={() => handleAppleSignIn(false)}
+                  style={[styles.btnApple, !eulaAccepted && { opacity: 0.45 }]}
+                  onPress={() => {
+                    if (!eulaAccepted) {
+                      Alert.alert('Please agree first', 'You must accept our Terms of Service and Community Guidelines before continuing.');
+                      return;
+                    }
+                    handleAppleSignIn(false);
+                  }}
                   disabled={appleLoading}
                   activeOpacity={0.85}
                 >
@@ -287,8 +300,14 @@ export default function WelcomeScreen() {
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={styles.btnPhone}
-                  onPress={() => navPush('/phone' as any)}
+                  style={[styles.btnPhone, !eulaAccepted && { opacity: 0.45 }]}
+                  onPress={() => {
+                    if (!eulaAccepted) {
+                      Alert.alert('Please agree first', 'You must accept our Terms of Service and Community Guidelines before continuing.');
+                      return;
+                    }
+                    navPush('/phone' as any);
+                  }}
                 >
                   <Text style={styles.btnPhoneText}>Use phone number</Text>
                 </TouchableOpacity>
@@ -301,17 +320,23 @@ export default function WelcomeScreen() {
               </View>
             )}
 
-            <Text style={styles.legal}>
-              By signing up, you agree to our{' '}
-              <Text style={styles.legalLink} onPress={() => openInAppBrowser(TERMS_URL)}>
-                Terms
+            {/* ── EULA checkbox ── */}
+            <Pressable onPress={() => setEulaAccepted(v => !v)} style={styles.eulaRow}>
+              <View style={[styles.eulaBox, eulaAccepted && styles.eulaBoxChecked]}>
+                {eulaAccepted && <Ionicons name="checkmark" size={13} color="#000" />}
+              </View>
+              <Text style={styles.eulaText}>
+                I agree to the{' '}
+                <Text style={styles.legalLink} onPress={() => openInAppBrowser(TERMS_URL)}>
+                  Terms of Service
+                </Text>
+                {' '}and{' '}
+                <Text style={styles.legalLink} onPress={() => openInAppBrowser('https://zod.dhabli.com/community')}>
+                  Community Guidelines
+                </Text>
+                . I confirm I am 18 or older and will not post objectionable content.
               </Text>
-              . See how we use your data in our{' '}
-              <Text style={styles.legalLink} onPress={() => openInAppBrowser(PRIVACY_URL)}>
-                Privacy Policy
-              </Text>
-              .
-            </Text>
+            </Pressable>
           </View>
         </View>
       </SafeAreaView>
@@ -382,6 +407,10 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   legalLink: { textDecorationLine: 'underline', color: '#fff' },
+  eulaRow:   { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginTop: 4 },
+  eulaBox:   { width: 20, height: 20, borderRadius: 5, borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.6)', alignItems: 'center', justifyContent: 'center', marginTop: 1, backgroundColor: 'transparent', flexShrink: 0 },
+  eulaBoxChecked: { backgroundColor: '#fff', borderColor: '#fff' },
+  eulaText:  { flex: 1, color: 'rgba(255,255,255,0.7)', fontSize: 11, fontFamily: 'ProductSans-Regular', lineHeight: 17 },
 
   // Recent account card
   recentBtn: {

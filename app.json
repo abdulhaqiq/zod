@@ -16,7 +16,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.zod.ai",
-      "buildNumber": "10",
+      "buildNumber": "11",
       "infoPlist": {
         "CFBundleDevelopmentRegion": "en",
         "CFBundleLocalizations": [
@@ -27,7 +27,7 @@
         "NSMicrophoneUsageDescription": "Allow Zod to record voice messages and calls.",
         "NSCameraUsageDescription": "Allow Zod to take photos for your profile and face verification.",
         "NSPhotoLibraryUsageDescription": "Zod uses your photo library so you can select and upload profile photos. For example, choose an existing photo to display on your dating profile.",
-        "NSPhotoLibraryAddUsageDescription": "Zod saves photos you take within the app \u2014 such as profile pictures or identity-verification images \u2014 to your photo library so you can access them later.",
+        "NSPhotoLibraryAddUsageDescription": "Zod saves photos you take within the app — such as profile pictures or identity-verification images — to your photo library so you can access them later.",
         "NSContactsUsageDescription": "Allow Zod to find your friends who are already on Zod."
       }
     },
@@ -50,7 +50,8 @@
         "android.permission.FOREGROUND_SERVICE",
         "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
         "android.permission.USE_BIOMETRIC",
-        "android.permission.USE_FINGERPRINT"
+        "android.permission.USE_FINGERPRINT",
+        "com.google.android.gms.permission.AD_ID"
       ]
     },
     "web": {
@@ -118,10 +119,10 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "6f5c626e-a29b-46f1-8da2-eed3dec56dce"
+        "projectId": "53bca04d-0229-4419-a886-5dd2eaeb2b89"
       },
       "APP_API_KEY": "33de4e446cdbe7697036c871477f3c54bef1a4832f4a4b4ff6bb2d5475f65207"
     },
-    "owner": "abdulkums"
+    "owner": "abdulkm"
   }
 }

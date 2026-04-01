@@ -3,26 +3,30 @@
  *
  * Setup checklist:
  * 1. Create a RevenueCat account → revenuecat.com
- * 2. Add your iOS app and link your App Store Connect account
+ * 2. Add your iOS app (bundle: com.zod.ai) and link App Store Connect
  * 3. Create an Entitlement called "pro"
- * 4. Create four Subscription products in App Store Connect:
- *      com.zod.ai.pro.weekly      — $4.99/week
- *      com.zod.ai.pro.monthly     — $14.99/month
- *      com.zod.ai.pro.sixmonths   — $59.99/6 months ($10.00/mo)
- *      com.zod.ai.pro.yearly      — $95.88/year  ($7.99/mo)
- * 5. Add those products to a RevenueCat Offering called "default"
- * 6. Replace REVENUECAT_API_KEY below with your iOS public key (appl_...)
+ * 4. Products already created in App Store Connect:
+ *      0283238jadfak1   — Pro Weekly    $4.99/week
+ *      293423874982734  — Pro Monthly   $14.99/month
+ *      028399823293     — Pro 3 Months  $34.99/3 months
+ * 5. In RevenueCat: add those products to an Offering called "default"
+ *    with packages: $rc_weekly, $rc_monthly, $rc_three_month
+ * 6. Get your iOS public key (appl_...) → add to backend .env as REVENUECAT_PUBLIC_KEY
  * 7. Add REVENUECAT_SECRET_KEY + REVENUECAT_WEBHOOK_AUTH to backend/.env
  * 8. Set webhook URL in RevenueCat → Integrations → Webhooks:
- *      https://YOUR_API_DOMAIN/api/v1/subscription/webhook
+ *      https://dev.zod.ailoo.co/api/v1/subscription/webhook
  */
 
 // Must match what you created in App Store Connect & RevenueCat
 export const PRODUCT_IDS = {
-  weekly:    'com.zod.ai.pro.weekly',
-  monthly:   'com.zod.ai.pro.monthly',
-  sixmonths: 'com.zod.ai.pro.sixmonths',
-  yearly:    'com.zod.ai.pro.yearly',
+  // Pro — "default" offering
+  pro_weekly:      '928392834923',
+  pro_monthly:     '293423874982734',
+  pro_threemonths: '028399823293',
+  // Premium+ — "premium" offering
+  premium_weekly:      '2038923892',
+  premium_monthly:     '823823023',
+  premium_threemonths: '289392323',
 } as const;
 
 /**
@@ -42,5 +46,7 @@ export const AI_CREDIT_PACKS = [
 export type AiCreditPack = (typeof AI_CREDIT_PACKS)[number];
 
 // RevenueCat Offering & Entitlement identifiers
-export const RC_OFFERING    = 'default';
-export const RC_ENTITLEMENT = 'pro';
+export const RC_OFFERING          = 'default';   // Pro plans
+export const RC_PREMIUM_OFFERING  = 'premium';   // Premium+ plans
+export const RC_ENTITLEMENT       = 'pro';
+export const RC_PREMIUM_ENTITLEMENT = 'premium';
