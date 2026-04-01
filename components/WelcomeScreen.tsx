@@ -217,13 +217,15 @@ export default function WelcomeScreen() {
 
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.content}>
-          {/* ── Hero: logo + tagline centred in the upper portion ── */}
-          <View style={styles.hero}>
-            <Logo size={200} />
-            <Text style={styles.tagline}>Find{'\n'}True Love</Text>
+          {/* ── Logo pinned to top-left ── */}
+          <View style={styles.logoWrap}>
+            <Logo size={120} />
           </View>
 
+          {/* ── Tagline sits just above the buttons ── */}
           <View style={styles.bottom}>
+            <Text style={styles.taglineSans}>Find True</Text>
+            <Text style={styles.taglineSerif}>Love</Text>
             {hasRecent && !showOtherMethods ? (
               /* ── Quick sign-in card ──────────────────────────────── */
               <>
@@ -331,7 +333,7 @@ export default function WelcomeScreen() {
                   Terms of Service
                 </Text>
                 {' '}and{' '}
-                <Text style={styles.legalLink} onPress={() => openInAppBrowser('https://zod.dhabli.com/community')}>
+                <Text style={styles.legalLink} onPress={() => openInAppBrowser('https://zod.dhabli.com/community-guidelines')}>
                   Community Guidelines
                 </Text>
                 . I confirm I am 18 or older and will not post objectionable content.
@@ -356,19 +358,23 @@ const styles = StyleSheet.create({
     paddingBottom: 36,
     justifyContent: 'space-between',
   },
-  hero: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 24,
-    paddingBottom: 40,
+  logoWrap: {
+    paddingTop: 8,
+    alignSelf: 'flex-start',
   },
-  tagline: {
+  taglineSans: {
     fontSize: 54,
     fontFamily: 'ProductSans-Black',
     color: '#fff',
-    lineHeight: 60,
-    textAlign: 'center',
+    textAlign: 'left',
+    lineHeight: 58,
+  },
+  taglineSerif: {
+    fontSize: 54,
+    fontFamily: 'ProductSans-Black',
+    color: '#fff',
+    textAlign: 'left',
+    lineHeight: 58,
   },
   bottom: { gap: 14 },
   otherMethods: {
