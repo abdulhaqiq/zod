@@ -31,22 +31,23 @@ export const PRODUCT_IDS = {
 
 /**
  * AI Credits — consumable one-time purchases.
- * Create these as Consumable (Non-Subscription) products in App Store Connect,
- * then add them to RevenueCat under the same app.
- *   com.zod.ai.credits.10  — $0.99  →  10 AI Credits
- *   com.zod.ai.credits.25  — $1.99  →  25 AI Credits
- *   com.zod.ai.credits.50  — $3.99  →  50 AI Credits
+ * Products created in App Store Connect & RevenueCat:
+ *   com.zod.ai.credits.101  — $0.99  →  10 AI Credits
+ *   com.zod.ai.credits.25   — $1.99  →  25 AI Credits
+ *   com.zod.ai.credits.50   — $3.99  →  50 AI Credits
  */
 export const AI_CREDIT_PACKS = [
-  { id: 'com.zod.ai.credits.10', credits: 10, price: '$0.99', label: '10 Credits' },
-  { id: 'com.zod.ai.credits.25', credits: 25, price: '$1.99', label: '25 Credits', badge: 'Popular' },
-  { id: 'com.zod.ai.credits.50', credits: 50, price: '$3.99', label: '50 Credits', badge: 'Best Value' },
+  { id: 'com.zod.ai.credits.101', credits: 10, price: '$0.99', label: '10 Credits' },
+  { id: 'com.zod.ai.credits.25',  credits: 25, price: '$1.99', label: '25 Credits', badge: 'Popular' },
+  { id: 'com.zod.ai.credits.50',  credits: 50, price: '$3.99', label: '50 Credits', badge: 'Best Value' },
 ] as const;
 
 export type AiCreditPack = (typeof AI_CREDIT_PACKS)[number];
 
 // RevenueCat Offering & Entitlement identifiers
-export const RC_OFFERING          = 'default';   // Pro plans
-export const RC_PREMIUM_OFFERING  = 'premium';   // Premium+ plans
-export const RC_ENTITLEMENT       = 'pro';
+export const RC_OFFERING            = 'default';         // Pro plans offering
+export const RC_PREMIUM_OFFERING    = 'premium';         // Premium+ plans offering
+export const RC_CREDITS_OFFERING    = 'ai_credits';      // AI Credits offering
+export const RC_ENTITLEMENT         = 'pro';
 export const RC_PREMIUM_ENTITLEMENT = 'premium';
+export const RC_CREDITS_ENTITLEMENT = 'entlcbf342b9df'; // AI Credits entitlement

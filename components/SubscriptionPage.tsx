@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as WebBrowser from 'expo-web-browser';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import {
@@ -512,6 +513,15 @@ export default function SubscriptionPage() {
                   ? 'Renews automatically. Cancel anytime in App Store settings.'
                   : 'In-app purchases are being configured. Check back soon.'}
               </Text>
+              <View style={styles.ctaLegalLinks}>
+                <Pressable onPress={() => WebBrowser.openBrowserAsync('https://zod.dhabli.com/terms')} style={({ pressed }) => [pressed && { opacity: 0.6 }]}>
+                  <Text style={[styles.ctaLegalLink, { color: colors.textSecondary }]}>Terms of Use</Text>
+                </Pressable>
+                <Text style={[styles.ctaLegalSep, { color: colors.textTertiary }]}>·</Text>
+                <Pressable onPress={() => WebBrowser.openBrowserAsync('https://zod.dhabli.com/privacy')} style={({ pressed }) => [pressed && { opacity: 0.6 }]}>
+                  <Text style={[styles.ctaLegalLink, { color: colors.textSecondary }]}>Privacy Policy</Text>
+                </Pressable>
+              </View>
             </>
           )}
         </View>
@@ -777,6 +787,9 @@ const styles = StyleSheet.create({
   ctaBtnLabel: { fontSize: 16, fontFamily: 'ProductSans-Black' },
   ctaBtnSub:   { fontSize: 11, fontFamily: 'ProductSans-Regular' },
   ctaLegal:    { fontSize: 10, fontFamily: 'ProductSans-Regular', textAlign: 'center', lineHeight: 14 },
+  ctaLegalLinks: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 4 },
+  ctaLegalLink:  { fontSize: 10, fontFamily: 'ProductSans-Medium', textDecorationLine: 'underline' },
+  ctaLegalSep:   { fontSize: 10, fontFamily: 'ProductSans-Regular' },
 
   // Gift card modal
   gcOverlay:  { flex: 1, justifyContent: 'flex-end' },

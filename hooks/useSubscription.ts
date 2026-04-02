@@ -18,7 +18,7 @@ import Purchases, {
 } from 'react-native-purchases';
 import { NativeModules } from 'react-native';
 import { apiFetch } from '@/constants/api';
-import { RC_ENTITLEMENT, RC_OFFERING, RC_PREMIUM_OFFERING, RC_PREMIUM_ENTITLEMENT, type AiCreditPack } from '@/constants/iap';
+import { RC_ENTITLEMENT, RC_OFFERING, RC_PREMIUM_OFFERING, RC_PREMIUM_ENTITLEMENT, RC_CREDITS_OFFERING, RC_CREDITS_ENTITLEMENT, type AiCreditPack } from '@/constants/iap';
 import { useAuth } from '@/context/AuthContext';
 
 // Structured feature types stored in DB
@@ -149,6 +149,7 @@ export function useSubscription() {
       setOffering(off ?? null);
       const premOff = offerings.all[RC_PREMIUM_OFFERING] ?? null;
       setPremiumOffering(premOff);
+      // AI Credits offering is loaded on-demand in purchaseAiCredits
     } catch (e: any) {
       setError(e?.message ?? 'Failed to load offerings');
     }
@@ -281,14 +282,29 @@ export function useSubscription() {
     setError(null);
     try {
       if (!IS_EXPO_GO) {
-        // Fetch the product from RevenueCat by product ID
         const offerings = await Purchases.getOfferings();
-        const allPackages = Object.values(offerings.all ?? {}).flatMap(o => o.availablePackages);
-        const pkg = allPackages.find(p => p.product?.identifier === pack.id);
+
+        // Look in the dedicated AI credits offering first, then fall back to all offerings
+        const creditsOffering = offerings.all[RC_CREDITS_OFFERING];
+        const creditsPackages = creditsOffering
+          ? creditsOffering.availablePackages
+          : Object.values(offerings.all ?? {}).flatMap(o => o.availablePackages);
+
+        const pkg = creditsPackages.find(p => p.product?.identifier === pack.id);
 
         if (pkg) {
           const { customerInfo } = await Purchases.purchasePackage(pkg);
           const rcCustomerId = customerInfo.originalAppUserId;
+
+          // Check the credits entitlement was granted (consumable — will be active briefly)
+          const creditsGranted =
+            customerInfo.entitlements.active[RC_CREDITS_ENTITLEMENT] !== undefined ||
+            customerInfo.nonSubscriptionTransactions?.some(t => t.productIdentifier === pack.id);
+
+          if (!creditsGranted) {
+            return { success: false, error: 'Purchase completed but credits could not be verified. Contact support.' };
+          }
+
           const data = await apiFetch<{ credits_added: number; new_balance: number }>(
             '/subscription/ai-credits/topup',
             {
@@ -297,7 +313,6 @@ export function useSubscription() {
               body: JSON.stringify({ pack_id: pack.id, revenuecat_customer_id: rcCustomerId }),
             },
           );
-          // Update local myFeatures balance
           setMyFeatures(prev => prev ? { ...prev, ai_credits_balance: data.new_balance } : prev);
           return { success: true, newBalance: data.new_balance };
         }

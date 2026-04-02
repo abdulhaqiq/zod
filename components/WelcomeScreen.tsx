@@ -224,8 +224,6 @@ export default function WelcomeScreen() {
 
           {/* ── Tagline sits just above the buttons ── */}
           <View style={styles.bottom}>
-            <Text style={styles.taglineSans}>Find True</Text>
-            <Text style={styles.taglineSerif}>Love</Text>
             {hasRecent && !showOtherMethods ? (
               /* ── Quick sign-in card ──────────────────────────────── */
               <>
@@ -361,20 +359,6 @@ const styles = StyleSheet.create({
   logoWrap: {
     paddingTop: 8,
     alignSelf: 'flex-start',
-  },
-  taglineSans: {
-    fontSize: 54,
-    fontFamily: 'ProductSans-Black',
-    color: '#fff',
-    textAlign: 'left',
-    lineHeight: 58,
-  },
-  taglineSerif: {
-    fontSize: 54,
-    fontFamily: 'ProductSans-Black',
-    color: '#fff',
-    textAlign: 'left',
-    lineHeight: 58,
   },
   bottom: { gap: 14 },
   otherMethods: {

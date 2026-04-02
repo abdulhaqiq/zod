@@ -16,7 +16,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.zod.ai",
-      "buildNumber": "11",
+      "buildNumber": "13",
       "infoPlist": {
         "CFBundleDevelopmentRegion": "en",
         "CFBundleLocalizations": [
@@ -118,11 +118,11 @@
     },
     "extra": {
       "router": {},
+      "APP_API_KEY": "33de4e446cdbe7697036c871477f3c54bef1a4832f4a4b4ff6bb2d5475f65207",
       "eas": {
-        "projectId": "53bca04d-0229-4419-a886-5dd2eaeb2b89"
-      },
-      "APP_API_KEY": "33de4e446cdbe7697036c871477f3c54bef1a4832f4a4b4ff6bb2d5475f65207"
+        "projectId": "fec81194-6a20-43f7-bf00-fb4638346ba2"
+      }
     },
-    "owner": "abdulkm"
+    "owner": "abdulkumshey"
   }
 }
