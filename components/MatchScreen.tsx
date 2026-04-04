@@ -23,9 +23,10 @@ const CARD_H = CARD_W * 1.42;
 const FALLBACK_AVATAR = 'https://randomuser.me/api/portraits/lego/1.jpg';
 
 export interface MatchedProfile {
+  /** age is optional — omit for work/professional mode */
   id: string;
   name: string;
-  age: number;
+  age?: number;
   image: string;
   interests?: { emoji: string; label: string }[];
   prompts?: { question: string; answer: string }[];
@@ -119,7 +120,7 @@ export default function MatchScreen({ profile, onChat, onDismiss }: Props) {
         <Animated.View style={[styles.cardFront, { transform: [{ scale: scaleThem }, { translateX: CARD_W * 0.22 }, { translateY: CARD_H * 0.04 }, { rotate: '4deg' }] }]}>
           <Image source={{ uri: profile.image }} style={styles.cardPhoto} resizeMode="cover" />
           <LinearGradient colors={['transparent', 'rgba(0,0,0,0.72)']} style={styles.cardGrad}>
-            <Text style={styles.cardName}>{profile.name}, {profile.age}</Text>
+            <Text style={styles.cardName}>{profile.name}{profile.age ? `, ${profile.age}` : ''}</Text>
           </LinearGradient>
         </Animated.View>
 

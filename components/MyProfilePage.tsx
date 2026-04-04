@@ -478,6 +478,10 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
   const [religionId,       setReligionId]       = useState(profile?.religion_id        ? String(profile.religion_id)        : '');
   const [ethnicityId,      setEthnicityId]      = useState(profile?.ethnicity_id       ? String(profile.ethnicity_id)       : '');
   const [languageIds,      setLanguageIds]      = useState<string[]>((profile?.languages ?? []).map(String));
+  const [dietId,           setDietId]           = useState(lf.diet           ? String(lf.diet)           : '');
+  const [interestIds,      setInterestIds]      = useState<string[]>((profile?.interests  ?? []).map(String));
+  const [valuesIds,        setValuesIds]        = useState<string[]>((profile?.values_list ?? []).map(String));
+  const [causesIds,        setCausesIds]        = useState<string[]>((profile?.causes     ?? []).map(String));
   const [moodEmoji,        setMoodEmoji]        = useState(profile?.mood_emoji ?? '');
   const [moodText,         setMoodText]         = useState(profile?.mood_text ?? '');
   const [moodModalOpen,    setMoodModalOpen]    = useState(false);
@@ -501,6 +505,10 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
   const [hideAge,                 setHideAge]                 = useState(profile?.hide_age ?? false);
   const [hideDistance,            setHideDistance]            = useState(profile?.hide_distance ?? false);
   const [requireVerifiedToChat,   setRequireVerifiedToChat]   = useState(profile?.require_verified_to_chat ?? false);
+
+  // ── Work mode toggle ──────────────────────────────────────────────────────
+  const [workMode, setWorkMode] = useState(profile?.work_mode_enabled ?? false);
+  useEffect(() => { setWorkMode(profile?.work_mode_enabled ?? false); }, [profile?.work_mode_enabled]);
 
   // ── Pro feature toggles ───────────────────────────────────────────────────
   const [incognito,    setIncognito]    = useState(profile?.is_incognito ?? false);
@@ -579,6 +587,10 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
     setReligionId(profile.religion_id              ? String(profile.religion_id)        : '');
     setEthnicityId(profile.ethnicity_id            ? String(profile.ethnicity_id)       : '');
     setLanguageIds((profile.languages ?? []).map(String));
+    setDietId(ls.diet ? String(ls.diet) : '');
+    setInterestIds((profile.interests  ?? []).map(String));
+    setValuesIds((profile.values_list  ?? []).map(String));
+    setCausesIds((profile.causes       ?? []).map(String));
     setMoodEmoji(profile.mood_emoji ?? '');
     setMoodText(profile.mood_text ?? '');
     setUniEmail(profile.university_email ?? '');
@@ -644,7 +656,7 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
       );
       setLinkedInVerified(res.linkedin_verified);
       setLinkedInUrl(res.linkedin_url ?? '');
-      Alert.alert('LinkedIn Verified ✓', 'Your LinkedIn account has been connected to your profile.');
+      Alert.alert('LinkedIn Verified', 'Your LinkedIn account has been connected. Tap "Import from LinkedIn" in Work Settings to fill your profile.');
     } catch (e: any) {
       Alert.alert('Error', e?.message || 'Could not connect LinkedIn. Please try again.');
     } finally {
@@ -840,20 +852,20 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
         </Squircle>
       </View>
 
-      {/* ZOD WORK — temporarily disabled
+      {/* ── ZOD WORK ────────────────────────────────────────────────────── */}
       <View style={styles.section}>
         <SectionLabel title="ZOD WORK" colors={colors} />
         <Group colors={colors}>
           <SettingRow
             icon="briefcase-outline"
-            label="Manage Zod Work"
-            subtitle="Work profile, experience & preferences"
+            label="Work Settings"
+            subtitle="Industries, skills, commitment, equity, goals & filters"
             colors={colors}
             onPress={() => navPush('/zod-work')}
+            last
           />
         </Group>
       </View>
-      */}
 
       {/* ── ABOUT YOU ───────────────────────────────────────────────────── */}
       <View style={styles.section}>
@@ -959,7 +971,11 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
           <View style={[styles.moodRow, { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border }]}>
             {/* Emoji badge — tapping opens the modal */}
             <Pressable onPress={() => setMoodModalOpen(true)} style={[styles.moodBadge, { backgroundColor: colors.bg, borderColor: colors.border }]}>
-              <Text style={styles.moodBadgeEmoji}>{moodEmoji || '😶'}</Text>
+              {moodEmoji ? (
+                <Text style={styles.moodBadgeEmoji}>{moodEmoji}</Text>
+              ) : (
+                <Ionicons name="happy-outline" size={22} color={colors.textTertiary} />
+              )}
             </Pressable>
 
             {/* Text — also tappable, same modal */}
@@ -1010,46 +1026,40 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
               title: 'Languages', subtitle: 'Pick all that apply',
               options: opts('language'), single: false, selected: languageIds,
               onDone: (vals) => { setLanguageIds(vals); saveField({ languages: vals.map(Number) }); },
+            })} colors={colors} />
+
+          <EditRow icon="nutrition-outline" label="Diet"
+            value={getLookupLabel('diet', dietId ? Number(dietId) : null) || '—'}
+            onPress={() => setChipPicker({
+              title: 'Diet', options: opts('diet'), single: true,
+              selected: dietId ? [dietId] : [],
+              onDone: ([v]) => { setDietId(v); saveField({ lifestyle: { ...lf, diet: Number(v) } }); },
+            })} colors={colors} />
+
+          <EditRow icon="heart-circle-outline" label="Interests"
+            value={getLookupLabels('interests', interestIds.map(Number)).join(', ') || '—'}
+            onPress={() => setChipPicker({
+              title: 'Interests', subtitle: 'Pick at least 3',
+              options: opts('interests'), single: false, selected: interestIds,
+              onDone: (vals) => { setInterestIds(vals); saveField({ interests: vals.map(Number) }); },
+            })} colors={colors} />
+
+          <EditRow icon="diamond-outline" label="Values"
+            value={getLookupLabels('values_list', valuesIds.map(Number)).join(', ') || '—'}
+            onPress={() => setChipPicker({
+              title: 'Values', subtitle: 'What matters most to you',
+              options: opts('values_list'), single: false, selected: valuesIds,
+              onDone: (vals) => { setValuesIds(vals); saveField({ values_list: vals.map(Number) }); },
+            })} colors={colors} />
+
+          <EditRow icon="leaf-outline" label="Causes"
+            value={getLookupLabels('causes', causesIds.map(Number)).join(', ') || '—'}
+            onPress={() => setChipPicker({
+              title: 'Causes', subtitle: 'Causes you care about',
+              options: opts('causes'), single: false, selected: causesIds,
+              onDone: (vals) => { setCausesIds(vals); saveField({ causes: vals.map(Number) }); },
             })} colors={colors} last />
         </Group>
-      </View>
-
-      {/* ── LINKEDIN VERIFICATION ───────────────────────────────────────── */}
-      <View style={styles.section}>
-        <SectionLabel title="LINKEDIN" colors={colors} />
-        <Squircle
-          style={styles.linkedInCard}
-          cornerRadius={20}
-          cornerSmoothing={1}
-          fillColor="#0A66C2"
-        >
-          <View style={styles.linkedInInner}>
-            <View style={styles.linkedInLeft}>
-              <Squircle style={styles.linkedInIcon} cornerRadius={10} cornerSmoothing={1} fillColor="rgba(255,255,255,0.18)">
-                <Ionicons name="logo-linkedin" size={20} color="#fff" />
-              </Squircle>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.linkedInTitle}>
-                  {linkedInVerified ? 'LinkedIn Verified ✓' : 'Verify via LinkedIn'}
-                </Text>
-                <Text style={styles.linkedInSub} numberOfLines={1}>
-                  {linkedInVerified
-                    ? (linkedInUrl ? 'Tap to view your profile' : 'Account connected')
-                    : 'Connect your LinkedIn account'}
-                </Text>
-              </View>
-            </View>
-            <Pressable
-              style={[styles.linkedInBtn, linkedInVerified && styles.linkedInBtnVerified]}
-              onPress={linkedInVerified ? openLinkedInProfile : (linkedInLoading ? undefined : connectLinkedIn)}
-              disabled={linkedInLoading}
-            >
-              <Text style={[styles.linkedInBtnText, linkedInVerified && styles.linkedInBtnTextVerified]}>
-                {linkedInLoading ? '…' : linkedInVerified ? 'View' : 'Connect'}
-              </Text>
-            </Pressable>
-          </View>
-        </Squircle>
       </View>
 
       {/* ── VOICE PROMPTS ───────────────────────────────────────────────── */}
@@ -1073,6 +1083,16 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
             toggle
             toggleVal={isDark}
             onToggle={toggle}
+          />
+          <SettingRow
+            icon="briefcase-outline" label="Zod Work Mode"
+            subtitle={workMode ? 'Showing co-founder & professional feed' : 'Switch to co-founder & professional matching'}
+            colors={colors} toggle toggleVal={workMode}
+            onToggle={(val) => {
+              setWorkMode(val);
+              apiFetch('/profile/me', { method: 'PATCH', token: token!, body: JSON.stringify({ work_mode_enabled: val }) }).catch(() => {});
+              updateProfile({ work_mode_enabled: val } as any);
+            }}
           />
           <SettingRow
             icon="eye-off-outline" label="Hide My Age"

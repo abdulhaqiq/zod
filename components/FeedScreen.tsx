@@ -45,7 +45,7 @@ import { useLookups } from '@/hooks/useLookups';
 
 const { width: W, height: H } = Dimensions.get('window');
 const CARD_W          = W - 32;
-const CARD_H          = H * 0.68;
+const CARD_H          = H * 0.63;   // reduced from 0.68 — buttons now live below the card
 const LIKED_CARD_W    = Math.floor((W - 44) / 2);
 const LIKED_PHOTO_H   = Math.floor(LIKED_CARD_W * 4 / 3);
 const PHOTO_H         = CARD_H;
@@ -111,33 +111,40 @@ function LikedCardSkeleton({ colors }: { colors: any }) {
 }
 
 function AppLogo({
-  color, bgColor, halalMode, isMuslim, onPress,
+  color, bgColor, halalMode, isMuslim, appMode, onPress,
 }: {
-  color: string; bgColor: string; halalMode: boolean; isMuslim: boolean; onPress: () => void;
+  color: string; bgColor: string; halalMode: boolean; isMuslim: boolean; appMode: AppMode; onPress: () => void;
 }) {
+  const isWork = appMode === 'work';
+  const pillActive = isWork || halalMode;
+  const pillLabel = isWork ? 'Work' : halalMode ? 'Halal' : 'Standard';
+
   return (
     <Pressable onPress={onPress} hitSlop={8} style={styles.logoBtn}>
       <Text style={[styles.logoText, { color }]}>zod</Text>
-      {isMuslim && (
-        <View style={[
-          styles.halalPill,
-          { backgroundColor: halalMode ? color : 'transparent', borderColor: halalMode ? color : color + '55' },
-        ]}>
-          <Text style={[styles.halalPillLabel, { color: halalMode ? bgColor : color }]}>
-            {halalMode ? 'Halal' : 'Standard'}
-          </Text>
-          <Ionicons name="chevron-down" size={10} color={halalMode ? bgColor : color} />
-        </View>
-      )}
+      <View style={[
+        styles.halalPill,
+        { backgroundColor: pillActive ? color : 'transparent', borderColor: pillActive ? color : color + '55' },
+      ]}>
+        <Text style={[styles.halalPillLabel, { color: pillActive ? bgColor : color }]}>
+          {pillLabel}
+        </Text>
+        <Ionicons name="chevron-down" size={10} color={pillActive ? bgColor : color} />
+      </View>
     </Pressable>
   );
 }
 
-// ─── Halal mode bottom-sheet dropdown ────────────────────────────────────────
-function HalalModeSheet({ visible, halalMode, onSelect, onClose, colors }: {
-  visible: boolean; halalMode: boolean;
-  onSelect: (halal: boolean) => void; onClose: () => void; colors: any;
+// ─── Feed mode bottom-sheet dropdown ─────────────────────────────────────────
+function HalalModeSheet({ visible, halalMode, appMode, onSelect, onSelectWork, onClose, colors }: {
+  visible: boolean; halalMode: boolean; appMode: AppMode;
+  onSelect: (halal: boolean) => void;
+  onSelectWork: () => void;
+  onClose: () => void; colors: any;
 }) {
+  const isWork = appMode === 'work';
+  const isStandard = !halalMode && !isWork;
+
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <Pressable style={mStyles.backdrop} onPress={onClose}>
@@ -149,13 +156,13 @@ function HalalModeSheet({ visible, halalMode, onSelect, onClose, colors }: {
           <Pressable
             style={[
               mStyles.option,
-              { borderColor: !halalMode ? colors.text : colors.border, marginBottom: 12 },
+              { borderColor: isStandard ? colors.text : colors.border, marginBottom: 12 },
             ]}
             onPress={() => { onSelect(false); onClose(); }}
           >
             <Squircle style={mStyles.optIconWrap} cornerRadius={12} cornerSmoothing={1}
-              fillColor={!halalMode ? colors.text : colors.surface2}>
-              <Ionicons name="layers" size={20} color={!halalMode ? colors.bg : colors.textSecondary} />
+              fillColor={isStandard ? colors.text : colors.surface2}>
+              <Ionicons name="layers" size={20} color={isStandard ? colors.bg : colors.textSecondary} />
             </Squircle>
             <View style={{ flex: 1 }}>
               <Text style={[mStyles.optLabel, { color: colors.text }]}>Standard</Text>
@@ -163,20 +170,20 @@ function HalalModeSheet({ visible, halalMode, onSelect, onClose, colors }: {
                 Full discovery feed with all filters
               </Text>
             </View>
-            {!halalMode && <Ionicons name="checkmark-circle" size={22} color={colors.text} />}
+            {isStandard && <Ionicons name="checkmark-circle" size={22} color={colors.text} />}
           </Pressable>
 
           {/* Halal option */}
           <Pressable
             style={[
               mStyles.option,
-              { borderColor: halalMode ? colors.text : colors.border },
+              { borderColor: halalMode && !isWork ? colors.text : colors.border, marginBottom: 12 },
             ]}
             onPress={() => { onSelect(true); onClose(); }}
           >
             <Squircle style={mStyles.optIconWrap} cornerRadius={12} cornerSmoothing={1}
-              fillColor={halalMode ? colors.text : colors.surface2}>
-              <Ionicons name="moon-outline" size={20} color={halalMode ? colors.bg : colors.textSecondary} />
+              fillColor={halalMode && !isWork ? colors.text : colors.surface2}>
+              <Ionicons name="moon-outline" size={20} color={halalMode && !isWork ? colors.bg : colors.textSecondary} />
             </Squircle>
             <View style={{ flex: 1 }}>
               <Text style={[mStyles.optLabel, { color: colors.text }]}>Halal Mode</Text>
@@ -184,7 +191,28 @@ function HalalModeSheet({ visible, halalMode, onSelect, onClose, colors }: {
                 Marriage-focused · Muslim community · Halal filters
               </Text>
             </View>
-            {halalMode && <Ionicons name="checkmark-circle" size={22} color={colors.text} />}
+            {halalMode && !isWork && <Ionicons name="checkmark-circle" size={22} color={colors.text} />}
+          </Pressable>
+
+          {/* Zod Work option */}
+          <Pressable
+            style={[
+              mStyles.option,
+              { borderColor: isWork ? colors.text : colors.border },
+            ]}
+            onPress={() => { onSelectWork(); onClose(); }}
+          >
+            <Squircle style={mStyles.optIconWrap} cornerRadius={12} cornerSmoothing={1}
+              fillColor={isWork ? colors.text : colors.surface2}>
+              <Ionicons name="briefcase-outline" size={20} color={isWork ? colors.bg : colors.textSecondary} />
+            </Squircle>
+            <View style={{ flex: 1 }}>
+              <Text style={[mStyles.optLabel, { color: colors.text }]}>Zod Work</Text>
+              <Text style={[mStyles.optSub, { color: colors.textSecondary }]}>
+                Co-founder & professional matching · AI insights
+              </Text>
+            </View>
+            {isWork && <Ionicons name="checkmark-circle" size={22} color={colors.text} />}
           </Pressable>
         </Pressable>
       </Pressable>
@@ -349,14 +377,14 @@ const SuperLikeBtn = ({
   const starColor = depleted ? '#888' : '#FFE066';
 
   return (
-    <Pressable onPress={fire} style={{ alignItems: 'center', justifyContent: 'center', width: 56, height: 56 }}>
+    <Pressable onPress={fire} style={{ alignItems: 'center', justifyContent: 'center', width: BTN_SIZE, height: BTN_SIZE }}>
       {/* Burst ring */}
       <Animated.View
         pointerEvents="none"
         style={{
           position: 'absolute',
-          width: 56, height: 56, borderRadius: 28,
-          borderWidth: 2.5, borderColor: '#FFE066',
+          width: BTN_SIZE, height: BTN_SIZE, borderRadius: BTN_SIZE / 2,
+          borderWidth: 2, borderColor: '#FFE066',
           transform: [{ scale: ringScale }],
           opacity: ringOpacity,
         }}
@@ -366,7 +394,7 @@ const SuperLikeBtn = ({
         pointerEvents="none"
         style={{
           position: 'absolute',
-          width: 56, height: 56, borderRadius: 28,
+          width: BTN_SIZE, height: BTN_SIZE, borderRadius: BTN_SIZE / 2,
           backgroundColor: '#FFE066',
           opacity: glowOpacity,
         }}
@@ -374,13 +402,23 @@ const SuperLikeBtn = ({
       {/* Button circle */}
       <Animated.View
         style={[
-          styles.cardActionBtn,
-          styles.cardActionSuper,
+          {
+            width: BTN_SIZE, height: BTN_SIZE, borderRadius: BTN_SIZE / 2,
+            alignItems: 'center', justifyContent: 'center',
+            backgroundColor: 'rgba(255,255,255,0.96)',
+            borderWidth: 2,
+            borderColor: depleted ? '#666' : '#FFE066',
+            shadowColor: '#FFE066',
+            shadowOpacity: depleted ? 0 : 0.35,
+            shadowRadius: 8,
+            shadowOffset: { width: 0, height: 3 },
+            elevation: 6,
+          },
           { transform: [{ scale }], opacity: depleted ? 0.45 : 1 },
         ]}
       >
         <Animated.View style={{ transform: [{ rotate }] }}>
-          <Ionicons name={isPro ? 'star' : 'lock-closed' as any} size={isPro ? 22 : 18} color={starColor} />
+          <Ionicons name={isPro ? 'star' : 'lock-closed' as any} size={isPro ? 18 : 15} color={depleted ? '#888' : '#FFE066'} />
         </Animated.View>
       </Animated.View>
       {/* Remaining count badge — only shown for Pro */}
@@ -462,12 +500,10 @@ const vcStyles = StyleSheet.create({
   dur:     { fontSize: 11, fontFamily: 'ProductSans-Regular' },
 });
 
-// ─── Profile Card (scrollable + swipeable) ────────────────────────────────────
+// ─── Profile Card (scrollable, button-driven decisions) ──────────────────────
 
 export interface ProfileCardHandle {
-  swipeLeft: () => void;
-  swipeRight: () => void;
-  swipeUp: () => void;
+  dismiss: (type: 'pass' | 'connect' | 'super') => void;
 }
 
 const ProfileCard = forwardRef<ProfileCardHandle, {
@@ -480,10 +516,42 @@ const ProfileCard = forwardRef<ProfileCardHandle, {
   colors: any;
   isPro: boolean;
   superLikesRemaining: number;
-}>(function ProfileCard({ profile, onSwipedLeft, onSwipedRight, onSuperLike, onReport, onBlock, colors, isPro, superLikesRemaining }, ref) {
-  const halalBlur = profile.halal?.blurPhotos === true;
-  const position = useRef(new Animated.ValueXY()).current;
-  const superStampAnim = useRef(new Animated.Value(0)).current;
+  token: string;
+  aiCreditsBalance: number;
+  onNeedCredits: () => void;
+  onCreditsSpent: (newBalance: number) => void;
+}>(function ProfileCard({ profile, onSwipedLeft, onSwipedRight, onSuperLike, onReport, onBlock, colors, isPro, superLikesRemaining, token, aiCreditsBalance, onNeedCredits, onCreditsSpent }, ref) {
+  const halalBlur   = profile.halal?.blurPhotos === true;
+  const dragX       = useRef(new Animated.Value(0)).current;
+  const exitY       = useRef(new Animated.Value(0)).current;
+  const exitOpacity = useRef(new Animated.Value(1)).current;
+  const flashAnim   = useRef(new Animated.Value(0)).current;
+  const isDragging  = useRef(false);
+
+  // ── AI Compatibility Score ─────────────────────────────────────────────────
+  const [aiScore,        setAiScore]        = useState<{ percent: number; tier: string; breakdown: Record<string, number> } | null>(null);
+  const [aiScoreLoading, setAiScoreLoading] = useState(false);
+
+  const handleCheckAiScore = async () => {
+    if (aiScore) return;
+    if (aiCreditsBalance < 2) { onNeedCredits(); return; }
+    setAiScoreLoading(true);
+    try {
+      const spendRes = await apiFetch<{ spent: number; new_balance: number }>('/subscription/ai-credits/spend', {
+        method: 'POST', token,
+        body: JSON.stringify({ amount: 2, reason: 'ai_match_score' }),
+      });
+      onCreditsSpent(spendRes.new_balance);
+      const res = await apiFetch<{ percent: number; tier: string; breakdown: Record<string, number> }>(
+        `/score/vs/${profile.id}`, { token }
+      );
+      setAiScore(res);
+    } catch (e: any) {
+      if (e?.message?.includes('Insufficient')) { onNeedCredits(); }
+    } finally {
+      setAiScoreLoading(false);
+    }
+  };
 
   const onSwipedLeftRef  = useRef(onSwipedLeft);
   const onSwipedRightRef = useRef(onSwipedRight);
@@ -494,74 +562,88 @@ const ProfileCard = forwardRef<ProfileCardHandle, {
     onSuperLikeRef.current   = onSuperLike;
   }, [onSwipedLeft, onSwipedRight, onSuperLike]);
 
-  const resetCard = () => {
-    Animated.spring(position, { toValue: { x: 0, y: 0 }, useNativeDriver: true, friction: 6, tension: 40 }).start();
+  // Snap card back to centre
+  const resetDrag = () => {
+    Animated.spring(dragX, { toValue: 0, useNativeDriver: true, friction: 7, tension: 40 }).start();
   };
 
-  const swipeRight = () => {
-    Animated.timing(position, { toValue: { x: W + 200, y: 0 }, duration: 220, useNativeDriver: true })
-      .start(() => onSwipedRightRef.current());
-  };
+  // Fly card off screen then call callback
+  const flyOff = useCallback((dir: 'left' | 'right' | 'up', cb: () => void) => {
+    const tx = dir === 'left' ? -(W + 200) : dir === 'right' ? W + 200 : 0;
+    const ty = dir === 'up'   ? -(H + 200) : 0;
+    Animated.parallel([
+      Animated.timing(dragX,       { toValue: tx, duration: 260, useNativeDriver: true, easing: Easing.in(Easing.quad) }),
+      Animated.timing(exitY,       { toValue: ty, duration: 260, useNativeDriver: true, easing: Easing.in(Easing.quad) }),
+      Animated.timing(exitOpacity, { toValue: 0,  duration: 220, useNativeDriver: true }),
+    ]).start(cb);
+  }, [dragX, exitY, exitOpacity]);
 
-  const swipeLeft = () => {
-    Animated.timing(position, { toValue: { x: -(W + 200), y: 0 }, duration: 220, useNativeDriver: true })
-      .start(() => onSwipedLeftRef.current());
-  };
-
-  const swipeUp = () => {
-    superStampAnim.setValue(0);
-    Animated.sequence([
-      Animated.timing(superStampAnim, { toValue: 1, duration: 180, useNativeDriver: true }),
-      Animated.delay(650),
-      Animated.timing(superStampAnim, { toValue: 0, duration: 200, useNativeDriver: true }),
-    ]).start(() => onSuperLikeRef.current());
-  };
-
-  useImperativeHandle(ref, () => ({ swipeLeft, swipeRight, swipeUp }));
+  // Button-triggered dismiss (slides up + slight tilt, brief flash)
+  const dismiss = useCallback((type: 'pass' | 'connect' | 'super') => {
+    if (type !== 'pass') {
+      Animated.sequence([
+        Animated.timing(flashAnim, { toValue: 1, duration: 100, useNativeDriver: true }),
+        Animated.timing(flashAnim, { toValue: 0, duration: 120, useNativeDriver: true }),
+      ]).start();
+    }
+    // Tilt toward the decision then fly off
+    const tiltX = type === 'pass' ? -W - 200 : W + 200;
+    Animated.parallel([
+      Animated.timing(dragX,       { toValue: tiltX, duration: 300, useNativeDriver: true, easing: Easing.in(Easing.quad) }),
+      Animated.timing(exitOpacity, { toValue: 0,     duration: 260, useNativeDriver: true }),
+    ]).start(() => {
+      if (type === 'pass')         onSwipedLeftRef.current();
+      else if (type === 'connect') onSwipedRightRef.current();
+      else                         onSuperLikeRef.current();
+    });
+  }, [dragX, exitOpacity, flashAnim]);
 
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder:        () => false,
       onStartShouldSetPanResponderCapture: () => false,
       onMoveShouldSetPanResponderCapture: (_, g) => {
-        const ax = Math.abs(g.dx);
-        const ay = Math.abs(g.dy);
+        const ax = Math.abs(g.dx), ay = Math.abs(g.dy);
         return ax > ay && ax > 6;
       },
       onMoveShouldSetPanResponder: (_, g) => {
-        const ax = Math.abs(g.dx);
-        const ay = Math.abs(g.dy);
+        const ax = Math.abs(g.dx), ay = Math.abs(g.dy);
         return ax > ay && ax > 6;
       },
       onPanResponderGrant: () => {
-        position.setOffset({ x: (position.x as any)._value, y: 0 });
-        position.setValue({ x: 0, y: 0 });
+        isDragging.current = true;
+        dragX.setOffset((dragX as any)._value);
+        dragX.setValue(0);
       },
-      onPanResponderMove: Animated.event(
-        [null, { dx: position.x }],
-        { useNativeDriver: false }
-      ),
+      onPanResponderMove: Animated.event([null, { dx: dragX }], { useNativeDriver: false }),
       onPanResponderRelease: (_, g) => {
-        position.flattenOffset();
+        isDragging.current = false;
+        dragX.flattenOffset();
         if (g.dx > SWIPE_THRESHOLD || g.vx > 0.8) {
-          Animated.timing(position, { toValue: { x: W + 200, y: g.dy }, duration: 220, useNativeDriver: true })
-            .start(() => onSwipedRightRef.current());
+          flyOff('right', () => onSwipedRightRef.current());
         } else if (g.dx < -SWIPE_THRESHOLD || g.vx < -0.8) {
-          Animated.timing(position, { toValue: { x: -(W + 200), y: g.dy }, duration: 220, useNativeDriver: true })
-            .start(() => onSwipedLeftRef.current());
+          flyOff('left', () => onSwipedLeftRef.current());
         } else {
-          resetCard();
+          resetDrag();
         }
       },
-      onPanResponderTerminate: () => {
-        position.flattenOffset();
-        resetCard();
-      },
+      onPanResponderTerminate: () => { isDragging.current = false; dragX.flattenOffset(); resetDrag(); },
     })
   ).current;
 
-  const rotate    = position.x.interpolate({ inputRange: [-W * 0.6, 0, W * 0.6], outputRange: ['-12deg', '0deg', '12deg'], extrapolate: 'clamp' });
-  const cardStyle = { transform: [{ translateX: position.x }, { translateY: position.y }, { rotate }] };
+  useImperativeHandle(ref, () => ({ dismiss }));
+
+  // Rotate card slightly during drag (subtle — not Tinder's aggressive tilt)
+  const rotate = dragX.interpolate({ inputRange: [-W * 0.5, 0, W * 0.5], outputRange: ['-8deg', '0deg', '8deg'], extrapolate: 'clamp' });
+
+  // Edge tint opacity — green on right, red on left (replaces big LIKE/NOPE stamps)
+  const connectTint = dragX.interpolate({ inputRange: [0, SWIPE_THRESHOLD], outputRange: [0, 0.35], extrapolate: 'clamp' });
+  const passTint    = dragX.interpolate({ inputRange: [-SWIPE_THRESHOLD, 0], outputRange: [0.35, 0], extrapolate: 'clamp' });
+
+  const cardStyle = {
+    transform: [{ translateX: dragX }, { translateY: exitY }, { rotate }],
+    opacity: exitOpacity,
+  };
 
   const DETAILS = [
     { icon: 'resize-outline'      as const, label: 'Height',     value: profile.details.height    },
@@ -575,29 +657,23 @@ const ProfileCard = forwardRef<ProfileCardHandle, {
     { icon: 'people-outline'      as const, label: 'Ethnicity',  value: profile.details.ethnicity },
   ];
 
-  const likeOpacityAnim  = position.x.interpolate({ inputRange: [0, SWIPE_THRESHOLD], outputRange: [0, 1], extrapolate: 'clamp' });
-  const nopeOpacityAnim  = position.x.interpolate({ inputRange: [-SWIPE_THRESHOLD, 0], outputRange: [1, 0], extrapolate: 'clamp' });
-  const superOpacityAnim = superStampAnim;
-
   return (
     <Animated.View style={[styles.card, cardStyle]} {...panResponder.panHandlers}>
-      <Animated.View style={[styles.likeStamp, { opacity: likeOpacityAnim }]} pointerEvents="none">
-        <Text style={styles.likeStampText}>LIKE</Text>
-      </Animated.View>
-      <Animated.View style={[styles.nopeStamp, { opacity: nopeOpacityAnim }]} pointerEvents="none">
-        <Text style={styles.nopeStampText}>NOPE</Text>
-      </Animated.View>
-      <Animated.View style={[styles.superStamp, { opacity: superOpacityAnim, transform: [{ scale: superStampAnim.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0.7, 1.08, 1] }) }] }]} pointerEvents="none">
-        <Ionicons name="star" size={22} color="#3B82F6" />
-        <Text style={styles.superStampText}>SUPER LIKE</Text>
-      </Animated.View>
+      {/* Subtle edge tint while dragging — replaces old LIKE/NOPE stamps */}
+      <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: 24, backgroundColor: '#22c55e', opacity: connectTint, zIndex: 20 }]} />
+      <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: 24, backgroundColor: '#ef4444', opacity: passTint,    zIndex: 20 }]} />
+      {/* Button-triggered flash */}
+      <Animated.View
+        pointerEvents="none"
+        style={[StyleSheet.absoluteFill, { borderRadius: 24, backgroundColor: '#22c55e', opacity: flashAnim, zIndex: 30 }]}
+      />
 
       <ScrollView
         showsVerticalScrollIndicator={false}
         bounces={false}
         directionalLockEnabled
         scrollEventThrottle={16}
-        contentContainerStyle={{ paddingBottom: 24 }}
+        contentContainerStyle={{ paddingBottom: 110 }}
       >
         {/* Photo */}
         <View style={[styles.photoContainer, { overflow: 'hidden' }]}>
@@ -698,15 +774,76 @@ const ProfileCard = forwardRef<ProfileCardHandle, {
               </View>
             </View>
 
-            {/* Right: super like button */}
+            {/* Right: report/block shortcut */}
             <View style={styles.cardActionCol}>
-              <SuperLikeBtn onPress={swipeUp} isPro={isPro} remaining={superLikesRemaining} />
+              <Pressable
+                onPress={() => onReport(profile.id)}
+                hitSlop={8}
+                style={[styles.cardActionBtn, { borderColor: 'rgba(255,255,255,0.3)', backgroundColor: 'rgba(0,0,0,0.35)' }]}
+              >
+                <Ionicons name="ellipsis-horizontal" size={18} color="rgba(255,255,255,0.8)" />
+              </Pressable>
             </View>
           </View>
+
         </View>
+
+        {/* AI Compatibility — sits between photo and details, fully tappable */}
+        {aiScore ? (
+          <View style={[aiStyles.scorePill, { backgroundColor: colors.surface2, borderColor: colors.border }]}>
+            <Ionicons name="sparkles" size={14} color={colors.text} />
+            <Text style={[aiStyles.scorePercent, { color: colors.text }]}>{aiScore.percent}%</Text>
+            <Text style={[aiStyles.scoreTier, { color: colors.textSecondary }]}>{aiScore.tier} Match</Text>
+          </View>
+        ) : (
+          <Pressable
+            onPress={handleCheckAiScore}
+            hitSlop={8}
+            style={({ pressed }) => [aiStyles.checkBtn, { backgroundColor: colors.surface, borderColor: colors.border }, pressed && { opacity: 0.65 }]}
+          >
+            {aiScoreLoading ? (
+              <ActivityIndicator size="small" color={colors.text} />
+            ) : (
+              <>
+                <Ionicons name="sparkles" size={14} color={colors.text} />
+                <Text style={[aiStyles.checkBtnText, { color: colors.text }]}>Check AI Compatibility</Text>
+                <View style={[aiStyles.creditCost, { backgroundColor: colors.surface2 }]}>
+                  <Text style={[aiStyles.creditCostText, { color: colors.textSecondary }]}>2 credits</Text>
+                </View>
+              </>
+            )}
+          </Pressable>
+        )}
 
         {/* Details */}
         <View style={[styles.detailsSection, { backgroundColor: colors.surface }]}>
+
+          {/* AI Score breakdown (shown after check) */}
+          {aiScore && (
+            <>
+              <View style={[aiStyles.breakdownCard, { backgroundColor: colors.surface2 }]}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                  <Ionicons name="sparkles" size={15} color={colors.text} />
+                  <Text style={[aiStyles.breakdownTitle, { color: colors.text }]}>AI Compatibility — {aiScore.percent}%</Text>
+                  <View style={[aiStyles.tierBadge, { backgroundColor: colors.text }]}>
+                    <Text style={[aiStyles.tierBadgeText, { color: colors.bg }]}>{aiScore.tier}</Text>
+                  </View>
+                </View>
+                {Object.entries(aiScore.breakdown).map(([key, val]) => (
+                  <View key={key} style={aiStyles.breakdownRow}>
+                    <Text style={[aiStyles.breakdownKey, { color: colors.textSecondary }]}>
+                      {key.charAt(0).toUpperCase() + key.slice(1)}
+                    </Text>
+                    <View style={[aiStyles.barTrack, { backgroundColor: colors.border }]}>
+                      <View style={[aiStyles.barFill, { backgroundColor: colors.text, width: `${Math.min(val, 100)}%` as any }]} />
+                    </View>
+                    <Text style={[aiStyles.breakdownVal, { color: colors.text }]}>{val}%</Text>
+                  </View>
+                ))}
+              </View>
+              <View style={[styles.divider, { backgroundColor: colors.border }]} />
+            </>
+          )}
 
           {profile.about ? <>
             <View style={styles.sec}>
@@ -913,55 +1050,23 @@ function WorkProfileCard({ profile, onSwipedLeft, onSwipedRight, colors }: {
   onSwipedRight: () => void;
   colors: any;
 }) {
-  const position = useRef(new Animated.ValueXY()).current;
+  const exitY       = useRef(new Animated.Value(0)).current;
+  const exitX       = useRef(new Animated.Value(0)).current;
+  const exitOpacity = useRef(new Animated.Value(1)).current;
   const onSwipedLeftRef  = useRef(onSwipedLeft);
   const onSwipedRightRef = useRef(onSwipedRight);
   useEffect(() => { onSwipedLeftRef.current = onSwipedLeft; onSwipedRightRef.current = onSwipedRight; }, [onSwipedLeft, onSwipedRight]);
 
-  const resetCard = () => {
-    Animated.spring(position, { toValue: { x: 0, y: 0 }, useNativeDriver: true, friction: 6, tension: 40 }).start();
-  };
-
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => false,
-      onStartShouldSetPanResponderCapture: () => false,
-      onMoveShouldSetPanResponderCapture: (_, g) => { const ax = Math.abs(g.dx); const ay = Math.abs(g.dy); return ax > ay && ax > 6; },
-      onMoveShouldSetPanResponder: (_, g) => { const ax = Math.abs(g.dx); const ay = Math.abs(g.dy); return ax > ay && ax > 6; },
-      onPanResponderGrant: () => { position.setOffset({ x: (position.x as any)._value, y: 0 }); position.setValue({ x: 0, y: 0 }); },
-      onPanResponderMove: Animated.event([null, { dx: position.x }], { useNativeDriver: false }),
-      onPanResponderRelease: (_, g) => {
-        position.flattenOffset();
-        if (g.dx > SWIPE_THRESHOLD || g.vx > 0.8) {
-          Animated.timing(position, { toValue: { x: W + 200, y: g.dy }, duration: 220, useNativeDriver: true }).start(() => onSwipedRightRef.current());
-        } else if (g.dx < -SWIPE_THRESHOLD || g.vx < -0.8) {
-          Animated.timing(position, { toValue: { x: -(W + 200), y: g.dy }, duration: 220, useNativeDriver: true }).start(() => onSwipedLeftRef.current());
-        } else { resetCard(); }
-      },
-      onPanResponderTerminate: () => { position.flattenOffset(); resetCard(); },
-    })
-  ).current;
-
-  const rotate    = position.x.interpolate({ inputRange: [-W * 0.6, 0, W * 0.6], outputRange: ['-12deg', '0deg', '12deg'], extrapolate: 'clamp' });
-  const cardStyle = { transform: [{ translateX: position.x }, { translateY: position.y }, { rotate }] };
-  const connectOpacity = position.x.interpolate({ inputRange: [0, SWIPE_THRESHOLD], outputRange: [0, 1], extrapolate: 'clamp' });
-  const passOpacity    = position.x.interpolate({ inputRange: [-SWIPE_THRESHOLD, 0], outputRange: [1, 0], extrapolate: 'clamp' });
+  const cardStyle = { transform: [{ translateY: exitY }, { translateX: exitX }], opacity: exitOpacity };
 
   return (
-    <Animated.View style={[styles.card, cardStyle]} {...panResponder.panHandlers}>
+    <Animated.View style={[styles.card, cardStyle]}>
       <ScrollView showsVerticalScrollIndicator={false} bounces={false}>
         {/* Cover photo */}
         <View style={{ height: CARD_H * 0.42, position: 'relative' }}>
           <ExpoImage source={{ uri: profile.images[0] }} style={{ width: '100%', height: '100%' }} contentFit="cover" cachePolicy="disk" />
           {/* Gradient */}
           <LinearGradient colors={['transparent', 'rgba(0,0,0,0.85)']} style={[StyleSheet.absoluteFill, { justifyContent: 'flex-end', padding: 16 }]}>
-            {/* CONNECT / PASS badges */}
-            <Animated.View style={[styles.likeStamp, { opacity: connectOpacity, borderColor: '#4ade80' }]}>
-              <Text style={[styles.likeStampText, { color: '#4ade80' }]}>CONNECT</Text>
-            </Animated.View>
-            <Animated.View style={[styles.nopeStamp, { opacity: passOpacity }]}>
-              <Text style={styles.nopeStampText}>PASS</Text>
-            </Animated.View>
 
             {/* Name + role */}
             <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8 }}>
@@ -1262,6 +1367,38 @@ export default function FeedScreen() {
     setSuperLikesRemaining(profile?.super_likes_remaining ?? 0);
   }, [profile?.super_likes_remaining, profile?.subscription_tier]);
 
+  // ── Restore + persist work mode via API ──────────────────────────────────
+  // `restoringRef` prevents the save effect from firing during profile restore
+  const restoringRef  = useRef(false);
+  const profileUidRef = useRef<string | null>(null);
+
+  // When profile loads or user changes (login/logout/switch account):
+  // always set the mode to whatever the server says.
+  useEffect(() => {
+    if (!profile) return;
+    const uid = (profile as any).id ?? null;
+    if (uid === profileUidRef.current) return; // same user, don't override manual changes
+    profileUidRef.current = uid;
+    restoringRef.current = true;
+    setAppMode(profile.work_mode_enabled ? 'work' : 'date');
+  }, [profile?.work_mode_enabled, (profile as any)?.id]);
+
+  // Save to API whenever mode changes, but skip during restore
+  // Initialize to 'date' (same as the useState default) so the effect doesn't
+  // fire a spurious PATCH on first mount before the profile has been restored.
+  const prevAppModeRef = useRef<AppMode>('date');
+  useEffect(() => {
+    if (prevAppModeRef.current === appMode) return;
+    prevAppModeRef.current = appMode;
+    if (restoringRef.current) { restoringRef.current = false; return; }
+    if (!token) return;
+    apiFetch('/profile/me', {
+      method: 'PATCH',
+      token,
+      body: JSON.stringify({ work_mode_enabled: appMode === 'work' }),
+    }).catch(() => {});
+  }, [appMode, token]);
+
   // ── Daily likes quota ────────────────────────────────────────────────────
   const FREE_DAILY_LIMIT = 20;
   const DAILY_LIKES_CACHE_KEY = 'daily_likes_remaining_v1';
@@ -1282,9 +1419,10 @@ export default function FeedScreen() {
 
   useEffect(() => {
     if (!token) return;
-    apiFetch<{ daily_likes_limit: number; daily_likes_remaining: number }>(
+    apiFetch<{ daily_likes_limit: number; daily_likes_remaining: number; ai_credits_balance?: number }>(
       '/subscription/my-features', { token }
     ).then(data => {
+      if (data.ai_credits_balance !== undefined) setAiCreditsBalance(data.ai_credits_balance);
       if (data.daily_likes_remaining === -1) {
         setIsUnlimitedLikes(true);
         AsyncStorage.removeItem(DAILY_LIKES_CACHE_KEY).catch(() => {});
@@ -1305,10 +1443,11 @@ export default function FeedScreen() {
   // triggered by removeTop() always see the just-swiped profile excluded.
   const swipedThisSessionRef = useRef<Set<string>>(new Set());
   const [activeTab,      setActiveTab]    = useState('people');
-  const [filterOpen,     setFilterOpen]   = useState(false);
+  const [filterOpen,          setFilterOpen]          = useState(false);
+  const [aiCreditsBalance,    setAiCreditsBalance]    = useState(0);
   const cardRef = useRef<ProfileCardHandle>(null);
-  const [exploreOpen,    setExploreOpen]  = useState(false);
-  const [appMode]                         = useState<AppMode>('date');
+  const [exploreOpen,         setExploreOpen]         = useState(false);
+  const [appMode, setAppMode]             = useState<AppMode>('date');
   const [likedYouCount,  setLikedYouCount] = useState(0);
   const [unreadChats,    setUnreadChats]   = useState(0);
   const [matchedProfile, setMatchedProfile] = useState<MatchedProfile | null>(null);
@@ -1392,14 +1531,17 @@ export default function FeedScreen() {
 
   const fmtBadge = (n: number) => n > 9 ? '9+' : String(n);
 
-  // Build nav tabs with live badge counts
-  const navTabs = BASE_DATE_NAV_TABS.map(t => ({
+  // Build nav tabs with live badge counts — switch to Work tabs when in work mode
+  const baseTabs = appMode === 'work' ? WORK_NAV_TABS : BASE_DATE_NAV_TABS;
+  const navTabs = baseTabs.map(t => ({
     ...t,
     badge: t.id === 'likeyou' && likedYouCount > 0
       ? fmtBadge(likedYouCount)
       : t.id === 'chats' && unreadChats > 0
         ? fmtBadge(unreadChats)
-        : undefined,
+        : t.id === 'matched'
+          ? undefined  // matched badge is static in WORK_NAV_TABS, keep as-is
+          : undefined,
   }));
 
   // ── Fetch badge counts from API ──────────────────────────────────────────
@@ -1631,6 +1773,12 @@ export default function FeedScreen() {
 
   const handleHalalSelect = useCallback((halal: boolean) => {
     setHalalSheetVisible(false);
+    // If switching to date mode from work, reset appMode first
+    if (!halal) setAppMode('date');
+    // Gate: only Muslims can turn on Halal mode
+    if (halal && !isMuslim) { setHalalGateMuslim(true); return; }
+    const idVerified = profile?.verification_status === 'verified' && profile?.is_verified === true;
+    if (halal && !idVerified) { setHalalGateId(true); return; }
     // Check both local state and profile source-of-truth so a stale local
     // state never causes the confirmation to show when halal is already on.
     const alreadyOn = halalMode || (profile?.halal_mode_enabled ?? false);
@@ -1640,7 +1788,7 @@ export default function FeedScreen() {
     } else {
       _applyHalalMode(halal);
     }
-  }, [halalMode, profile?.halal_mode_enabled, _applyHalalMode]);
+  }, [halalMode, isMuslim, profile?.verification_status, profile?.is_verified, profile?.halal_mode_enabled, _applyHalalMode]);
 
   // Show the match celebration for a profile that was on the deck
   const _showMatchIfNeeded = (res: { match: boolean }, p: Profile) => {
@@ -1783,12 +1931,8 @@ export default function FeedScreen() {
             bgColor={colors.bg}
             halalMode={halalMode}
             isMuslim={isMuslim}
-            onPress={() => {
-              if (!isMuslim) { setHalalGateMuslim(true); return; }
-              const idVerified = profile?.verification_status === 'verified' && profile?.is_verified === true;
-              if (!idVerified) { setHalalGateId(true); return; }
-              setHalalSheetVisible(true);
-            }}
+            appMode={appMode}
+            onPress={() => setHalalSheetVisible(true)}
           />
           <Pressable onPress={() => setFilterOpen(true)} hitSlop={8}>
             <Squircle style={styles.iconBtn} cornerRadius={14} cornerSmoothing={1} fillColor={colors.surface2}>
@@ -1848,11 +1992,13 @@ export default function FeedScreen() {
         </Pressable>
       )}
 
-      {/* Halal mode selector sheet */}
+      {/* Feed mode selector sheet */}
       <HalalModeSheet
         visible={halalSheetVisible}
         halalMode={halalMode}
+        appMode={appMode}
         onSelect={handleHalalSelect}
+        onSelectWork={() => setAppMode(prev => prev === 'work' ? 'date' : 'work')}
         onClose={() => setHalalSheetVisible(false)}
         colors={colors}
       />
@@ -2075,24 +2221,64 @@ export default function FeedScreen() {
             <WorkFeedScreen colors={colors} insets={insets} activeTab="people" />
           ) : loadingFeed && profiles.length === 0 ? (
             <FeedCardSkeleton colors={colors} />
+          ) : profiles.length === 0 ? (
+            <EmptyState onReset={handleStartOver} colors={colors} />
           ) : (
-            profiles.length === 0 ? (
-              <EmptyState onReset={handleStartOver} colors={colors} />
-            ) : (
-              <ProfileCard
-                key={profiles[0].id}
-                ref={cardRef}
-                profile={profiles[0]}
-                onSwipedLeft={() => handleSwipeLeft(profiles[0].id)}
-                onSwipedRight={() => handleSwipeRight(profiles[0].id)}
-                onSuperLike={() => handleSuperLike(profiles[0].id)}
-                onReport={handleReportPress}
-                onBlock={handleBlockPress}
-                colors={colors}
-                isPro={isPro}
-                superLikesRemaining={superLikesRemaining}
-              />
-            )
+            <View style={{ flex: 1, alignItems: 'center' }}>
+              {/* Card shrinks to leave room for the button row below */}
+              <View style={{ flex: 1, width: '100%', alignItems: 'center', minHeight: 0 }}>
+                <ProfileCard
+                  key={profiles[0].id}
+                  ref={cardRef}
+                  profile={profiles[0]}
+                  onSwipedLeft={() => handleSwipeLeft(profiles[0].id)}
+                  onSwipedRight={() => handleSwipeRight(profiles[0].id)}
+                  onSuperLike={() => handleSuperLike(profiles[0].id)}
+                  onReport={handleReportPress}
+                  onBlock={handleBlockPress}
+                  colors={colors}
+                  isPro={isPro}
+                  superLikesRemaining={superLikesRemaining}
+                  token={token ?? ''}
+                  aiCreditsBalance={aiCreditsBalance}
+                  onNeedCredits={() => navPush('/ai-credits' as any)}
+                  onCreditsSpent={(newBal) => setAiCreditsBalance(newBal)}
+                />
+              </View>
+
+              {/* ── Decision bar — sits below card in normal flow, never clipped ── */}
+              <View style={decisionStyles.bar}>
+                {/* Pass */}
+                <View style={decisionStyles.btnWrap}>
+                  <Pressable
+                    onPressIn={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)}
+                    onPress={() => cardRef.current?.dismiss('pass')}
+                    style={({ pressed }) => [decisionStyles.btn, decisionStyles.passBtn, pressed && { transform: [{ scale: 0.88 }] }]}
+                  >
+                    <Ionicons name="close" size={26} color="#FF3B30" />
+                  </Pressable>
+                  <Text style={[decisionStyles.btnLabel, { color: colors.textSecondary }]}>Pass</Text>
+                </View>
+
+                {/* Super Connect — lifted above the side buttons */}
+                <View style={[decisionStyles.btnWrap, decisionStyles.centerLift]}>
+                  <SuperLikeBtn onPress={() => cardRef.current?.dismiss('super')} isPro={isPro} remaining={superLikesRemaining} />
+                  <Text style={[decisionStyles.btnLabel, { color: colors.textSecondary }]}>{isPro ? 'Super' : 'Unlock'}</Text>
+                </View>
+
+                {/* Connect */}
+                <View style={decisionStyles.btnWrap}>
+                  <Pressable
+                    onPressIn={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)}
+                    onPress={() => cardRef.current?.dismiss('connect')}
+                    style={({ pressed }) => [decisionStyles.btn, decisionStyles.connectBtn, pressed && { transform: [{ scale: 0.88 }] }]}
+                  >
+                    <Ionicons name="heart" size={24} color="#fff" />
+                  </Pressable>
+                  <Text style={[decisionStyles.btnLabel, { color: colors.textSecondary }]}>Connect</Text>
+                </View>
+              </View>
+            </View>
           )}
         </View>
       )}
@@ -2135,6 +2321,7 @@ export default function FeedScreen() {
           );
         })}
       </View>
+
 
       {/* Filter sheet */}
       <DateFilterSheet
@@ -2232,6 +2419,27 @@ export default function FeedScreen() {
   );
 }
 
+// ─── AI Compatibility styles ──────────────────────────────────────────────────
+
+const aiStyles = StyleSheet.create({
+  checkBtn:       { flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1, borderRadius: 20, paddingVertical: 9, paddingHorizontal: 14, marginHorizontal: 16, marginTop: 12, alignSelf: 'flex-start' },
+  checkBtnText:   { fontSize: 13, fontFamily: 'ProductSans-Bold' },
+  creditCost:     { borderRadius: 10, paddingHorizontal: 7, paddingVertical: 2 },
+  creditCostText: { fontSize: 11, fontFamily: 'ProductSans-Medium' },
+  scorePill:      { flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1, borderRadius: 20, paddingVertical: 8, paddingHorizontal: 14, marginHorizontal: 16, marginTop: 12, alignSelf: 'flex-start' },
+  scorePercent:   { fontSize: 15, fontFamily: 'ProductSans-Black' },
+  scoreTier:      { fontSize: 12, fontFamily: 'ProductSans-Medium' },
+  breakdownCard:  { borderRadius: 18, padding: 16, marginBottom: 4 },
+  breakdownTitle: { fontSize: 14, fontFamily: 'ProductSans-Bold', flex: 1 },
+  tierBadge:      { borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3 },
+  tierBadgeText:  { fontSize: 10, fontFamily: 'ProductSans-Black' },
+  breakdownRow:   { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
+  breakdownKey:   { fontSize: 12, fontFamily: 'ProductSans-Medium', width: 80 },
+  barTrack:       { flex: 1, height: 5, borderRadius: 3, overflow: 'hidden' },
+  barFill:        { height: '100%', borderRadius: 3 },
+  breakdownVal:   { fontSize: 12, fontFamily: 'ProductSans-Bold', width: 34, textAlign: 'right' },
+});
+
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
@@ -2250,9 +2458,8 @@ const styles = StyleSheet.create({
   halalPillLabel: { fontSize: 11, fontFamily: 'ProductSans-Bold' },
   logoMode:      { fontFamily: 'PageSerif', fontSize: 20, letterSpacing: -0.3 },
 
-  // Card stack
   cardStack: { flex: 1, width: '100%', alignItems: 'center', justifyContent: 'center', minHeight: 0 },
-  card:      { position: 'absolute', width: CARD_W, height: CARD_H, borderRadius: 28, overflow: 'hidden', backgroundColor: '#111' },
+  card:      { width: CARD_W, height: CARD_H, borderRadius: 24, overflow: 'hidden', backgroundColor: '#111' },
 
   // Photo section
   photoContainer: { width: CARD_W, height: PHOTO_H },
@@ -2441,4 +2648,52 @@ const dailyStyles = StyleSheet.create({
   wallCtaText:     { fontSize: 16, fontFamily: 'ProductSans-Black' },
   wallDismiss:     { paddingVertical: 10 },
   wallDismissText: { fontSize: 13, fontFamily: 'ProductSans-Regular' },
+});
+
+// ── Decision action bar styles ────────────────────────────────────────────────
+const BTN_SIZE = 50;
+const decisionStyles = StyleSheet.create({
+  bar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 18,
+    paddingVertical: 10,
+    alignSelf: 'center',
+  },
+  btnWrap: {
+    alignItems: 'center',
+    gap: 4,
+  },
+  centerLift: {
+    marginBottom: 12,
+  },
+  btn: {
+    width: BTN_SIZE,
+    height: BTN_SIZE,
+    borderRadius: BTN_SIZE / 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 6,
+  },
+  btnLabel: {
+    fontSize: 10,
+    fontFamily: 'ProductSans-Bold',
+    letterSpacing: 0.2,
+  },
+  passBtn: {
+    backgroundColor: 'rgba(255,255,255,0.96)',
+    borderWidth: 2,
+    borderColor: '#FF3B30',
+  },
+  superBtn: {
+    backgroundColor: 'transparent',
+  },
+  connectBtn: {
+    backgroundColor: '#FF2D55',
+  },
 });

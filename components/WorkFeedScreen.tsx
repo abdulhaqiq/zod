@@ -7,11 +7,14 @@ import { navPush, navReplace } from '@/utils/nav';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useImperativeHandle, useRef, useState, forwardRef } from 'react';
 import {
   Animated,
   Dimensions,
+  Easing,
   Image,
+  Linking,
+  Modal,
   PanResponder,
   Pressable,
   ScrollView,
@@ -30,11 +33,12 @@ const CARD_W          = W - 32;
 const CARD_H          = H * 0.68;
 const SWIPE_THRESHOLD = W * 0.27;
 
-// ─── Types & mock data ────────────────────────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface WorkProfile {
   id: string;
   name: string;
+  headline: string;
   role: string;
   company: string;
   verified: boolean;
@@ -42,69 +46,21 @@ interface WorkProfile {
   distance: string;
   about: string;
   images: string[];
+  persona?: string;
   matchingGoals: string[];
   commitmentLevel: string;
   equitySplit: string;
+  numFounders?: string;
+  primaryRole?: string;
+  yearsExperience?: string;
+  jobSearchStatus?: string;
   industries: string[];
   skills: string[];
   areYouHiring?: boolean;
-  experience: { title: string; company: string; years: string }[];
+  experience: { title: string; company: string; company_logo?: string; years: string }[];
+  education?: { institution: string; degree?: string; field?: string; grad_year?: string }[];
   prompts: { question: string; answer: string }[];
 }
-
-const WORK_PROFILES: WorkProfile[] = [
-  {
-    id: 'w1', name: 'Alex Chen', role: 'CTO', company: 'Ex-Stripe', verified: true,
-    linkedInUrl: 'https://linkedin.com', distance: '2.1 km',
-    about: "Full-stack engineer with 8 years at Stripe building payments infra. Ready to go full-time on the right idea. Looking for a sales/GTM co-founder to build something in fintech or developer tools.",
-    images: ['https://randomuser.me/api/portraits/men/32.jpg'],
-    matchingGoals: ['Looking for co-founder'], commitmentLevel: 'Ready to go full-time right now',
-    equitySplit: 'Equal split', industries: ['AI', 'SaaS', 'Developer Tools'], skills: ['Engineering', 'AI / ML', 'Product'],
-    areYouHiring: false,
-    experience: [{ title: 'Staff Engineer', company: 'Stripe', years: '5 yrs' }, { title: 'Senior Engineer', company: 'Plaid', years: '3 yrs' }],
-    prompts: [
-      { question: 'My idea in one line', answer: 'GPT-native ERP for small businesses — replace 5 SaaS tools with one.' },
-      { question: 'The co-founder I\'m looking for', answer: 'A sales-obsessed operator who can close enterprise deals and build a GTM engine from scratch.' },
-    ],
-  },
-  {
-    id: 'w2', name: 'Priya Sharma', role: 'Product Lead', company: 'Revolut', verified: true,
-    linkedInUrl: 'https://linkedin.com', distance: '4.3 km',
-    about: "5 years fintech product @ Revolut & Monzo. Obsessed with growth loops. Exploring founding my own thing — open to the right idea + founding team.",
-    images: ['https://randomuser.me/api/portraits/women/44.jpg'],
-    matchingGoals: ['Have an idea, open to explore'], commitmentLevel: 'Ready to go full-time in the next year',
-    equitySplit: 'Fully negotiable', industries: ['Fintech', 'Consumer', 'Growth'], skills: ['Product', 'Growth', 'Strategy'],
-    areYouHiring: true,
-    experience: [{ title: 'Product Lead', company: 'Revolut', years: '3 yrs' }, { title: 'PM', company: 'Monzo', years: '2 yrs' }],
-    prompts: [
-      { question: 'What I bring to the table', answer: 'Deep fintech domain, strong product sense, and a network of 200+ angel investors in London.' },
-      { question: 'My biggest learning so far', answer: 'Distribution is harder than building. Founders who figure out growth early win.' },
-    ],
-  },
-  {
-    id: 'w3', name: 'Jordan Kim', role: 'Founder', company: 'Ex-Salesforce', verified: false,
-    linkedInUrl: 'https://linkedin.com', distance: '7.8 km',
-    about: "Serial founder with one exit (acquired by Salesforce). Now targeting climate tech. Looking for a technical co-founder who can own the entire stack.",
-    images: ['https://randomuser.me/api/portraits/men/55.jpg'],
-    matchingGoals: ['Looking for co-founder'], commitmentLevel: 'Already full-time on a startup',
-    equitySplit: 'Equal split', industries: ['Climate Tech', 'B2B', 'SaaS'], skills: ['Sales', 'Strategy', 'Fundraising'],
-    areYouHiring: false,
-    experience: [{ title: 'Founder', company: 'GreenOps (acquired)', years: '4 yrs' }, { title: 'AE', company: 'Salesforce', years: '2 yrs' }],
-    prompts: [{ question: 'Why now, why me', answer: 'Climate has a distribution problem — I know how to solve that.' }],
-  },
-  {
-    id: 'w4', name: 'Sarah Liu', role: 'ML Engineer', company: 'Mistral AI', verified: true,
-    linkedInUrl: 'https://linkedin.com', distance: '1.5 km',
-    about: "Research engineer @ Mistral. Published 3 papers on LLM inference optimisation. Want to found an AI infrastructure startup targeting inference cost reduction.",
-    images: ['https://randomuser.me/api/portraits/women/68.jpg'],
-    matchingGoals: ['Looking for co-founder', 'Have an idea, open to explore'],
-    commitmentLevel: 'Ready to go full-time right now',
-    equitySplit: 'Equal split', industries: ['AI', 'Deep Tech'], skills: ['AI / ML', 'Engineering', 'Product'],
-    areYouHiring: false,
-    experience: [{ title: 'ML Engineer', company: 'Mistral AI', years: '2 yrs' }, { title: 'Research Intern', company: 'DeepMind', years: '1 yr' }],
-    prompts: [{ question: 'My superpower is', answer: 'Making large models small — I cut inference cost by 60% at my last gig.' }],
-  },
-];
 
 const WORK_MATCHED: WorkProfile[] = [];
 
@@ -113,12 +69,111 @@ const WORK_AI_PICKS: { profile: WorkProfile; score: number; sharedAreas: string[
 // ─── LinkedIn & work badge styles ─────────────────────────────────────────────
 
 const wStyles = StyleSheet.create({
-  linkedInBadge: { width: 20, height: 20, borderRadius: 5, backgroundColor: '#0A66C2', alignItems: 'center', justifyContent: 'center' },
-  linkedInText:  { fontSize: 11, fontFamily: 'ProductSans-Black', color: '#fff' },
-  cardRole:      { color: 'rgba(255,255,255,0.9)', fontSize: 13, fontFamily: 'ProductSans-Medium', marginTop: 1 },
-  hiringBadge:   { backgroundColor: '#22c55e', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4 },
-  hiringText:    { fontSize: 10, fontFamily: 'ProductSans-Black', color: '#fff', letterSpacing: 0.5 },
-  expDot:        { width: 8, height: 8, borderRadius: 4, backgroundColor: '#0A66C2', marginTop: 2 },
+  linkedInBadge:  { width: 20, height: 20, borderRadius: 5, backgroundColor: '#0A66C2', alignItems: 'center', justifyContent: 'center' },
+  linkedInText:   { fontSize: 11, fontFamily: 'ProductSans-Black', color: '#fff' },
+  cardHeadline:   { color: '#fff', fontSize: 14, fontFamily: 'ProductSans-Medium', marginTop: 2, lineHeight: 20 },
+  cardRole:       { color: 'rgba(255,255,255,0.9)', fontSize: 13, fontFamily: 'ProductSans-Medium', marginTop: 1 },
+  hiringBadge:    { backgroundColor: '#22c55e', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4 },
+  hiringText:     { fontSize: 10, fontFamily: 'ProductSans-Black', color: '#fff', letterSpacing: 0.5 },
+  personaBadge:   { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 12, paddingHorizontal: 10, paddingVertical: 4, alignSelf: 'flex-start' },
+  personaText:    { fontSize: 11, fontFamily: 'ProductSans-Bold', color: '#fff' },
+  expDot:         { width: 8, height: 8, borderRadius: 4, backgroundColor: '#0A66C2', marginTop: 2 },
+});
+
+const wCardStyles = StyleSheet.create({
+  heroWrap:    { width: '100%', height: H * 0.58, position: 'relative', overflow: 'hidden' },
+  infoRow:     { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 12 },
+  infoIcon:    { width: 30, height: 30, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
+  showMoreBtn:     { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10, borderWidth: 1, borderRadius: 12, paddingVertical: 8, paddingHorizontal: 14, alignSelf: 'flex-start' },
+  showMoreText:    { fontSize: 12, fontFamily: 'ProductSans-Medium' },
+  pitchCard:       { borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, padding: 14, gap: 8, marginBottom: 10 },
+  pitchCardHeader: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+});
+
+// ─── All-entries modal ────────────────────────────────────────────────────────
+
+type ModalEntry =
+  | { kind: 'experience'; title: string; company: string; company_logo?: string; years: string }
+  | { kind: 'education'; institution: string; degree?: string; field?: string; grad_year?: string };
+
+function AllEntriesModal({
+  visible, onClose, title, entries, colors,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  title: string;
+  entries: ModalEntry[];
+  colors: any;
+}) {
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={modalStyles.backdrop} onPress={onClose} />
+      <View style={[modalStyles.sheet, { backgroundColor: colors.surface }]}>
+        {/* Handle */}
+        <View style={[modalStyles.handle, { backgroundColor: colors.border }]} />
+        <Text style={[modalStyles.sheetTitle, { color: colors.text }]}>{title}</Text>
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 32, gap: 10 }}>
+          {entries.map((entry, i) => (
+            <View
+              key={i}
+              style={[modalStyles.entryRow, { backgroundColor: colors.surface2, borderColor: colors.border }]}
+            >
+              {entry.kind === 'experience' ? (
+                <>
+                  {entry.company_logo ? (
+                    <Image
+                      source={{ uri: entry.company_logo }}
+                      style={{ width: 36, height: 36, borderRadius: 8, backgroundColor: '#fff' }}
+                      resizeMode="contain"
+                    />
+                  ) : (
+                    <View style={[modalStyles.entryIcon, { backgroundColor: colors.surface }]}>
+                      <Ionicons name="briefcase-outline" size={16} color={colors.textSecondary} />
+                    </View>
+                  )}
+                  <View style={{ flex: 1 }}>
+                    <Text style={[modalStyles.entryMain, { color: colors.text }]}>{entry.title}</Text>
+                    <Text style={[modalStyles.entrySub, { color: colors.textSecondary }]}>
+                      {entry.company}{entry.years ? ` · ${entry.years}` : ''}
+                    </Text>
+                  </View>
+                </>
+              ) : (
+                <>
+                  <View style={[modalStyles.entryIcon, { backgroundColor: colors.surface }]}>
+                    <Ionicons name="school-outline" size={16} color={colors.textSecondary} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[modalStyles.entryMain, { color: colors.text }]}>{entry.institution}</Text>
+                    <Text style={[modalStyles.entrySub, { color: colors.textSecondary }]}>
+                      {[entry.degree, entry.field].filter(Boolean).join(' · ')}
+                      {entry.grad_year ? ` · ${entry.grad_year}` : ''}
+                    </Text>
+                  </View>
+                </>
+              )}
+            </View>
+          ))}
+        </ScrollView>
+        <Pressable onPress={onClose} style={[modalStyles.closeBtn, { backgroundColor: colors.text }]}>
+          <Text style={[modalStyles.closeBtnText, { color: colors.bg }]}>Close</Text>
+        </Pressable>
+      </View>
+    </Modal>
+  );
+}
+
+const modalStyles = StyleSheet.create({
+  backdrop:    { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.45)' },
+  sheet:       { position: 'absolute', bottom: 0, left: 0, right: 0, borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 20, paddingTop: 12, maxHeight: H * 0.72 },
+  handle:      { width: 40, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: 16 },
+  sheetTitle:  { fontSize: 17, fontFamily: 'ProductSans-Bold', marginBottom: 16 },
+  entryRow:    { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, borderRadius: 14, borderWidth: StyleSheet.hairlineWidth },
+  entryIcon:   { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  entryMain:   { fontSize: 13, fontFamily: 'ProductSans-Bold' },
+  entrySub:    { fontSize: 11, fontFamily: 'ProductSans-Regular', marginTop: 2 },
+  closeBtn:    { borderRadius: 14, paddingVertical: 14, alignItems: 'center', marginTop: 8 },
+  closeBtnText:{ fontSize: 15, fontFamily: 'ProductSans-Bold' },
 });
 
 // ─── Empty state ──────────────────────────────────────────────────────────────
@@ -142,148 +197,396 @@ function EmptyState({ onReset, colors }: { onReset: () => void; colors: any }) {
 
 // ─── Work Profile Card ────────────────────────────────────────────────────────
 
-function WorkProfileCard({ profile, onSwipedLeft, onSwipedRight, colors }: {
+interface WorkProfileCardHandle {
+  dismiss: (type: 'pass' | 'connect') => void;
+}
+
+type WorkProfileCardProps = {
   profile: WorkProfile;
   onSwipedLeft: () => void;
   onSwipedRight: () => void;
   colors: any;
-}) {
-  const position = useRef(new Animated.ValueXY()).current;
-  const onLeftRef  = useRef(onSwipedLeft);
-  const onRightRef = useRef(onSwipedRight);
+};
+
+const WorkProfileCard = forwardRef<WorkProfileCardHandle, WorkProfileCardProps>(
+function WorkProfileCard({ profile, onSwipedLeft, onSwipedRight, colors }, ref) {
+  const dragX       = useRef(new Animated.Value(0)).current;
+  const exitY       = useRef(new Animated.Value(0)).current;
+  const exitOpacity = useRef(new Animated.Value(1)).current;
+  const flashAnim   = useRef(new Animated.Value(0)).current;
+  const onLeftRef   = useRef(onSwipedLeft);
+  const onRightRef  = useRef(onSwipedRight);
+  const [expModalVisible, setExpModalVisible] = useState(false);
+  const [eduModalVisible, setEduModalVisible] = useState(false);
   useEffect(() => { onLeftRef.current = onSwipedLeft; onRightRef.current = onSwipedRight; }, [onSwipedLeft, onSwipedRight]);
 
-  const resetCard = () =>
-    Animated.spring(position, { toValue: { x: 0, y: 0 }, useNativeDriver: true, friction: 6, tension: 40 }).start();
+  const resetDrag = () =>
+    Animated.spring(dragX, { toValue: 0, useNativeDriver: true, friction: 7, tension: 40 }).start();
+
+  const flyOff = useCallback((dir: 'left' | 'right', cb: () => void) => {
+    const tx = dir === 'left' ? -(W + 200) : W + 200;
+    Animated.parallel([
+      Animated.timing(dragX,       { toValue: tx, duration: 260, useNativeDriver: true, easing: Easing.in(Easing.quad) }),
+      Animated.timing(exitOpacity, { toValue: 0,  duration: 220, useNativeDriver: true }),
+    ]).start(cb);
+  }, [dragX, exitOpacity]);
+
+  const dismiss = useCallback((type: 'pass' | 'connect') => {
+    if (type === 'connect') {
+      Animated.sequence([
+        Animated.timing(flashAnim, { toValue: 1, duration: 100, useNativeDriver: true }),
+        Animated.timing(flashAnim, { toValue: 0, duration: 120, useNativeDriver: true }),
+      ]).start();
+    }
+    const tx = type === 'pass' ? -(W + 200) : W + 200;
+    Animated.parallel([
+      Animated.timing(dragX,       { toValue: tx, duration: 300, useNativeDriver: true, easing: Easing.in(Easing.quad) }),
+      Animated.timing(exitOpacity, { toValue: 0,  duration: 260, useNativeDriver: true }),
+    ]).start(() => {
+      if (type === 'pass') onLeftRef.current(); else onRightRef.current();
+    });
+  }, [dragX, exitOpacity, flashAnim]);
 
   const panResponder = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => false,
+      onStartShouldSetPanResponder:        () => false,
       onStartShouldSetPanResponderCapture: () => false,
-      onMoveShouldSetPanResponderCapture: (_, g) => { const ax = Math.abs(g.dx); const ay = Math.abs(g.dy); return ax > ay && ax > 6; },
-      onMoveShouldSetPanResponder: (_, g) => { const ax = Math.abs(g.dx); const ay = Math.abs(g.dy); return ax > ay && ax > 6; },
-      onPanResponderGrant: () => { position.setOffset({ x: (position.x as any)._value, y: 0 }); position.setValue({ x: 0, y: 0 }); },
-      onPanResponderMove: Animated.event([null, { dx: position.x }], { useNativeDriver: false }),
+      onMoveShouldSetPanResponderCapture: (_, g) => { const ax = Math.abs(g.dx), ay = Math.abs(g.dy); return ax > ay && ax > 6; },
+      onMoveShouldSetPanResponder:        (_, g) => { const ax = Math.abs(g.dx), ay = Math.abs(g.dy); return ax > ay && ax > 6; },
+      onPanResponderGrant: () => { dragX.setOffset((dragX as any)._value); dragX.setValue(0); },
+      onPanResponderMove: Animated.event([null, { dx: dragX }], { useNativeDriver: false }),
       onPanResponderRelease: (_, g) => {
-        position.flattenOffset();
-        if (g.dx > SWIPE_THRESHOLD || g.vx > 0.8) {
-          Animated.timing(position, { toValue: { x: W + 200, y: g.dy }, duration: 220, useNativeDriver: true }).start(() => onRightRef.current());
-        } else if (g.dx < -SWIPE_THRESHOLD || g.vx < -0.8) {
-          Animated.timing(position, { toValue: { x: -(W + 200), y: g.dy }, duration: 220, useNativeDriver: true }).start(() => onLeftRef.current());
-        } else { resetCard(); }
+        dragX.flattenOffset();
+        if (g.dx > SWIPE_THRESHOLD || g.vx > 0.8)       flyOff('right', () => onRightRef.current());
+        else if (g.dx < -SWIPE_THRESHOLD || g.vx < -0.8) flyOff('left',  () => onLeftRef.current());
+        else resetDrag();
       },
-      onPanResponderTerminate: () => { position.flattenOffset(); resetCard(); },
+      onPanResponderTerminate: () => { dragX.flattenOffset(); resetDrag(); },
     })
   ).current;
 
-  const rotate = position.x.interpolate({ inputRange: [-W * 0.6, 0, W * 0.6], outputRange: ['-12deg', '0deg', '12deg'], extrapolate: 'clamp' });
-  const connectOpacity = position.x.interpolate({ inputRange: [0, SWIPE_THRESHOLD], outputRange: [0, 1], extrapolate: 'clamp' });
-  const passOpacity    = position.x.interpolate({ inputRange: [-SWIPE_THRESHOLD, 0], outputRange: [1, 0], extrapolate: 'clamp' });
+  useImperativeHandle(ref, () => ({ dismiss }));
+
+  const rotate      = dragX.interpolate({ inputRange: [-W * 0.5, 0, W * 0.5], outputRange: ['-8deg', '0deg', '8deg'], extrapolate: 'clamp' });
+  const connectTint = dragX.interpolate({ inputRange: [0, SWIPE_THRESHOLD], outputRange: [0, 0.35], extrapolate: 'clamp' });
+  const passTint    = dragX.interpolate({ inputRange: [-SWIPE_THRESHOLD, 0], outputRange: [0.35, 0], extrapolate: 'clamp' });
+
+  const firstExp     = profile.experience[0];
+  const extraExpCount = profile.experience.length - 1;
+  const eduList      = profile.education ?? [];
+  const firstEdu     = eduList[0];
+  const extraEduCount = eduList.length - 1;
 
   return (
-    <Animated.View style={[cardStyles.card, { transform: [{ translateX: position.x }, { translateY: position.y }, { rotate }] }]} {...panResponder.panHandlers}>
-      <ScrollView showsVerticalScrollIndicator={false} bounces={false}>
-        {/* Cover photo */}
-        <View style={{ height: CARD_H * 0.42, position: 'relative' }}>
-          <ExpoImage source={{ uri: profile.images[0] }} style={{ width: '100%', height: '100%' }} contentFit="cover" cachePolicy="disk" />
-          <LinearGradient colors={['transparent', 'rgba(0,0,0,0.85)']} style={[StyleSheet.absoluteFill, { justifyContent: 'flex-end', padding: 16 }]}>
-            <Animated.View style={[cardStyles.likeStamp, { opacity: connectOpacity, borderColor: '#4ade80' }]}>
-              <Text style={[cardStyles.likeStampText, { color: '#4ade80' }]}>CONNECT</Text>
-            </Animated.View>
-            <Animated.View style={[cardStyles.nopeStamp, { opacity: passOpacity }]}>
-              <Text style={cardStyles.nopeStampText}>PASS</Text>
-            </Animated.View>
-            <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8 }}>
+    <Animated.View style={[cardStyles.card, { transform: [{ translateX: dragX }, { translateY: exitY }, { rotate }], opacity: exitOpacity }]} {...panResponder.panHandlers}>
+      {/* Edge tints while dragging */}
+      <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: 24, backgroundColor: '#22c55e', opacity: connectTint, zIndex: 20 }]} />
+      <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: 24, backgroundColor: '#ef4444', opacity: passTint,    zIndex: 20 }]} />
+      {/* Button-triggered flash */}
+      <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: 24, backgroundColor: '#22c55e', opacity: flashAnim, zIndex: 30 }]} />
+      <ScrollView showsVerticalScrollIndicator={false} bounces={false} contentContainerStyle={{ paddingBottom: 100 }}>
+
+        {/* ── Full-width hero image ── */}
+        <View style={wCardStyles.heroWrap}>
+          <ExpoImage
+            source={profile.images?.[0] ? { uri: profile.images[0] } : undefined}
+            style={StyleSheet.absoluteFill}
+            contentFit="cover"
+            cachePolicy="disk"
+          />
+          {/* LinkedIn icon — top-right corner */}
+          <Pressable
+            onPress={() => profile.linkedInUrl && Linking.openURL(
+              profile.linkedInUrl.startsWith('http') ? profile.linkedInUrl : `https://${profile.linkedInUrl}`
+            )}
+            hitSlop={10}
+            style={{
+              position: 'absolute', top: 14, right: 14, zIndex: 10,
+              opacity: profile.linkedInUrl ? 1 : 0.45,
+            }}
+          >
+            <View style={wStyles.linkedInBadge}>
+              <Text style={wStyles.linkedInText}>in</Text>
+            </View>
+          </Pressable>
+
+          {/* Gradient overlay at bottom */}
+          <LinearGradient
+            colors={['transparent', 'rgba(0,0,0,0.92)']}
+            style={[StyleSheet.absoluteFill, { justifyContent: 'flex-end', padding: 18 }]}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 10 }}>
               <View style={{ flex: 1 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                   <Text style={cardStyles.photoName}>{profile.name}</Text>
-                  {profile.verified && <Ionicons name="checkmark-circle" size={16} color="#fff" />}
-                  {profile.linkedInUrl && (
-                    <View style={wStyles.linkedInBadge}><Text style={wStyles.linkedInText}>in</Text></View>
+                  {profile.verified && <Ionicons name="checkmark-circle" size={17} color="#fff" />}
+                  {profile.areYouHiring && (
+                    <View style={wStyles.hiringBadge}><Text style={wStyles.hiringText}>HIRING</Text></View>
                   )}
                 </View>
-                <Text style={wStyles.cardRole}>{profile.role} · {profile.company}</Text>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 }}>
-                  <Ionicons name="location-outline" size={11} color="rgba(255,255,255,0.7)" />
+                {/* Headline */}
+                {profile.headline ? (
+                  <Text style={wStyles.cardHeadline} numberOfLines={2}>{profile.headline}</Text>
+                ) : (
+                  <Text style={wStyles.cardRole}>{profile.role}</Text>
+                )}
+                {/* Persona badge */}
+                {profile.persona && (
+                  <View style={[wStyles.personaBadge, { marginTop: 5 }]}>
+                    <Ionicons
+                      name={profile.persona === 'founder' ? 'rocket-outline' : profile.persona === 'job_seeker' ? 'search-outline' : 'person-outline'}
+                      size={11} color="#fff"
+                    />
+                    <Text style={wStyles.personaText}>
+                      {profile.persona === 'founder' ? 'Founder' : profile.persona === 'job_seeker' ? 'Job Seeker' : 'Founder & Job Seeker'}
+                    </Text>
+                  </View>
+                )}
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 }}>
+                  <Ionicons name="location-outline" size={12} color="rgba(255,255,255,0.7)" />
                   <Text style={cardStyles.locationText}>{profile.distance} away</Text>
                 </View>
               </View>
-              {profile.areYouHiring && (
-                <View style={wStyles.hiringBadge}><Text style={wStyles.hiringText}>HIRING</Text></View>
-              )}
             </View>
           </LinearGradient>
         </View>
 
-        {/* Card body */}
+        {/* ── Card body ── */}
         <View style={[cardStyles.detailsSection, { backgroundColor: colors.surface }]}>
-          <Text style={[cardStyles.aboutText, { color: colors.text }]}>{profile.about}</Text>
-          <View style={[cardStyles.divider, { backgroundColor: colors.border }]} />
 
-          <View style={{ gap: 10 }}>
-            <Text style={[cardStyles.secLabel, { color: colors.textSecondary }]}>INDUSTRIES</Text>
-            <View style={cardStyles.chipRow}>
-              {profile.industries.map(ind => (
-                <View key={ind} style={[cardStyles.chip, { backgroundColor: colors.surface2 }]}>
-                  <Text style={[cardStyles.chipLabel, { color: colors.text }]}>{ind}</Text>
-                </View>
-              ))}
-            </View>
-            <Text style={[cardStyles.secLabel, { color: colors.textSecondary, marginTop: 4 }]}>SKILLS</Text>
-            <View style={cardStyles.chipRow}>
-              {profile.skills.map(sk => (
-                <View key={sk} style={[cardStyles.chip, { backgroundColor: colors.surface2 }]}>
-                  <Text style={[cardStyles.chipLabel, { color: colors.text }]}>{sk}</Text>
-                </View>
-              ))}
-            </View>
-          </View>
+          {/* Work headline / pitch */}
+          {!!profile.headline && (
+            <>
+              <Text style={[cardStyles.aboutText, { color: colors.text, fontFamily: 'ProductSans-Medium' }]}>{profile.headline}</Text>
+              <View style={[cardStyles.divider, { backgroundColor: colors.border }]} />
+            </>
+          )}
 
-          <View style={[cardStyles.divider, { backgroundColor: colors.border }]} />
-
-          <View style={{ gap: 10 }}>
-            {[
-              { icon: 'time-outline' as const,      label: 'Commitment', value: profile.commitmentLevel },
-              { icon: 'pie-chart-outline' as const,  label: 'Equity',     value: profile.equitySplit },
-              { icon: 'flag-outline' as const,       label: 'Goals',      value: profile.matchingGoals.join(', ') },
-            ].map(d => (
-              <View key={d.label} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 6 }}>
-                <View style={[{ width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center' }, { backgroundColor: colors.surface2 }]}>
-                  <Ionicons name={d.icon as any} size={13} color={colors.textSecondary} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[cardStyles.detailLabel, { color: colors.textSecondary }]}>{d.label}</Text>
-                  <Text style={[cardStyles.detailValue, { color: colors.text }]} numberOfLines={2}>{d.value}</Text>
-                </View>
+          {/* Goals */}
+          {profile.matchingGoals.length > 0 && (
+            <View style={wCardStyles.infoRow}>
+              <View style={[wCardStyles.infoIcon, { backgroundColor: colors.surface2 }]}>
+                <Ionicons name="flag-outline" size={14} color={colors.textSecondary} />
               </View>
-            ))}
-          </View>
-
-          <View style={[cardStyles.divider, { backgroundColor: colors.border }]} />
-
-          <Text style={[cardStyles.secLabel, { color: colors.textSecondary }]}>EXPERIENCE</Text>
-          <View style={{ gap: 8, marginTop: 8 }}>
-            {profile.experience.map((ex, i) => (
-              <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                <View style={wStyles.expDot} />
-                <View style={{ flex: 1 }}>
-                  <Text style={[cardStyles.detailValue, { color: colors.text }]}>{ex.title} · {ex.company}</Text>
-                  <Text style={[cardStyles.detailLabel, { color: colors.textSecondary }]}>{ex.years}</Text>
-                </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[cardStyles.detailLabel, { color: colors.textSecondary }]}>Looking for</Text>
+                <Text style={[cardStyles.detailValue, { color: colors.text }]}>{profile.matchingGoals.join(' · ')}</Text>
               </View>
-            ))}
-          </View>
+            </View>
+          )}
+
+          {/* Commitment */}
+          {!!profile.commitmentLevel && (
+            <View style={wCardStyles.infoRow}>
+              <View style={[wCardStyles.infoIcon, { backgroundColor: colors.surface2 }]}>
+                <Ionicons name="time-outline" size={14} color={colors.textSecondary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[cardStyles.detailLabel, { color: colors.textSecondary }]}>Commitment</Text>
+                <Text style={[cardStyles.detailValue, { color: colors.text }]}>{profile.commitmentLevel}</Text>
+              </View>
+            </View>
+          )}
+
+          {/* Equity */}
+          {!!profile.equitySplit && (
+            <View style={wCardStyles.infoRow}>
+              <View style={[wCardStyles.infoIcon, { backgroundColor: colors.surface2 }]}>
+                <Ionicons name="pie-chart-outline" size={14} color={colors.textSecondary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[cardStyles.detailLabel, { color: colors.textSecondary }]}>Equity Split</Text>
+                <Text style={[cardStyles.detailValue, { color: colors.text }]}>{profile.equitySplit}</Text>
+              </View>
+            </View>
+          )}
+
+          {/* Number of founders */}
+          {!!profile.numFounders && (
+            <View style={wCardStyles.infoRow}>
+              <View style={[wCardStyles.infoIcon, { backgroundColor: colors.surface2 }]}>
+                <Ionicons name="people-outline" size={14} color={colors.textSecondary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[cardStyles.detailLabel, { color: colors.textSecondary }]}>Founders so far</Text>
+                <Text style={[cardStyles.detailValue, { color: colors.text }]}>{profile.numFounders}</Text>
+              </View>
+            </View>
+          )}
+
+          {/* Primary role (job seeker) */}
+          {!!profile.primaryRole && (
+            <View style={wCardStyles.infoRow}>
+              <View style={[wCardStyles.infoIcon, { backgroundColor: colors.surface2 }]}>
+                <Ionicons name="briefcase-outline" size={14} color={colors.textSecondary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[cardStyles.detailLabel, { color: colors.textSecondary }]}>Primary Role</Text>
+                <Text style={[cardStyles.detailValue, { color: colors.text }]}>{profile.primaryRole}</Text>
+              </View>
+            </View>
+          )}
+
+          {/* Years experience */}
+          {!!profile.yearsExperience && (
+            <View style={wCardStyles.infoRow}>
+              <View style={[wCardStyles.infoIcon, { backgroundColor: colors.surface2 }]}>
+                <Ionicons name="trending-up-outline" size={14} color={colors.textSecondary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[cardStyles.detailLabel, { color: colors.textSecondary }]}>Years of Experience</Text>
+                <Text style={[cardStyles.detailValue, { color: colors.text }]}>{profile.yearsExperience}</Text>
+              </View>
+            </View>
+          )}
+
+          {/* Job search status */}
+          {!!profile.jobSearchStatus && (
+            <View style={wCardStyles.infoRow}>
+              <View style={[wCardStyles.infoIcon, { backgroundColor: colors.surface2 }]}>
+                <Ionicons name="search-outline" size={14} color={colors.textSecondary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[cardStyles.detailLabel, { color: colors.textSecondary }]}>Job Search</Text>
+                <Text style={[cardStyles.detailValue, { color: colors.text }]}>{profile.jobSearchStatus}</Text>
+              </View>
+            </View>
+          )}
 
           <View style={[cardStyles.divider, { backgroundColor: colors.border }]} />
 
-          {profile.prompts.map((p, i) => (
-            <View key={i} style={[cardStyles.promptCard, { backgroundColor: colors.surface2, marginBottom: 8 }]}>
-              <Text style={[cardStyles.promptQ, { color: colors.textSecondary }]}>{p.question}</Text>
+          {/* Industries */}
+          {profile.industries.length > 0 && (
+            <>
+              <Text style={[cardStyles.secLabel, { color: colors.textSecondary }]}>INDUSTRIES</Text>
+              <View style={[cardStyles.chipRow, { marginTop: 8 }]}>
+                {profile.industries.map(ind => (
+                  <View key={ind} style={[cardStyles.chip, { backgroundColor: colors.surface2 }]}>
+                    <Text style={[cardStyles.chipLabel, { color: colors.text }]}>{ind}</Text>
+                  </View>
+                ))}
+              </View>
+            </>
+          )}
+
+          {/* Skills */}
+          {profile.skills.length > 0 && (
+            <>
+              <Text style={[cardStyles.secLabel, { color: colors.textSecondary, marginTop: 14 }]}>SKILLS</Text>
+              <View style={[cardStyles.chipRow, { marginTop: 8 }]}>
+                {profile.skills.map(sk => (
+                  <View key={sk} style={[cardStyles.chip, { backgroundColor: colors.surface2 }]}>
+                    <Text style={[cardStyles.chipLabel, { color: colors.text }]}>{sk}</Text>
+                  </View>
+                ))}
+              </View>
+            </>
+          )}
+
+          {(profile.industries.length > 0 || profile.skills.length > 0) && (
+            <View style={[cardStyles.divider, { backgroundColor: colors.border }]} />
+          )}
+
+          {/* Experience */}
+          {(firstExp || extraExpCount > 0) && (
+            <>
+              <Text style={[cardStyles.secLabel, { color: colors.textSecondary }]}>EXPERIENCE</Text>
+              {firstExp && (
+                <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginTop: 10 }}>
+                  {firstExp.company_logo ? (
+                    <Image
+                      source={{ uri: firstExp.company_logo }}
+                      style={{ width: 24, height: 24, borderRadius: 5, marginTop: 2, backgroundColor: '#fff' }}
+                      resizeMode="contain"
+                    />
+                  ) : (
+                    <View style={wStyles.expDot} />
+                  )}
+                  <View style={{ flex: 1 }}>
+                    <Text style={[cardStyles.detailValue, { color: colors.text }]}>{firstExp.title}</Text>
+                    <Text style={[cardStyles.detailLabel, { color: colors.textSecondary }]}>{firstExp.company} · {firstExp.years}</Text>
+                  </View>
+                </View>
+              )}
+              {extraExpCount > 0 && (
+                <Pressable
+                  onPress={() => setExpModalVisible(true)}
+                  style={({ pressed }) => [wCardStyles.showMoreBtn, { borderColor: colors.border, backgroundColor: colors.surface2 }, pressed && { opacity: 0.65 }]}
+                >
+                  <Ionicons name="briefcase-outline" size={14} color={colors.textSecondary} />
+                  <Text style={[wCardStyles.showMoreText, { color: colors.textSecondary }]}>
+                    +{extraExpCount} more
+                  </Text>
+                </Pressable>
+              )}
+            </>
+          )}
+
+          {/* Education */}
+          {(firstEdu || extraEduCount > 0) && (
+            <>
+              <Text style={[cardStyles.secLabel, { color: colors.textSecondary, marginTop: firstExp || extraExpCount > 0 ? 14 : 0 }]}>EDUCATION</Text>
+              {firstEdu && (
+                <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginTop: 10 }}>
+                  <Ionicons name="school-outline" size={16} color={colors.textSecondary} style={{ marginTop: 2 }} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={[cardStyles.detailValue, { color: colors.text }]}>{firstEdu.institution}</Text>
+                    <Text style={[cardStyles.detailLabel, { color: colors.textSecondary }]}>
+                      {[firstEdu.degree, firstEdu.field].filter(Boolean).join(' · ')}
+                      {firstEdu.grad_year ? ` · ${firstEdu.grad_year}` : ''}
+                    </Text>
+                  </View>
+                </View>
+              )}
+              {extraEduCount > 0 && (
+                <Pressable
+                  onPress={() => setEduModalVisible(true)}
+                  style={({ pressed }) => [wCardStyles.showMoreBtn, { borderColor: colors.border, backgroundColor: colors.surface2 }, pressed && { opacity: 0.65 }]}
+                >
+                  <Ionicons name="school-outline" size={14} color={colors.textSecondary} />
+                  <Text style={[wCardStyles.showMoreText, { color: colors.textSecondary }]}>
+                    +{extraEduCount} more
+                  </Text>
+                </Pressable>
+              )}
+            </>
+          )}
+
+          {(firstExp || firstEdu) && (
+            <View style={[cardStyles.divider, { backgroundColor: colors.border }]} />
+          )}
+
+          {/* Experience modal */}
+          <AllEntriesModal
+            visible={expModalVisible}
+            onClose={() => setExpModalVisible(false)}
+            title="Work Experience"
+            entries={profile.experience.map(e => ({ kind: 'experience' as const, ...e }))}
+            colors={colors}
+          />
+
+          {/* Education modal */}
+          <AllEntriesModal
+            visible={eduModalVisible}
+            onClose={() => setEduModalVisible(false)}
+            title="Education"
+            entries={eduList.map(e => ({ kind: 'education' as const, ...e }))}
+            colors={colors}
+          />
+
+          {/* Work prompts — pitch cards (looking for co-founder, my idea, etc.) */}
+          {profile.prompts.filter(p => p.question && p.answer).map((p, i) => (
+            <View key={i} style={[wCardStyles.pitchCard, { backgroundColor: colors.surface2, borderColor: colors.border }]}>
+              <View style={wCardStyles.pitchCardHeader}>
+                <Ionicons name="rocket-outline" size={13} color={colors.textSecondary} />
+                <Text style={[cardStyles.promptQ, { color: colors.textSecondary }]}>{p.question}</Text>
+              </View>
               <Text style={[cardStyles.promptA, { color: colors.text }]}>{p.answer}</Text>
             </View>
           ))}
 
-          <View style={[cardStyles.dangerRow, { marginTop: 8 }]}>
+          {/* Report / Block */}
+          <View style={[cardStyles.dangerRow, { marginTop: profile.prompts.length > 0 ? 10 : 4 }]}>
             <Pressable style={({ pressed }) => [cardStyles.dangerBtn, { borderColor: colors.border, backgroundColor: colors.surface2 }, pressed && { opacity: 0.65 }]}>
               <Ionicons name="flag-outline" size={15} color={colors.error ?? '#FF3B30'} />
               <Text style={[cardStyles.dangerBtnText, { color: colors.error ?? '#FF3B30' }]}>Report</Text>
@@ -297,7 +600,7 @@ function WorkProfileCard({ profile, onSwipedLeft, onSwipedRight, colors }: {
       </ScrollView>
     </Animated.View>
   );
-}
+});
 
 // ─── Work Matched Page ────────────────────────────────────────────────────────
 
@@ -431,10 +734,10 @@ function WorkAiInsightsPage({ colors, insets }: { colors: any; insets: any }) {
 
           <View style={{ gap: 8 }}>
             <Text style={[pageStyles.aiSecLabel, { color: colors.textSecondary }]}>KEY SIGNALS</Text>
-            {insights.map((ins, i) => (
+            {insights.filter(Boolean).map((ins, i) => (
               <View key={i} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
                 <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: colors.text, marginTop: 5 }} />
-                <Text style={[pageStyles.aiReason, { color: colors.text, flex: 1 }]}>{ins}</Text>
+                <Text style={[pageStyles.aiReason, { color: colors.text, flex: 1 }]}>{String(ins)}</Text>
               </View>
             ))}
           </View>
@@ -477,6 +780,16 @@ export default function WorkFeedScreen({ colors, insets, activeTab }: WorkFeedSc
   const [hasMore,      setHasMore]      = useState(true);
   const [matched,      setMatched]      = useState<string[]>([]);
   const [matchedProfile, setMatchedProfile] = useState<MatchedProfile | null>(null);
+  const DAILY_CONNECT_LIMIT = 20;
+  const [connectsUsed, setConnectsUsed] = useState(0);
+
+  // Hydrate daily connect count from DB on mount
+  useEffect(() => {
+    if (!token) return;
+    apiFetch<{ connects_used: number }>('/discover/work/daily-status', { token })
+      .then(res => setConnectsUsed(res.connects_used))
+      .catch(() => {});
+  }, [token]);
 
   const fetchFeed = useCallback(async (page: number = 0, replace: boolean = true) => {
     if (!token) return;
@@ -490,25 +803,38 @@ export default function WorkFeedScreen({ colors, insets, activeTab }: WorkFeedSc
       const mapped: WorkProfile[] = res.profiles.map(p => ({
         id:              p.id,
         name:            p.name ?? 'Unknown',
-        role:            (p.work?.prompts?.[0]?.answer ?? p.about ?? '').slice(0, 60),
+        headline:        p.work_headline ?? '',
+        role:            p.work_headline ?? (p.work?.prompts?.[0]?.answer ?? p.about ?? '').slice(0, 60),
         company:         '',
         verified:        p.verified,
-        linkedInUrl:     undefined,
+        linkedInUrl:     p.work?.linkedInUrl ?? p.linkedin_url ?? undefined,
         distance:        p.distance ?? '',
         about:           p.about ?? '',
         images:          p.work?.photos?.length ? p.work.photos : (p.images ?? []),
+        persona:         p.work_persona ?? null,
         matchingGoals:   p.work?.matchingGoals ?? [],
         commitmentLevel: p.work?.commitmentLevel ?? '',
         equitySplit:     p.work?.equitySplit ?? '',
+        numFounders:     p.work?.numFounders ?? null,
+        primaryRole:     p.work?.primaryRole ?? null,
+        yearsExperience: p.work?.yearsExperience ?? null,
+        jobSearchStatus: p.work?.jobSearchStatus ?? null,
         industries:      p.work?.industries ?? [],
         skills:          p.work?.skills ?? [],
         areYouHiring:    p.work?.areYouHiring ?? false,
         experience:      (p.work_experience ?? []).map((e: any) => ({
-          title:   e.job_title ?? '',
-          company: e.company ?? '',
-          years:   e.start_year ? `${e.start_year}${e.end_year ? '–' + e.end_year : '–now'}` : '',
+          title:        e.job_title ?? '',
+          company:      e.company ?? '',
+          company_logo: e.company_logo ?? '',
+          years:        e.start_year ? `${e.start_year}${e.end_year ? '–' + e.end_year : '–now'}` : '',
         })),
-        prompts: p.work?.prompts ?? p.prompts ?? [],
+        education:       (p.education ?? []).map((e: any) => ({
+          institution: e.institution ?? '',
+          degree:      e.degree ?? '',
+          field:       e.course ?? e.field ?? '',
+          grad_year:   e.grad_year ?? '',
+        })),
+        prompts: p.work?.prompts ?? [],
       }));
       setWorkProfiles(prev => replace ? mapped : [...prev, ...mapped]);
       setHasMore(res.has_more);
@@ -533,14 +859,18 @@ export default function WorkFeedScreen({ colors, insets, activeTab }: WorkFeedSc
   };
   const reset = () => fetchFeed(0, true);
 
-  // Record swipe to backend (fire-and-forget)
+  // Record swipe — returns the API response; handles 403 limit errors
   const recordSwipe = (profileId: string, direction: 'left' | 'right') => {
-    if (!token) return;
-    apiFetch('/discover/swipe', {
+    if (!token) return Promise.resolve(null);
+    return apiFetch<{
+      match: boolean;
+      work_connects_used?: number;
+      work_connects_remaining?: number;
+    }>('/discover/swipe', {
       token,
       method: 'POST',
       body: JSON.stringify({ swiped_id: profileId, direction, mode: 'work' }),
-    }).catch(() => {});
+    }).catch(() => null);
   };
 
   const handleSwipeLeft = (p: WorkProfile) => {
@@ -548,13 +878,24 @@ export default function WorkFeedScreen({ colors, insets, activeTab }: WorkFeedSc
     removeTop();
   };
 
-  const handleSwipeRight = (p: WorkProfile) => {
-    recordSwipe(p.id, 'right');
-    setMatched(prev => [...prev, p.id]);
-    setTimeout(() => {
-      setMatchedProfile({ id: p.id, name: p.name, age: 0, image: p.images[0] });
-    }, 350);
+  const handleSwipeRight = async (p: WorkProfile) => {
+    if (connectsUsed >= DAILY_CONNECT_LIMIT) return;
+    // Optimistic UI increment
+    setConnectsUsed(n => n + 1);
     removeTop();
+    const res = await recordSwipe(p.id, 'right');
+    if (res) {
+      // Sync exact count from server (handles restarts / multi-device)
+      if (typeof res.work_connects_used === 'number') {
+        setConnectsUsed(res.work_connects_used);
+      }
+      if (res.match) {
+        setMatched(prev => [...prev, p.id]);
+        setTimeout(() => {
+          setMatchedProfile({ id: p.id, name: p.name, image: p.images[0] });
+        }, 350);
+      }
+    }
   };
 
   if (activeTab === 'matched') {
@@ -565,23 +906,86 @@ export default function WorkFeedScreen({ colors, insets, activeTab }: WorkFeedSc
     return <WorkAiInsightsPage colors={colors} insets={insets} />;
   }
 
-  // 'people' tab — swipe feed
+  const workCardRef = useRef<WorkProfileCardHandle>(null);
+
+  // 'people' tab — button-driven feed
   return (
     <View style={{ flex: 1, width: '100%', alignItems: 'center', justifyContent: 'center' }}>
       {loading && workProfiles.length === 0 ? (
-        <View style={{ alignItems: 'center', gap: 12 }}>
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 }}>
           <Text style={[{ fontSize: 14, fontFamily: 'ProductSans-Regular', color: colors.textSecondary }]}>Finding co-founders near you…</Text>
         </View>
       ) : workProfiles.length === 0 ? (
-        <EmptyState onReset={reset} colors={colors} />
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          <EmptyState onReset={reset} colors={colors} />
+        </View>
       ) : (
-        <WorkProfileCard
-          key={workProfiles[0].id}
-          profile={workProfiles[0]}
-          onSwipedLeft={() => handleSwipeLeft(workProfiles[0])}
-          onSwipedRight={() => handleSwipeRight(workProfiles[0])}
-          colors={colors}
-        />
+        <>
+          {/* Connects left pill — above the card, matching date feed style */}
+          <View style={{
+            alignSelf: 'center', marginBottom: 10,
+            flexDirection: 'row', alignItems: 'center', gap: 6,
+            backgroundColor: connectsUsed >= DAILY_CONNECT_LIMIT ? 'rgba(239,68,68,0.12)' : colors.surface2,
+            borderRadius: 20, paddingHorizontal: 14, paddingVertical: 7,
+            borderWidth: StyleSheet.hairlineWidth,
+            borderColor: connectsUsed >= DAILY_CONNECT_LIMIT ? 'rgba(239,68,68,0.35)' : colors.border,
+          }}>
+            <Ionicons
+              name={connectsUsed >= DAILY_CONNECT_LIMIT ? 'lock-closed' : 'briefcase-outline'}
+              size={12}
+              color={connectsUsed >= DAILY_CONNECT_LIMIT ? '#ef4444' : colors.text}
+            />
+            <Text style={{ fontSize: 12, fontFamily: 'ProductSans-Medium', color: connectsUsed >= DAILY_CONNECT_LIMIT ? '#ef4444' : colors.text }}>
+              {connectsUsed >= DAILY_CONNECT_LIMIT
+                ? 'Limit reached · Resets at 12 AM UTC'
+                : `${DAILY_CONNECT_LIMIT - connectsUsed} connects left today`}
+            </Text>
+          </View>
+
+          <WorkProfileCard
+            key={workProfiles[0].id}
+            ref={workCardRef}
+            profile={workProfiles[0]}
+            onSwipedLeft={() => handleSwipeLeft(workProfiles[0])}
+            onSwipedRight={() => handleSwipeRight(workProfiles[0])}
+            colors={colors}
+          />
+
+          {/* ── Decision bar — floats over bottom of card ─────────────── */}
+          <View style={wDecisionStyles.bar} pointerEvents="box-none">
+            {/* Gradient scrim */}
+            <LinearGradient
+              colors={['transparent', 'rgba(0,0,0,0.55)']}
+              style={StyleSheet.absoluteFill}
+              pointerEvents="none"
+            />
+            {/* Pass */}
+            <Pressable
+              onPress={() => workCardRef.current?.dismiss('pass')}
+              style={({ pressed }) => [wDecisionStyles.passBtn, pressed && { transform: [{ scale: 0.93 }] }]}
+            >
+              <Ionicons name="close" size={20} color="#FF3B30" />
+              <Text style={wDecisionStyles.passBtnLabel}>Pass</Text>
+            </Pressable>
+            {/* Connect */}
+            <Pressable
+              onPress={() => {
+                if (connectsUsed >= DAILY_CONNECT_LIMIT) return;
+                workCardRef.current?.dismiss('connect');
+              }}
+              style={({ pressed }) => [
+                wDecisionStyles.connectBtn,
+                connectsUsed >= DAILY_CONNECT_LIMIT && { opacity: 0.4 },
+                pressed && connectsUsed < DAILY_CONNECT_LIMIT && { transform: [{ scale: 0.93 }] },
+              ]}
+            >
+              <Ionicons name="briefcase" size={18} color="#fff" />
+              <Text style={wDecisionStyles.connectBtnLabel}>
+                {connectsUsed >= DAILY_CONNECT_LIMIT ? 'Limit reached' : 'Connect'}
+              </Text>
+            </Pressable>
+          </View>
+        </>
       )}
 
       {matchedProfile && (
@@ -602,11 +1006,7 @@ export default function WorkFeedScreen({ colors, insets, activeTab }: WorkFeedSc
 // ─── Card styles ──────────────────────────────────────────────────────────────
 
 const cardStyles = StyleSheet.create({
-  card:           { position: 'absolute', width: CARD_W, height: CARD_H, borderRadius: 28, overflow: 'hidden', backgroundColor: '#111' },
-  likeStamp:      { position: 'absolute', top: 52, left: 24, zIndex: 20, borderWidth: 4, borderRadius: 10, paddingHorizontal: 16, paddingVertical: 8, transform: [{ rotate: '-22deg' }], backgroundColor: 'rgba(0,230,118,0.08)' },
-  likeStampText:  { fontSize: 32, fontFamily: 'ProductSans-Black', letterSpacing: 3 },
-  nopeStamp:      { position: 'absolute', top: 52, right: 24, zIndex: 20, borderWidth: 4, borderColor: '#FF3B30', borderRadius: 10, paddingHorizontal: 16, paddingVertical: 8, transform: [{ rotate: '22deg' }], backgroundColor: 'rgba(255,59,48,0.08)' },
-  nopeStampText:  { color: '#FF3B30', fontSize: 32, fontFamily: 'ProductSans-Black', letterSpacing: 3 },
+  card:           { width: CARD_W, height: CARD_H, borderRadius: 24, overflow: 'hidden', backgroundColor: '#111' },
   photoName:      { fontSize: 28, fontFamily: 'ProductSans-Black', color: '#fff' },
   locationText:   { fontSize: 13, fontFamily: 'ProductSans-Regular', color: 'rgba(255,255,255,0.7)' },
   detailsSection: { paddingHorizontal: 16, paddingTop: 18 },
@@ -677,4 +1077,51 @@ const pageStyles = StyleSheet.create({
   aiActionBtnOutline: {},
   aiActionBtnFill: {},
   aiActionBtnText: { fontSize: 13, fontFamily: 'ProductSans-Bold' },
+});
+
+const wDecisionStyles = StyleSheet.create({
+  bar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    paddingTop: 40,
+    paddingBottom: 24,
+    overflow: 'hidden',
+  },
+  passBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    backgroundColor: 'rgba(255,255,255,0.96)',
+    borderWidth: 2, borderColor: '#FF3B30',
+    borderRadius: 50,
+    paddingVertical: 13,
+    paddingHorizontal: 22,
+    shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 6,
+  },
+  passBtnLabel: {
+    fontSize: 15,
+    fontFamily: 'ProductSans-Bold',
+    color: '#FF3B30',
+  },
+  connectBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    backgroundColor: '#0A66C2',
+    borderRadius: 50,
+    paddingVertical: 13,
+    paddingHorizontal: 22,
+    shadowColor: '#000', shadowOpacity: 0.3, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 7,
+  },
+  connectBtnLabel: {
+    fontSize: 15,
+    fontFamily: 'ProductSans-Bold',
+    color: '#fff',
+  },
 });

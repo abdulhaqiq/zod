@@ -26,6 +26,9 @@ const WORK_CATEGORIES = [
   'work_prompt_questions',
   'work_stage',
   'work_role',
+  'work_num_founders',
+  'work_years_experience',
+  'work_job_search_status',
 ];
 
 export async function fetchWorkLookups(): Promise<WorkLookupMap> {
@@ -37,8 +40,7 @@ export async function fetchWorkLookups(): Promise<WorkLookupMap> {
       const rows = data[cat] ?? [];
       map[cat] = rows.map(r => ({
         value: String(r.id),   // stable DB ID — stored in profile
-        emoji: r.emoji ?? undefined,
-        label: r.label,        // display text
+        label: r.label,        // display text — no emoji
       }));
     }
     _cache = map;
@@ -50,6 +52,10 @@ export async function fetchWorkLookups(): Promise<WorkLookupMap> {
 
 export function getCachedWorkLookups(): WorkLookupMap | null {
   return _cache;
+}
+
+export function clearWorkLookupsCache(): void {
+  _cache = null;
 }
 
 /** Resolve a single ID string → label for display */

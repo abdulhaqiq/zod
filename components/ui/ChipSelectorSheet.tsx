@@ -4,6 +4,9 @@
  * - singleSelect=true  → chips + "Update" button (confirms selection, saves, closes)
  * - singleSelect=false → multi-select chips + "Done (n)" button
  *
+ * When ChipOption.group is set, options are rendered under labelled category
+ * headers (e.g. "Technical", "Business"). Ungrouped options render first.
+ *
  * Internal state is used so toggles are instant regardless of parent re-renders.
  * onChange is fired with the confirmed selection when Update / Done is pressed.
  */
@@ -28,6 +31,8 @@ export interface ChipOption {
   value?: string;
   emoji?: string;
   label: string;
+  /** Optional category group heading, e.g. "Technical", "Business" */
+  group?: string;
 }
 
 interface Props {
@@ -53,14 +58,10 @@ export default function ChipSelectorSheet({
   const insets = useSafeAreaInsets();
   const slideY = useRef(new Animated.Value(SCREEN_H)).current;
 
-  // Internal selection state — initialized from props each time sheet opens
   const [localSelected, setLocalSelected] = useState<string[]>(selected);
 
   useEffect(() => {
-    if (visible) {
-      // Re-sync from parent when opening
-      setLocalSelected(selected);
-    }
+    if (visible) setLocalSelected(selected);
     Animated.spring(slideY, {
       toValue: visible ? 0 : SCREEN_H,
       useNativeDriver: true,
@@ -70,10 +71,7 @@ export default function ChipSelectorSheet({
   }, [visible]);
 
   const toggle = (key: string) => {
-    if (singleSelect) {
-      setLocalSelected([key]);
-      return;
-    }
+    if (singleSelect) { setLocalSelected([key]); return; }
     setLocalSelected(prev => {
       if (prev.includes(key)) return prev.filter(s => s !== key);
       if (prev.length < maxSelect) return [...prev, key];
@@ -81,12 +79,57 @@ export default function ChipSelectorSheet({
     });
   };
 
-  const handleConfirm = () => {
-    onChange(localSelected);
-    onClose();
-  };
-
+  const handleConfirm = () => { onChange(localSelected); onClose(); };
   const atMax = !singleSelect && localSelected.length >= maxSelect;
+
+  // ── Build grouped sections ──────────────────────────────────────────────────
+  const hasGroups = options.some(o => o.group);
+
+  type Section = { heading: string | null; opts: ChipOption[] };
+  const sections: Section[] = [];
+
+  if (hasGroups) {
+    const order: string[] = [];
+    const map: Record<string, ChipOption[]> = {};
+    for (const opt of options) {
+      const g = opt.group ?? '';
+      if (!map[g]) { order.push(g); map[g] = []; }
+      map[g].push(opt);
+    }
+    for (const g of order) {
+      sections.push({ heading: g || null, opts: map[g] });
+    }
+  } else {
+    sections.push({ heading: null, opts: options });
+  }
+
+  const renderChip = (opt: ChipOption) => {
+    const key = opt.value ?? opt.label;
+    const isSelected = localSelected.includes(key);
+    const disabled = !isSelected && atMax;
+    return (
+      <Pressable
+        key={key}
+        onPress={() => toggle(key)}
+        style={({ pressed }) => [
+          styles.chip,
+          {
+            backgroundColor: isSelected ? colors.text : colors.bg,
+            borderColor: isSelected ? colors.text : colors.border,
+            opacity: disabled ? 0.32 : pressed ? 0.65 : 1,
+          },
+        ]}
+      >
+        {opt.emoji ? <Text style={styles.chipEmoji}>{opt.emoji}</Text> : null}
+        <Text style={[styles.chipLabel, { color: isSelected ? colors.bg : colors.text }]}>
+          {opt.label}
+        </Text>
+        {isSelected && (
+          <Ionicons name="checkmark" size={11} color={colors.bg} style={{ marginLeft: 1 }} />
+        )}
+      </Pressable>
+    );
+  };
 
   return (
     <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
@@ -131,44 +174,30 @@ export default function ChipSelectorSheet({
           </View>
         )}
 
-        {/* Chips */}
+        {/* Chips — flat or grouped */}
         <ScrollView
           style={styles.chipsScroll}
           contentContainerStyle={styles.chipsWrap}
           showsVerticalScrollIndicator={false}
         >
-          {options.map(opt => {
-            const key = opt.value ?? opt.label;
-            const isSelected = localSelected.includes(key);
-            const disabled = !isSelected && atMax;
-            return (
-              <Pressable
-                key={key}
-                onPress={() => toggle(key)}
-                style={({ pressed }) => [
-                  styles.chip,
-                  {
-                    backgroundColor: isSelected ? colors.text : colors.bg,
-                    borderColor: isSelected ? colors.text : colors.border,
-                    opacity: disabled ? 0.35 : pressed ? 0.7 : 1,
-                  },
-                ]}
-              >
-                {opt.emoji ? (
-                  <Text style={styles.chipEmoji}>{opt.emoji}</Text>
-                ) : null}
-                <Text style={[styles.chipLabel, { color: isSelected ? colors.bg : colors.text }]}>
-                  {opt.label}
+          {sections.map((sec, si) => (
+            <View key={si} style={{ width: '100%' }}>
+              {sec.heading ? (
+                <Text style={[styles.groupHeading, { color: colors.textSecondary }]}>
+                  {sec.heading.toUpperCase()}
                 </Text>
-                {isSelected && (
-                  <Ionicons name="checkmark" size={13} color={colors.bg} style={{ marginLeft: 2 }} />
-                )}
-              </Pressable>
-            );
-          })}
+              ) : null}
+              <View style={styles.chipRow}>
+                {sec.opts.map(renderChip)}
+              </View>
+              {si < sections.length - 1 && (
+                <View style={[styles.groupDivider, { backgroundColor: colors.border }]} />
+              )}
+            </View>
+          ))}
         </ScrollView>
 
-        {/* Confirm button — "Update" for single-select, "Done (n)" for multi */}
+        {/* Confirm button */}
         <Pressable
           style={[
             styles.doneBtn,
@@ -190,10 +219,10 @@ export default function ChipSelectorSheet({
 
 const styles = StyleSheet.create({
   backdrop:    { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.55)' },
-  sheet:       { position: 'absolute', bottom: 0, left: 0, right: 0, maxHeight: SCREEN_H * 0.82, borderTopLeftRadius: 28, borderTopRightRadius: 28, overflow: 'hidden' },
+  sheet:       { position: 'absolute', bottom: 0, left: 0, right: 0, maxHeight: SCREEN_H * 0.86, borderTopLeftRadius: 28, borderTopRightRadius: 28, overflow: 'hidden' },
   handle:      { width: 36, height: 4, borderRadius: 2, alignSelf: 'center', marginTop: 12, marginBottom: 4 },
 
-  sheetHeader: { flexDirection: 'row', alignItems: 'flex-start', paddingHorizontal: 20, paddingVertical: 16, gap: 12 },
+  sheetHeader: { flexDirection: 'row', alignItems: 'flex-start', paddingHorizontal: 20, paddingVertical: 14, gap: 12 },
   sheetTitle:  { fontSize: 20, fontFamily: 'ProductSans-Black' },
   sheetSub:    { fontSize: 13, fontFamily: 'ProductSans-Regular', marginTop: 2 },
 
@@ -202,11 +231,18 @@ const styles = StyleSheet.create({
   clearText:   { fontSize: 12, fontFamily: 'ProductSans-Medium' },
 
   chipsScroll: { flexShrink: 1 },
-  chipsWrap:   { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 16, paddingBottom: 20, gap: 10 },
-  chip:        { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 50, borderWidth: 1.5 },
-  chipEmoji:   { fontSize: 16 },
-  chipLabel:   { fontSize: 14, fontFamily: 'ProductSans-Medium' },
+  chipsWrap:   { paddingHorizontal: 16, paddingBottom: 20, gap: 0 },
 
-  doneBtn:     { marginHorizontal: 20, marginTop: 4, paddingVertical: 16, borderRadius: 50, alignItems: 'center' },
+  // Grouped layout
+  groupHeading:  { fontSize: 10, fontFamily: 'ProductSans-Bold', letterSpacing: 1.4, marginTop: 14, marginBottom: 8, marginLeft: 2 },
+  groupDivider:  { height: StyleSheet.hairlineWidth, marginTop: 14 },
+  chipRow:       { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+
+  // Chips — slightly smaller than before
+  chip:        { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 11, paddingVertical: 7, borderRadius: 50, borderWidth: 1.5 },
+  chipEmoji:   { fontSize: 14 },
+  chipLabel:   { fontSize: 12.5, fontFamily: 'ProductSans-Medium' },
+
+  doneBtn:     { marginHorizontal: 20, marginTop: 4, paddingVertical: 15, borderRadius: 50, alignItems: 'center' },
   doneBtnText: { fontSize: 15, fontFamily: 'ProductSans-Black' },
 });

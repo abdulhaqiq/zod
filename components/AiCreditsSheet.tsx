@@ -16,6 +16,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Squircle from '@/components/ui/Squircle';
 import { useAppTheme } from '@/context/ThemeContext';
 import { AI_CREDIT_PACKS, type AiCreditPack } from '@/constants/iap';
@@ -102,6 +103,7 @@ export default function AiCreditsSheet({
 }) {
   const { colors } = useAppTheme();
   const { myFeatures, purchaseAiCredits, purchasingCredits } = useSubscription();
+  const insets = useSafeAreaInsets();
 
   const balance  = myFeatures?.ai_credits_balance  ?? 0;
   const monthly  = myFeatures?.ai_credits_monthly  ?? 0;
@@ -117,89 +119,98 @@ export default function AiCreditsSheet({
   };
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={s.backdrop} onPress={onClose}>
-        <Pressable style={[s.sheet, { backgroundColor: colors.surface }]}>
-          {/* Handle */}
-          <View style={[s.handle, { backgroundColor: colors.border }]} />
+    <Modal visible={visible} animationType="slide" onRequestClose={onClose} statusBarTranslucent>
+      <View style={[s.screen, { backgroundColor: colors.bg }]}>
 
-          {/* Header gradient */}
-          <LinearGradient
-            colors={['rgba(234,179,8,0.15)', 'transparent']}
-            style={s.headerGradient}
-            pointerEvents="none"
-          />
+        {/* Top-bar with close button */}
+        <View style={[s.topBar, { paddingTop: insets.top + 6, borderBottomColor: colors.border }]}>
+          <Pressable onPress={onClose} hitSlop={10} style={s.closeBtn}>
+            <Ionicons name="chevron-down" size={22} color={colors.text} />
+          </Pressable>
+          <Text style={[s.topBarTitle, { color: colors.text }]}>AI Credits</Text>
+          <View style={s.closeBtn} pointerEvents="none" />
+        </View>
 
-          <ScrollView showsVerticalScrollIndicator={false} bounces={false}>
+        {/* Amber header gradient */}
+        <LinearGradient
+          colors={['rgba(234,179,8,0.12)', 'transparent']}
+          style={s.headerGradient}
+          pointerEvents="none"
+        />
 
-            {/* Balance hero */}
-            <View style={s.hero}>
-              <Squircle style={s.heroIcon} cornerRadius={22} cornerSmoothing={1} fillColor="rgba(234,179,8,0.15)">
-                <Ionicons name="flash" size={32} color="#f59e0b" />
-              </Squircle>
-              <Text style={[s.heroTitle, { color: colors.text }]}>AI Credits</Text>
-              <View style={s.balanceRow}>
-                <Ionicons name="flash" size={18} color="#f59e0b" />
-                <Text style={[s.balanceNum, { color: colors.text }]}>{balance}</Text>
-                <Text style={[s.balanceLabel, { color: colors.textSecondary }]}>in your wallet</Text>
-              </View>
-              {monthly > 0 && (
-                <View style={[s.monthlyPill, { backgroundColor: colors.bg }]}>
-                  <Ionicons name="refresh-circle-outline" size={13} color={colors.textSecondary} />
-                  <Text style={[s.monthlyText, { color: colors.textSecondary }]}>
-                    {monthly} free credits / month with {tier === 'premium_plus' ? 'Premium+' : 'Pro'}
-                  </Text>
-                </View>
-              )}
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          bounces={false}
+          contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
+        >
+
+          {/* Balance hero */}
+          <View style={s.hero}>
+            <Squircle style={s.heroIcon} cornerRadius={22} cornerSmoothing={1} fillColor="rgba(234,179,8,0.15)">
+              <Ionicons name="flash" size={32} color="#f59e0b" />
+            </Squircle>
+            <Text style={[s.heroTitle, { color: colors.text }]}>AI Credits</Text>
+            <View style={s.balanceRow}>
+              <Ionicons name="flash" size={18} color="#f59e0b" />
+              <Text style={[s.balanceNum, { color: colors.text }]}>{balance}</Text>
+              <Text style={[s.balanceLabel, { color: colors.textSecondary }]}>in your wallet</Text>
             </View>
+            {monthly > 0 && (
+              <View style={[s.monthlyPill, { backgroundColor: colors.surface }]}>
+                <Ionicons name="refresh-circle-outline" size={13} color={colors.textSecondary} />
+                <Text style={[s.monthlyText, { color: colors.textSecondary }]}>
+                  {monthly} free credits / month with {tier === 'premium_plus' ? 'Premium+' : 'Pro'}
+                </Text>
+              </View>
+            )}
+          </View>
 
-            {/* What credits do */}
-            <View style={s.section}>
-              <Text style={[s.sectionTitle, { color: colors.textSecondary }]}>WHAT CREDITS DO</Text>
-              <Squircle style={s.useGroup} cornerRadius={18} cornerSmoothing={1} fillColor={colors.bg} strokeColor={colors.border} strokeWidth={1}>
-                {CREDIT_USES.map((u, i) => (
-                  <View
-                    key={u.label}
-                    style={[
-                      s.useRow,
-                      i < CREDIT_USES.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
-                    ]}
-                  >
-                    <Squircle style={s.useIcon} cornerRadius={10} cornerSmoothing={1} fillColor={colors.surface}>
-                      <Ionicons name={u.icon as any} size={15} color={colors.text} />
-                    </Squircle>
-                    <Text style={[s.useLabel, { color: colors.text }]}>{u.label}</Text>
-                    <View style={[s.costPill, { backgroundColor: 'rgba(234,179,8,0.12)' }]}>
-                      <Ionicons name="flash" size={10} color="#f59e0b" />
-                      <Text style={s.costText}>{u.cost}</Text>
-                    </View>
+          {/* What credits do */}
+          <View style={s.section}>
+            <Text style={[s.sectionTitle, { color: colors.textSecondary }]}>WHAT CREDITS DO</Text>
+            <Squircle style={s.useGroup} cornerRadius={18} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
+              {CREDIT_USES.map((u, i) => (
+                <View
+                  key={u.label}
+                  style={[
+                    s.useRow,
+                    i < CREDIT_USES.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+                  ]}
+                >
+                  <Squircle style={s.useIcon} cornerRadius={10} cornerSmoothing={1} fillColor={colors.surface2}>
+                    <Ionicons name={u.icon as any} size={15} color={colors.text} />
+                  </Squircle>
+                  <Text style={[s.useLabel, { color: colors.text }]}>{u.label}</Text>
+                  <View style={[s.costPill, { backgroundColor: 'rgba(234,179,8,0.12)' }]}>
+                    <Ionicons name="flash" size={10} color="#f59e0b" />
+                    <Text style={s.costText}>{u.cost}</Text>
                   </View>
-                ))}
-              </Squircle>
-            </View>
+                </View>
+              ))}
+            </Squircle>
+          </View>
 
-            {/* Buy packs */}
-            <View style={s.section}>
-              <Text style={[s.sectionTitle, { color: colors.textSecondary }]}>BUY CREDITS</Text>
-              <View style={{ gap: 10 }}>
-                {AI_CREDIT_PACKS.map(pack => (
-                  <PackCard
-                    key={pack.id}
-                    pack={pack}
-                    onBuy={handleBuy}
-                    purchasing={purchasingCredits}
-                    colors={colors}
-                  />
-                ))}
-              </View>
+          {/* Buy packs */}
+          <View style={s.section}>
+            <Text style={[s.sectionTitle, { color: colors.textSecondary }]}>BUY CREDITS</Text>
+            <View style={{ gap: 10 }}>
+              {AI_CREDIT_PACKS.map(pack => (
+                <PackCard
+                  key={pack.id}
+                  pack={pack}
+                  onBuy={handleBuy}
+                  purchasing={purchasingCredits}
+                  colors={colors}
+                />
+              ))}
             </View>
+          </View>
 
-            <Text style={[s.footer, { color: colors.textSecondary }]}>
-              Credits never expire. Purchases processed by Apple.
-            </Text>
-          </ScrollView>
-        </Pressable>
-      </Pressable>
+          <Text style={[s.footer, { color: colors.textSecondary }]}>
+            Credits never expire. Purchases processed by Apple.
+          </Text>
+        </ScrollView>
+      </View>
     </Modal>
   );
 }
@@ -207,21 +218,22 @@ export default function AiCreditsSheet({
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const s = StyleSheet.create({
-  backdrop:       { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  sheet:          { borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingHorizontal: 20, paddingBottom: 40, maxHeight: '88%', overflow: 'hidden' },
-  handle:         { width: 36, height: 4, borderRadius: 2, alignSelf: 'center', marginTop: 10, marginBottom: 6 },
-  headerGradient: { position: 'absolute', top: 0, left: 0, right: 0, height: 120, borderTopLeftRadius: 28, borderTopRightRadius: 28 },
+  screen:         { flex: 1 },
+  topBar:         { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingBottom: 10, borderBottomWidth: StyleSheet.hairlineWidth },
+  topBarTitle:    { fontSize: 17, fontFamily: 'ProductSans-Bold' },
+  closeBtn:       { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
+  headerGradient: { position: 'absolute', top: 0, left: 0, right: 0, height: 180 },
 
-  hero:           { alignItems: 'center', paddingTop: 16, paddingBottom: 20, gap: 8 },
-  heroIcon:       { width: 64, height: 64, alignItems: 'center', justifyContent: 'center', marginBottom: 4 },
-  heroTitle:      { fontSize: 22, fontFamily: 'ProductSans-Bold' },
+  hero:           { alignItems: 'center', paddingTop: 28, paddingBottom: 24, gap: 8, paddingHorizontal: 20 },
+  heroIcon:       { width: 68, height: 68, alignItems: 'center', justifyContent: 'center', marginBottom: 4 },
+  heroTitle:      { fontSize: 24, fontFamily: 'ProductSans-Bold' },
   balanceRow:     { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  balanceNum:     { fontSize: 28, fontFamily: 'ProductSans-Bold' },
-  balanceLabel:   { fontSize: 14, fontFamily: 'ProductSans-Regular', marginTop: 3 },
+  balanceNum:     { fontSize: 32, fontFamily: 'ProductSans-Bold' },
+  balanceLabel:   { fontSize: 15, fontFamily: 'ProductSans-Regular', marginTop: 4 },
   monthlyPill:    { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, marginTop: 4 },
   monthlyText:    { fontSize: 12, fontFamily: 'ProductSans-Regular' },
 
-  section:        { marginBottom: 20 },
+  section:        { marginBottom: 22, paddingHorizontal: 20 },
   sectionTitle:   { fontSize: 11, fontFamily: 'ProductSans-Bold', letterSpacing: 1.3, marginBottom: 8, marginLeft: 2 },
 
   useGroup:       { overflow: 'hidden' },
@@ -241,5 +253,5 @@ const s = StyleSheet.create({
   buyBtn:         { paddingHorizontal: 14, paddingVertical: 7, alignItems: 'center', justifyContent: 'center', minWidth: 56 },
   buyBtnText:     { fontSize: 13, fontFamily: 'ProductSans-Bold', color: '#fff' },
 
-  footer:         { fontSize: 11, fontFamily: 'ProductSans-Regular', textAlign: 'center', marginBottom: 8 },
+  footer:         { fontSize: 11, fontFamily: 'ProductSans-Regular', textAlign: 'center', paddingHorizontal: 20, marginBottom: 8 },
 });

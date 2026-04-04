@@ -77,6 +77,7 @@ export interface UserProfile {
   wali_verified:        boolean;
   blur_photos_halal:    boolean;
   halal_mode_enabled:   boolean;
+  work_mode_enabled:    boolean;
 
   // Notification preferences
   notif_new_match:     boolean;
@@ -117,6 +118,8 @@ export interface UserProfile {
   work_scheduling_url: string | null;
   work_who_to_show_id: number | null;          // lookup_options id (category=work_who_to_show)
   work_priority_startup: boolean | null;
+  linkedin_url: string | null;
+  linkedin_verified: boolean;
 
   // Discover filter preferences
   filter_age_min:         number | null;
