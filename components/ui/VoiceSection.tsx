@@ -27,6 +27,7 @@ import { API_V1, apiFetch } from '@/constants/api';
 import { useAuth } from '@/context/AuthContext';
 import { useProfileSave } from '@/hooks/useProfileSave';
 import type { AppColors } from '@/constants/appColors';
+import Squircle from '@/components/ui/Squircle';
 
 // ─── Topic options ────────────────────────────────────────────────────────────
 
@@ -183,7 +184,14 @@ function ClipCard({
   const progress = clip.duration_sec > 0 ? Math.min(pos / clip.duration_sec, 1) : 0;
 
   return (
-    <View style={[styles.clipCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+    <Squircle
+      cornerRadius={20}
+      cornerSmoothing={1}
+      fillColor={colors.surface}
+      strokeColor={colors.border}
+      strokeWidth={StyleSheet.hairlineWidth}
+      style={styles.clipCard}
+    >
       <View style={styles.clipTop}>
         <Text style={[styles.clipTopic, { color: colors.text }]}>{clip.topic}</Text>
         <Pressable onPress={handleDelete} hitSlop={8}>
@@ -207,7 +215,7 @@ function ClipCard({
           {fmt(playing ? pos : clip.duration_sec)}
         </Text>
       </View>
-    </View>
+    </Squircle>
   );
 }
 
@@ -276,7 +284,14 @@ function Recorder({
   const pct = elapsed / MAX;
 
   return (
-    <View style={[styles.recorder, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+    <Squircle
+      cornerRadius={20}
+      cornerSmoothing={1}
+      fillColor={colors.surface}
+      strokeColor={colors.border}
+      strokeWidth={StyleSheet.hairlineWidth}
+      style={styles.recorder}
+    >
       <Text style={[styles.recTitle, { color: colors.text }]}>Recording…</Text>
 
       {/* Circular progress feel via arc-ish bar */}
@@ -297,7 +312,7 @@ function Recorder({
           <Text style={{ color: '#fff', fontFamily: 'ProductSans-Medium', marginLeft: 6 }}>Stop</Text>
         </Pressable>
       </View>
-    </View>
+    </Squircle>
   );
 }
 
@@ -380,21 +395,26 @@ export default function VoiceSection({ colors }: Props) {
       ))}
 
       {clips.length < 2 && !showRecorder && (
-        <Pressable
-          style={[styles.addBtn, { borderColor: colors.border }]}
-          onPress={handleAddPress}
-          disabled={uploading}
-        >
-          {uploading ? (
-            <ActivityIndicator size="small" color={colors.text} />
-          ) : (
-            <>
-              <Ionicons name="mic-outline" size={20} color={colors.text} />
-              <Text style={[styles.addText, { color: colors.text }]}>
-                {clips.length === 0 ? 'Record a voice prompt' : 'Add another prompt'}
-              </Text>
-            </>
-          )}
+        <Pressable onPress={handleAddPress} disabled={uploading}>
+          <Squircle
+            cornerRadius={20}
+            cornerSmoothing={1}
+            fillColor="transparent"
+            strokeColor={colors.border}
+            strokeWidth={1.5}
+            style={styles.addBtn}
+          >
+            {uploading ? (
+              <ActivityIndicator size="small" color={colors.text} />
+            ) : (
+              <>
+                <Ionicons name="mic-outline" size={20} color={colors.text} />
+                <Text style={[styles.addText, { color: colors.text }]}>
+                  {clips.length === 0 ? 'Record a voice prompt' : 'Add another prompt'}
+                </Text>
+              </>
+            )}
+          </Squircle>
         </Pressable>
       )}
 
@@ -420,7 +440,7 @@ export default function VoiceSection({ colors }: Props) {
 
 const styles = StyleSheet.create({
   // Clip card
-  clipCard: { borderRadius: 16, borderWidth: 1, padding: 14, marginBottom: 10 },
+  clipCard: { padding: 14, marginBottom: 10 },
   clipTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
   clipTopic: { fontSize: 15, fontFamily: 'ProductSans-Bold', flex: 1, marginRight: 8 },
   progressTrack: { height: 4, borderRadius: 2, overflow: 'hidden', marginBottom: 10 },
@@ -432,13 +452,12 @@ const styles = StyleSheet.create({
   // Add button
   addBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 8, borderWidth: 1.5, borderStyle: 'dashed', borderRadius: 16,
-    paddingVertical: 16, marginBottom: 10,
+    gap: 8, paddingVertical: 16, marginBottom: 10,
   },
   addText: { fontSize: 15, fontFamily: 'ProductSans-Medium' },
 
   // Recorder
-  recorder: { borderRadius: 16, borderWidth: 1, padding: 18, marginBottom: 10 },
+  recorder: { padding: 18, marginBottom: 10 },
   recTitle: { fontSize: 16, fontFamily: 'ProductSans-Bold', textAlign: 'center', marginBottom: 14 },
   recTrack: { height: 6, borderRadius: 3, overflow: 'hidden', marginBottom: 10 },
   recFill: { height: 6, borderRadius: 3 },

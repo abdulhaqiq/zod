@@ -1,6 +1,6 @@
 import * as SecureStore from 'expo-secure-store';
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
-import { Platform } from 'react-native';
+import { AppState, AppStateStatus, Platform } from 'react-native';
 import { API_V1, WS_V1, registerAuthHandlers } from '@/constants/api';
 
 export const RECENT_ACCOUNT_KEY = 'recent_account';
@@ -8,7 +8,7 @@ export interface RecentAccount {
   name: string | null;
   phone: string | null;
   photo: string | null;
-  method: 'phone' | 'apple';
+  method: 'phone' | 'apple' | 'google';
 }
 
 /**
@@ -129,6 +129,7 @@ export interface UserProfile {
   filter_star_signs:      number[] | null;
   filter_interests:       number[] | null;
   filter_languages:       number[] | null;
+  filter_religions:       number[] | null;
   // Pro-only filters
   filter_purpose:         number[] | null;
   filter_looking_for:     number[] | null;
@@ -177,7 +178,7 @@ interface AuthContextValue {
   isLoading: boolean;
   isNetworkError: boolean;
   profile: UserProfile | null;
-  signIn: (accessToken: string, refreshToken: string, isOnboarded: boolean, method?: 'phone' | 'apple') => Promise<void>;
+  signIn: (accessToken: string, refreshToken: string, isOnboarded: boolean, method?: 'phone' | 'apple' | 'google') => Promise<void>;
   signOut: () => Promise<void>;
   setOnboarded: () => Promise<void>;
   updateProfile: (patch: Partial<UserProfile>) => void;
@@ -195,7 +196,7 @@ const AuthContext = createContext<AuthContextValue>({
   isLoading: true,
   isNetworkError: false,
   profile: null,
-  signIn: async (_a: string, _b: string, _c: boolean, _d?: 'phone' | 'apple') => {},
+  signIn: async (_a: string, _b: string, _c: boolean, _d?: 'phone' | 'apple' | 'google') => {},
   signOut: async () => {},
   setOnboarded: async () => {},
   updateProfile: () => {},
@@ -304,20 +305,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [token, profile?.id]);
 
-  async function _fetchProfile(accessToken: string): Promise<UserProfile | null | 'network_error'> {
+  async function _fetchProfile(accessToken: string, attempt = 1): Promise<UserProfile | null | 'network_error'> {
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 8000); // 8s timeout
+      // 20s on first attempt, 15s on retry — gives server time to warm up after restart
+      const timeoutMs = attempt === 1 ? 20_000 : 15_000;
+      const timeout = setTimeout(() => controller.abort(), timeoutMs);
       const res = await fetch(`${API_V1}/profile/me`, {
         headers: { Authorization: `Bearer ${accessToken}` },
         signal: controller.signal,
       });
       clearTimeout(timeout);
       if (res.ok) return res.json() as Promise<UserProfile>;
-      // 401/403 = bad token; any other HTTP error is not a network error
       return null;
     } catch {
-      // fetch() threw — network unreachable, DNS failure, or timeout
+      // First attempt timed out / failed — wait 2s and retry once before giving up
+      if (attempt === 1) {
+        await new Promise(r => setTimeout(r, 2000));
+        return _fetchProfile(accessToken, 2);
+      }
       return 'network_error';
     }
   }
@@ -529,7 +535,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     accessToken: string,
     newRefresh: string,
     onboarded: boolean,
-    _method: 'phone' | 'apple' = 'phone',
+    _method: 'phone' | 'apple' | 'google' = 'phone',
   ) => {
     await SecureStore.setItemAsync(ACCESS_KEY, accessToken);
     await SecureStore.setItemAsync(REFRESH_KEY, newRefresh);
@@ -573,6 +579,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // bootstrap() will clear it only on success.
     setBootstrapTick(t => t + 1);
   };
+
+  // Auto-retry bootstrap when app returns to foreground while on "No Connection"
+  useEffect(() => {
+    const handleAppStateChange = (nextState: AppStateStatus) => {
+      if (nextState === 'active' && isNetworkError) {
+        retryBootstrap();
+      }
+    };
+    const sub = AppState.addEventListener('change', handleAppStateChange);
+    return () => sub.remove();
+  }, [isNetworkError]);
 
   useEffect(() => {
     registerAuthHandlers(tryRefresh, signOut);

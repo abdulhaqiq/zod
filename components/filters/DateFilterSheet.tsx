@@ -157,7 +157,7 @@ export default function DateFilterSheet({ visible, onClose, onApply, onNavigateT
   const router = useRouter();
   const navGuardRef = useRef(false);
   const { profile, token, updateProfile } = useAuth();
-  const isPro = profile?.subscription_tier === 'pro';
+  const isPro = profile?.subscription_tier === 'pro' || profile?.subscription_tier === 'premium_plus';
   const isFaceVerified = profile?.verification_status === 'verified';
 
   // ── Live lookup data from API (same source as EditProfilePage) ─────────────
@@ -190,12 +190,12 @@ export default function DateFilterSheet({ visible, onClose, onApply, onNavigateT
     : '';
   const isMuslim = religionLabel.includes('muslim') || religionLabel.includes('islam');
 
-  // When halal mode is on, default to halal tab and lock out basic/pro
-  const [activeTab, setActiveTab] = useState<'basic' | 'pro' | 'halal'>(halalMode ? 'halal' : 'basic');
+  // When halal mode is on, default to pro tab (halal filters live there)
+  const [activeTab, setActiveTab] = useState<'basic' | 'pro'>(halalMode ? 'pro' : 'basic');
 
-  // Re-sync tab when halalMode prop changes (e.g. user toggles mid-session)
+  // Re-sync tab when halalMode prop changes
   useEffect(() => {
-    if (halalMode) setActiveTab('halal');
+    if (halalMode) setActiveTab('pro');
     else setActiveTab('basic');
   }, [halalMode]);
   const [saving,       setSaving]       = useState(false);
@@ -204,7 +204,7 @@ export default function DateFilterSheet({ visible, onClose, onApply, onNavigateT
   const [verifiedOnly, setVerifiedOnly] = useState(false);
   const [ageMin,       setAgeMin]       = useState(18);
   const [ageMax,       setAgeMax]       = useState(45);
-  const [distance,     setDistance]     = useState(50);
+  const [distance,     setDistance]     = useState(20);
   const [langs,        setLangs]        = useState<number[]>([]);
   const [signs,        setSigns]        = useState<number[]>([]);
   const [interests,    setInterests]    = useState<number[]>([]);
@@ -220,6 +220,7 @@ export default function DateFilterSheet({ visible, onClose, onApply, onNavigateT
   const [familyPlans,  setFamilyPlans]  = useState<number[]>([]);
   const [havingKids,   setHavingKids]   = useState<number[]>([]);
   // Halal filter state
+  const [religions,         setReligions]         = useState<number[]>([]);
   const [sectIds,           setSectIds]           = useState<number[]>([]);
   const [prayerFreqIds,     setPrayerFreqIds]     = useState<number[]>([]);
   const [marriageTimeIds,   setMarriageTimeIds]   = useState<number[]>([]);
@@ -237,7 +238,7 @@ export default function DateFilterSheet({ visible, onClose, onApply, onNavigateT
     setVerifiedOnly(profile.filter_verified_only ?? false);
     setAgeMin(profile.filter_age_min ?? 18);
     setAgeMax(profile.filter_age_max ?? 80);
-    setDistance(profile.filter_max_distance_km != null ? Math.min(profile.filter_max_distance_km, 80) : 80);
+    setDistance(profile.filter_max_distance_km != null ? Math.min(profile.filter_max_distance_km, 80) : 20);
     setSigns(profile.filter_star_signs ?? []);
     setInterests(profile.filter_interests ?? []);
     setLangs(profile.filter_languages ?? []);
@@ -250,6 +251,7 @@ export default function DateFilterSheet({ visible, onClose, onApply, onNavigateT
     setEducation(profile.filter_education_level ?? []);
     setFamilyPlans(profile.filter_family_plans ?? []);
     setHavingKids(profile.filter_have_kids ?? []);
+    setReligions(profile.filter_religions ?? []);
     setSectIds(profile.filter_sect ?? []);
     setPrayerFreqIds(profile.filter_prayer_frequency ?? []);
     setMarriageTimeIds(profile.filter_marriage_timeline ?? []);
@@ -261,11 +263,11 @@ export default function DateFilterSheet({ visible, onClose, onApply, onNavigateT
     setArr(arr.includes(val) ? arr.filter(x => x !== val) : [...arr, val]);
 
   const reset = () => {
-    setVerifiedOnly(false); setAgeMin(18); setAgeMax(80); setDistance(80);
+    setVerifiedOnly(false); setAgeMin(18); setAgeMax(80); setDistance(20);
     setSigns([]); setInterests([]); setLangs([]); setEthnicities([]);
     setExercise([]); setDrinking([]); setSmoking([]); setHeightMin(140);
     setLookingFor([]); setEducation([]); setFamilyPlans([]); setHavingKids([]);
-    setSectIds([]); setPrayerFreqIds([]); setMarriageTimeIds([]);
+    setReligions([]); setSectIds([]); setPrayerFreqIds([]); setMarriageTimeIds([]);
     setWaliVerifiedOnly(false); setWantsToWork(null);
   };
 
@@ -283,6 +285,7 @@ export default function DateFilterSheet({ visible, onClose, onApply, onNavigateT
         filter_star_signs:      signs.length     ? signs     : null,
         filter_interests:       interests.length ? interests : null,
         filter_languages:       langs.length     ? langs     : null,
+        filter_religions:       religions.length ? religions : null,
         filter_ethnicities:     ethnicities.length ? ethnicities : null,
         filter_exercise:        exercise.length  ? exercise  : null,
         filter_drinking:        drinking.length  ? drinking  : null,
@@ -300,8 +303,8 @@ export default function DateFilterSheet({ visible, onClose, onApply, onNavigateT
         patch.filter_have_kids       = havingKids.length  ? havingKids  : null;
       }
 
-      // Halal filters — always sent when user is Muslim (free tier)
-      if (isMuslim) {
+      // Halal filters — only sent when user is Muslim AND Pro
+      if (isMuslim && isPro) {
         patch.filter_sect               = sectIds.length         ? sectIds         : null;
         patch.filter_prayer_frequency   = prayerFreqIds.length   ? prayerFreqIds   : null;
         patch.filter_marriage_timeline  = marriageTimeIds.length ? marriageTimeIds : null;
@@ -351,35 +354,25 @@ export default function DateFilterSheet({ visible, onClose, onApply, onNavigateT
             </Pressable>
           </View>
 
-          {/* Tabs — in halal mode only the Halal tab is shown */}
+          {/* Tabs — Basic (free) | Pro (premium) */}
           <View style={styles.filterTabRow}>
-            {!halalMode && (
-              <Pressable onPress={() => setActiveTab('basic')}>
-                <View style={[styles.filterTabPill, activeTab === 'basic' && { backgroundColor: colors.text }]}>
-                  <Text style={[styles.filterTabText, { color: activeTab === 'basic' ? colors.bg : colors.textSecondary }]}>Basic</Text>
-                </View>
-              </Pressable>
-            )}
-            {!halalMode && (
-              <Pressable onPress={() => setActiveTab('pro')}>
-                <View style={[styles.filterTabPill, activeTab === 'pro' && { backgroundColor: colors.text }]}>
-                  <Ionicons name="sparkles" size={11} color={activeTab === 'pro' ? colors.bg : colors.textSecondary} style={{ marginRight: 4 }} />
-                  <Text style={[styles.filterTabText, { color: activeTab === 'pro' ? colors.bg : colors.textSecondary }]}>Pro</Text>
-                </View>
-              </Pressable>
-            )}
-            {halalMode && (
-              <Pressable disabled>
-                <View style={[styles.filterTabPill, { backgroundColor: colors.text }]}>
-                  <Text style={[styles.filterTabText, { color: colors.bg }]}>Halal</Text>
-                </View>
-              </Pressable>
-            )}
+            <Pressable onPress={() => setActiveTab('basic')}>
+              <View style={[styles.filterTabPill, activeTab === 'basic' && { backgroundColor: colors.text }]}>
+                <Text style={[styles.filterTabText, { color: activeTab === 'basic' ? colors.bg : colors.textSecondary }]}>Basic</Text>
+              </View>
+            </Pressable>
+            <Pressable onPress={() => setActiveTab('pro')}>
+              <View style={[styles.filterTabPill, activeTab === 'pro' && { backgroundColor: colors.text }]}>
+                <Ionicons name="sparkles" size={11} color={activeTab === 'pro' ? colors.bg : colors.textSecondary} style={{ marginRight: 4 }} />
+                <Text style={[styles.filterTabText, { color: activeTab === 'pro' ? colors.bg : colors.textSecondary }]}>Pro</Text>
+                {!isPro && <Ionicons name="lock-closed" size={10} color={activeTab === 'pro' ? colors.bg : colors.textSecondary} style={{ marginLeft: 3 }} />}
+              </View>
+            </Pressable>
           </View>
         </LinearGradient>
 
         {/* ── Basic tab ── */}
-        {activeTab === 'basic' && !halalMode && (
+        {activeTab === 'basic' && (
           <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: insets.bottom + 120, gap: 14 }} showsVerticalScrollIndicator={false}>
 
             {/* Age range */}
@@ -510,6 +503,31 @@ export default function DateFilterSheet({ visible, onClose, onApply, onNavigateT
               </View>
             </Squircle>
 
+            {/* Religion — hidden in Halal mode (feed is already Muslim-only) */}
+            {!halalMode && (
+              <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
+                <SecHead title="RELIGION" />
+                <View style={[styles.filterChipRow, { marginTop: 12 }]}>
+                  {lo('religion').map(v => (
+                    <FilterChip key={v.id} label={v.label} selected={religions.includes(v.id)} onPress={() => toggle(religions, setReligions, v.id)} colors={colors} />
+                  ))}
+                </View>
+              </Squircle>
+            )}
+
+            {/* Halal mode info badge — replaces Religion filter */}
+            {halalMode && (
+              <Squircle style={[styles.filterCard, { flexDirection: 'row', alignItems: 'center', gap: 12 }]} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
+                <Squircle style={styles.filterRowIcon} cornerRadius={12} cornerSmoothing={1} fillColor={colors.surface2}>
+                  <Text style={{ fontSize: 18 }}>☪️</Text>
+                </Squircle>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.filterRowTitle, { color: colors.text }]}>Muslim users only</Text>
+                  <Text style={[styles.filterRowSub, { color: colors.textSecondary }]}>Halal mode automatically filters your feed to Muslims</Text>
+                </View>
+              </Squircle>
+            )}
+
             {/* Languages */}
             <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
               <SecHead title="LANGUAGE" />
@@ -523,7 +541,7 @@ export default function DateFilterSheet({ visible, onClose, onApply, onNavigateT
         )}
 
         {/* ── Pro tab ── */}
-        {activeTab === 'pro' && !halalMode && (isPro ? (
+        {activeTab === 'pro' && (isPro ? (
           /* ── Pro filters — unlocked ── */
           <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: insets.bottom + 120, gap: 14 }} showsVerticalScrollIndicator={false}>
 
@@ -607,15 +625,17 @@ export default function DateFilterSheet({ visible, onClose, onApply, onNavigateT
               </View>
             </Squircle>
 
-            {/* Star sign */}
-            <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
-              <SecHead title="STAR SIGN" />
-              <View style={[styles.filterChipRow, { marginTop: 12 }]}>
-                {lo('star_sign').map(v => (
-                  <FilterChip key={v.id} label={v.label} selected={signs.includes(v.id)} onPress={() => toggle(signs, setSigns, v.id)} colors={colors} />
-                ))}
-              </View>
-            </Squircle>
+            {/* Star sign — hidden in Halal mode (astrology is not permitted in Islam) */}
+            {!halalMode && (
+              <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
+                <SecHead title="STAR SIGN" />
+                <View style={[styles.filterChipRow, { marginTop: 12 }]}>
+                  {lo('star_sign').map(v => (
+                    <FilterChip key={v.id} label={v.label} selected={signs.includes(v.id)} onPress={() => toggle(signs, setSigns, v.id)} colors={colors} />
+                  ))}
+                </View>
+              </Squircle>
+            )}
 
             {/* Education level */}
             <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
@@ -654,6 +674,66 @@ export default function DateFilterSheet({ visible, onClose, onApply, onNavigateT
               </View>
             </Squircle>
 
+            {/* ── Halal section — only for Muslim Pro users in Halal mode ── */}
+            {halalMode && isMuslim && (
+              <>
+                <Text style={[styles.filterSecHead, { color: colors.textSecondary, marginLeft: 2, marginTop: 6 }]}>HALAL FILTERS</Text>
+
+                <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
+                  <SecHead title="SECT" />
+                  <View style={[styles.filterChipRow, { marginTop: 12 }]}>
+                    {lo('sect').map(v => (
+                      <FilterChip key={v.id} label={v.label} selected={sectIds.includes(v.id)} onPress={() => toggle(sectIds, setSectIds, v.id)} colors={colors} />
+                    ))}
+                  </View>
+                </Squircle>
+
+                <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
+                  <SecHead title="PRAYER FREQUENCY" />
+                  <View style={[styles.filterChipRow, { marginTop: 12 }]}>
+                    {lo('prayer_frequency').map(v => (
+                      <FilterChip key={v.id} label={v.label} selected={prayerFreqIds.includes(v.id)} onPress={() => toggle(prayerFreqIds, setPrayerFreqIds, v.id)} colors={colors} />
+                    ))}
+                  </View>
+                </Squircle>
+
+                <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
+                  <SecHead title="MARRIAGE TIMELINE" />
+                  <View style={[styles.filterChipRow, { marginTop: 12 }]}>
+                    {lo('marriage_timeline').map(v => (
+                      <FilterChip key={v.id} label={v.label} selected={marriageTimeIds.includes(v.id)} onPress={() => toggle(marriageTimeIds, setMarriageTimeIds, v.id)} colors={colors} />
+                    ))}
+                  </View>
+                </Squircle>
+
+                <Squircle style={[styles.filterCard, { gap: 0 }]} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                    <Squircle style={styles.filterRowIcon} cornerRadius={12} cornerSmoothing={1} fillColor={colors.surface2}>
+                      <Ionicons name="shield-checkmark-outline" size={18} color={colors.textSecondary} />
+                    </Squircle>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.filterRowTitle, { color: colors.text }]}>Wali Verified Only</Text>
+                      <Text style={[styles.filterRowSub, { color: colors.textSecondary }]}>Only show profiles with a confirmed guardian</Text>
+                    </View>
+                    <Switch value={waliVerifiedOnly} onValueChange={setWaliVerifiedOnly} thumbColor={colors.bg} trackColor={{ false: colors.surface2, true: colors.text }} />
+                  </View>
+                </Squircle>
+
+                <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
+                  <SecHead title="PARTNER CAREER" />
+                  <View style={[styles.filterChipRow, { marginTop: 12 }]}>
+                    {[
+                      { label: 'No preference', value: null },
+                      { label: 'Works / Career-focused', value: true },
+                      { label: "Doesn't need to work", value: false },
+                    ].map(opt => (
+                      <FilterChip key={String(opt.value)} label={opt.label} selected={wantsToWork === opt.value} onPress={() => setWantsToWork(opt.value)} colors={colors} />
+                    ))}
+                  </View>
+                </Squircle>
+              </>
+            )}
+
             <Text style={[styles.filterSecHead, { color: colors.textSecondary, marginLeft: 2, marginTop: 6 }]}>AI FEATURES</Text>
 
             {[
@@ -686,7 +766,9 @@ export default function DateFilterSheet({ visible, onClose, onApply, onNavigateT
                 </Squircle>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.proHeaderTitle, { color: colors.text }]}>Pro Filters</Text>
-                  <Text style={[styles.proHeaderSub, { color: colors.textSecondary }]}>Advanced filters + AI features</Text>
+                  <Text style={[styles.proHeaderSub, { color: colors.textSecondary }]}>
+                    {isMuslim ? 'Advanced filters + Halal filters + AI features' : 'Advanced filters + AI features'}
+                  </Text>
                 </View>
                 <Squircle style={styles.proLockBadge} cornerRadius={10} cornerSmoothing={1} fillColor={colors.surface2}>
                   <Ionicons name="lock-closed" size={13} color={colors.textSecondary} />
@@ -702,7 +784,8 @@ export default function DateFilterSheet({ visible, onClose, onApply, onNavigateT
               { title: 'EXERCISE',            items: lo('exercise').map(v => v.label) },
               { title: 'DRINKING',            items: lo('drinking').map(v => v.label) },
               { title: 'SMOKING',             items: lo('smoking').map(v => v.label) },
-              { title: 'STAR SIGN',           items: lo('star_sign').map(v => v.label) },
+              // Star sign is hidden in Halal mode (astrology not permitted in Islam)
+              ...(!halalMode ? [{ title: 'STAR SIGN', items: lo('star_sign').map(v => v.label) }] : []),
               { title: 'EDUCATION LEVEL',     items: lo('education_level').map(v => v.label) },
               { title: 'LOOKING FOR',         items: lo('looking_for').map(v => v.label) },
               { title: 'FAMILY PLANS',        items: lo('family_plans').map(v => v.label) },
@@ -722,6 +805,33 @@ export default function DateFilterSheet({ visible, onClose, onApply, onNavigateT
                 </View>
               </Squircle>
             ))}
+
+            {/* Halal locked preview — Muslim users in Halal mode only */}
+            {halalMode && isMuslim && (
+              <>
+                <Text style={[styles.filterSecHead, { color: colors.textSecondary, marginLeft: 2, marginTop: 6 }]}>HALAL FILTERS</Text>
+                {[
+                  { title: 'SECT',              items: lo('sect').map(v => v.label) },
+                  { title: 'PRAYER FREQUENCY',  items: lo('prayer_frequency').map(v => v.label) },
+                  { title: 'MARRIAGE TIMELINE', items: lo('marriage_timeline').map(v => v.label) },
+                  { title: 'PARTNER CAREER',    items: ['No preference', 'Works / Career-focused', "Doesn't need to work"] },
+                ].map(sec => (
+                  <Squircle key={sec.title} style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
+                    <View style={styles.proFeatureRow}>
+                      <Text style={[styles.filterSecHead, { color: colors.textSecondary }]}>{sec.title}</Text>
+                      <Ionicons name="lock-closed" size={11} color={colors.textSecondary} />
+                    </View>
+                    <View style={[styles.filterChipRow, { marginTop: 12 }]}>
+                      {sec.items.map(v => (
+                        <Squircle key={v} style={styles.filterChip} cornerRadius={16} cornerSmoothing={1} fillColor={colors.surface2} strokeColor={colors.border} strokeWidth={1}>
+                          <Text style={[styles.filterChipText, { color: colors.textSecondary }]}>{v}</Text>
+                        </Squircle>
+                      ))}
+                    </View>
+                  </Squircle>
+                ))}
+              </>
+            )}
 
             <Text style={[styles.filterSecHead, { color: colors.textSecondary, marginLeft: 2, marginTop: 6 }]}>AI FEATURES</Text>
 
@@ -746,120 +856,9 @@ export default function DateFilterSheet({ visible, onClose, onApply, onNavigateT
           </ScrollView>
         ))}
 
-        {/* ── Halal tab ── */}
-        {activeTab === 'halal' && (
-          <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: insets.bottom + 120, gap: 14 }} showsVerticalScrollIndicator={false}>
-
-            {/* Halal header */}
-            <Squircle style={[styles.filterCard, { gap: 6 }]} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.filterRowTitle, { color: colors.text }]}>Halal Mode Filters</Text>
-                  <Text style={[styles.filterRowSub, { color: colors.textSecondary }]}>
-                    Only shown to other users in Halal mode
-                  </Text>
-                </View>
-              </View>
-            </Squircle>
-
-            {/* Sect */}
-            <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
-              <SecHead title="SECT" />
-              <View style={[styles.filterChipRow, { marginTop: 12 }]}>
-                {lo('sect').map(v => (
-                  <FilterChip
-                    key={v.id} label={v.label}
-                    selected={sectIds.includes(v.id)}
-                    onPress={() => toggle(sectIds, setSectIds, v.id)}
-                    colors={colors}
-                  />
-                ))}
-              </View>
-            </Squircle>
-
-            {/* Prayer frequency */}
-            <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
-              <SecHead title="PRAYER FREQUENCY" />
-              <View style={[styles.filterChipRow, { marginTop: 12 }]}>
-                {lo('prayer_frequency').map(v => (
-                  <FilterChip
-                    key={v.id} label={v.label}
-                    selected={prayerFreqIds.includes(v.id)}
-                    onPress={() => toggle(prayerFreqIds, setPrayerFreqIds, v.id)}
-                    colors={colors}
-                  />
-                ))}
-              </View>
-            </Squircle>
-
-            {/* Marriage timeline */}
-            <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
-              <SecHead title="MARRIAGE TIMELINE" />
-              <View style={[styles.filterChipRow, { marginTop: 12 }]}>
-                {lo('marriage_timeline').map(v => (
-                  <FilterChip
-                    key={v.id} label={v.label}
-                    selected={marriageTimeIds.includes(v.id)}
-                    onPress={() => toggle(marriageTimeIds, setMarriageTimeIds, v.id)}
-                    colors={colors}
-                  />
-                ))}
-              </View>
-            </Squircle>
-
-            {/* Wali verified only */}
-            <Squircle style={[styles.filterCard, { gap: 0 }]} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                <Squircle style={styles.filterRowIcon} cornerRadius={12} cornerSmoothing={1} fillColor={colors.surface2}>
-                  <Ionicons name="shield-checkmark-outline" size={18} color={colors.textSecondary} />
-                </Squircle>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.filterRowTitle, { color: colors.text }]}>Wali Verified Only</Text>
-                  <Text style={[styles.filterRowSub, { color: colors.textSecondary }]}>
-                    Only show profiles with a confirmed guardian
-                  </Text>
-                </View>
-                <Switch
-                  value={waliVerifiedOnly}
-                  onValueChange={setWaliVerifiedOnly}
-                  thumbColor={colors.bg}
-                  trackColor={{ false: colors.surface2, true: colors.text }}
-                />
-              </View>
-            </Squircle>
-
-            {/* Wants to work */}
-            <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
-              <SecHead title="PARTNER CAREER" />
-              <View style={[styles.filterChipRow, { marginTop: 12 }]}>
-                {[
-                  { label: 'No preference', value: null },
-                  { label: 'Works / Career-focused', value: true },
-                  { label: "Doesn't need to work", value: false },
-                ].map(opt => (
-                  <FilterChip
-                    key={String(opt.value)}
-                    label={opt.label}
-                    selected={wantsToWork === opt.value}
-                    onPress={() => setWantsToWork(opt.value)}
-                    colors={colors}
-                  />
-                ))}
-              </View>
-            </Squircle>
-
-          </ScrollView>
-        )}
-
         {/* Footer */}
         <View style={[styles.sheetFooter, { borderTopColor: colors.border, paddingBottom: Math.max(insets.bottom, 20), backgroundColor: colors.bg, gap: 10 }]}>
-          {activeTab === 'halal' ? (
-            <Squircle cornerRadius={18} cornerSmoothing={1} fillColor={colors.text} style={styles.applyBtn}>
-              <Pressable onPress={handleApply} disabled={saving} style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-                <Text style={[styles.applyBtnText, { color: colors.bg }]}>{saving ? 'Saving…' : 'Apply Halal Filters'}</Text>
-              </Pressable>
-            </Squircle>
-          ) : activeTab === 'basic' && !halalMode ? (
+          {activeTab === 'basic' ? (
             <>
               <Pressable onPress={() => setActiveTab('pro')}>
                 <Squircle style={styles.upsellBanner} cornerRadius={18} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
@@ -868,8 +867,10 @@ export default function DateFilterSheet({ visible, onClose, onApply, onNavigateT
                       <Ionicons name="sparkles" size={15} color={colors.text} />
                     </Squircle>
                     <View style={{ flex: 1 }}>
-                      <Text style={[styles.upsellTitle, { color: colors.text }]}>Unlock Advanced Filters</Text>
-                      <Text style={[styles.upsellSub, { color: colors.textSecondary }]}>Height, ethnicity, lifestyle, star sign & more</Text>
+                      <Text style={[styles.upsellTitle, { color: colors.text }]}>Unlock Pro Filters</Text>
+                      <Text style={[styles.upsellSub, { color: colors.textSecondary }]}>
+                        {isMuslim ? 'Height, ethnicity, lifestyle, Halal filters & more' : 'Height, ethnicity, lifestyle, star sign & more'}
+                      </Text>
                     </View>
                   </View>
                   <Squircle style={styles.upsellBtn} cornerRadius={12} cornerSmoothing={1} fillColor={colors.surface2} strokeColor={colors.border} strokeWidth={1}>
@@ -886,11 +887,11 @@ export default function DateFilterSheet({ visible, onClose, onApply, onNavigateT
           ) : isPro ? (
             <Squircle cornerRadius={18} cornerSmoothing={1} fillColor={colors.text} style={styles.applyBtn}>
               <Pressable onPress={handleApply} disabled={saving} style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-                <Text style={[styles.applyBtnText, { color: colors.bg }]}>{saving ? 'Saving…' : 'Apply Filters'}</Text>
+                <Text style={[styles.applyBtnText, { color: colors.bg }]}>{saving ? 'Saving…' : 'Apply Pro Filters'}</Text>
               </Pressable>
             </Squircle>
           ) : (
-            <Squircle cornerRadius={18} cornerSmoothing={1} fillColor={colors.surface2} strokeColor={colors.border} strokeWidth={1} style={[styles.applyBtn, { opacity: 0.6 }]}>
+            <Squircle cornerRadius={18} cornerSmoothing={1} fillColor={colors.surface2} strokeColor={colors.border} strokeWidth={1} style={[styles.applyBtn, { opacity: 0.65 }]}>
               <Pressable onPress={() => navPush('/subscription')} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
                 <Ionicons name="lock-closed" size={14} color={colors.textSecondary} />
                 <Text style={[styles.applyBtnText, { color: colors.textSecondary }]}>Unlock Pro</Text>
@@ -902,6 +903,7 @@ export default function DateFilterSheet({ visible, onClose, onApply, onNavigateT
     </Modal>
   );
 }
+
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 

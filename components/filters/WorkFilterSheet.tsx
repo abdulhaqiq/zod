@@ -1,19 +1,22 @@
-import { navPush, navReplace } from '@/utils/nav';
 /**
  * WorkFilterSheet — filters for Zod Work mode.
  *
  * All chip options are loaded from the DB via the shared workLookups utility.
- * Every selection is tracked by DB row ID (ChipOption.value), so "Apply"
- * delivers stable IDs that can be sent directly to filter API calls.
+ * Every selection is tracked by DB row ID (ChipOption.value). On "Apply" the
+ * filters are saved to the backend via PATCH /profile/me/filters
+ * (work_filter_settings JSONB), then onApply() is called so the parent
+ * re-fetches the work feed with the new prefs.
  *
  * Pro tab is gated server-side: only shown as active when the user's
  * subscription_tier (from backend /profile/me) equals "pro".
  */
+import { navPush } from '@/utils/nav';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import SliderRN from '@react-native-community/slider';
 import { useEffect, useRef, useState } from 'react';
 import {
+  Alert,
   Modal,
   Pressable,
   ScrollView,
@@ -25,6 +28,7 @@ import {
 import { useRouter } from 'expo-router';
 import Squircle from '@/components/ui/Squircle';
 import { useAuth } from '@/context/AuthContext';
+import { apiFetch } from '@/constants/api';
 import { fetchWorkLookups, getCachedWorkLookups } from '@/utils/workLookups';
 import type { WorkLookupMap } from '@/utils/workLookups';
 import type { ChipOption } from '@/components/ui/ChipSelectorSheet';
@@ -36,16 +40,23 @@ export interface WorkFilters {
   verifiedOnly: boolean;
   hiringOnly: boolean;
   priorityStartup: boolean;
-  /** All arrays contain DB row IDs (ChipOption.value strings) */
+  /** All arrays contain DB row IDs as integer strings (ChipOption.value) */
   industries: string[];
   skills: string[];
   commitmentLevels: string[];
   whoToSee: string[];
+  jobSearchStatuses: string[];
+  yearsExperience: string[];
   matchingGoals: string[];
   equityPrefs: string[];
   stages: string[];
   roles: string[];
+  numFounders: string[];
 }
+
+/** Convert a string-ID array to integers (for backend JSONB) */
+const toIntArray = (ids: string[]): number[] =>
+  ids.map(Number).filter(n => !isNaN(n) && n > 0);
 
 // ─── Filter Chip (ID-aware) ───────────────────────────────────────────────────
 
@@ -77,12 +88,13 @@ interface Props {
   onClose: () => void;
   colors: any;
   insets: any;
-  onApply?: (filters: WorkFilters) => void;
+  /** Called after filters are saved to the backend — parent re-fetches work feed */
+  onApply?: () => void;
 }
 
 export default function WorkFilterSheet({ visible, onClose, colors, insets, onApply }: Props) {
   const router = useRouter();
-  const { profile } = useAuth();
+  const { profile, token, updateProfile } = useAuth();
   const isPro = profile?.subscription_tier === 'pro';
   const isFaceVerified = profile?.verification_status === 'verified';
   const isDark = colors.bg === '#000000';
@@ -99,6 +111,7 @@ export default function WorkFilterSheet({ visible, onClose, colors, insets, onAp
 
   // ── UI state ──────────────────────────────────────────────────────────────
   const [activeTab,    setActiveTab]    = useState<'basic' | 'pro'>('basic');
+  const [saving,       setSaving]       = useState(false);
 
   // Filter state — all chip arrays store DB IDs (ChipOption.value)
   const [verifiedOnly,     setVerifiedOnly]     = useState(false);
@@ -107,12 +120,40 @@ export default function WorkFilterSheet({ visible, onClose, colors, insets, onAp
   const [skills,           setSkills]           = useState<string[]>([]);
   const [commitment,       setCommitment]       = useState<string[]>([]);
   const [whoToSee,         setWhoToSee]         = useState<string[]>([]);
-  const [wMatchGoals,      setWMatchGoals]      = useState<string[]>([]);
-  const [wEquity,          setWEquity]          = useState<string[]>([]);
-  const [wStage,           setWStage]           = useState<string[]>([]);
-  const [wRole,            setWRole]            = useState<string[]>([]);
-  const [wHiringOnly,      setWHiringOnly]      = useState(false);
-  const [wPriorityStartup, setWPriorityStartup] = useState(false);
+  const [jobSearchStatuses, setJobSearchStatuses] = useState<string[]>([]);
+  const [yearsExperience,   setYearsExperience]   = useState<string[]>([]);
+  const [wHiringOnly,       setWHiringOnly]       = useState(false);
+  const [wMatchGoals,       setWMatchGoals]       = useState<string[]>([]);
+  const [wEquity,           setWEquity]           = useState<string[]>([]);
+  const [wStage,            setWStage]            = useState<string[]>([]);
+  const [wRole,             setWRole]             = useState<string[]>([]);
+  const [wNumFounders,      setWNumFounders]      = useState<string[]>([]);
+  const [wPriorityStartup,  setWPriorityStartup]  = useState(false);
+
+  // Hydrate state from saved profile work_filter_settings when sheet opens
+  useEffect(() => {
+    if (!visible) return;
+    const wf: any = (profile as any)?.work_filter_settings ?? {};
+    if (!wf || Object.keys(wf).length === 0) return;
+    const toStrArr = (arr: any): string[] =>
+      Array.isArray(arr) ? arr.map(String) : [];
+    if (wf.distance_km != null) setDistance(wf.distance_km);
+    setVerifiedOnly(!!wf.verified_only);
+    setWHiringOnly(!!wf.hiring_only);
+    setWPriorityStartup(!!wf.priority_startup);
+    setIndustries(toStrArr(wf.industries));
+    setSkills(toStrArr(wf.skills));
+    setCommitment(toStrArr(wf.commitment_levels));
+    setWhoToSee(toStrArr(wf.who_to_see));
+    setJobSearchStatuses(toStrArr(wf.job_search_statuses));
+    setYearsExperience(toStrArr(wf.years_experience));
+    setWMatchGoals(toStrArr(wf.matching_goals));
+    setWEquity(toStrArr(wf.equity_prefs));
+    setWStage(toStrArr(wf.stages));
+    setWRole(toStrArr(wf.roles));
+    setWNumFounders(toStrArr(wf.num_founders));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible]);
 
   const toggle = (arr: string[], set: (v: string[]) => void, id: string) =>
     set(arr.includes(id) ? arr.filter(x => x !== id) : [...arr, id]);
@@ -120,18 +161,50 @@ export default function WorkFilterSheet({ visible, onClose, colors, insets, onAp
   const reset = () => {
     setVerifiedOnly(false); setDistance(80);
     setIndustries([]); setSkills([]); setCommitment([]); setWhoToSee([]);
+    setJobSearchStatuses([]); setYearsExperience([]); setWHiringOnly(false);
     setWMatchGoals([]); setWEquity([]); setWStage([]); setWRole([]);
-    setWHiringOnly(false); setWPriorityStartup(false);
+    setWNumFounders([]); setWPriorityStartup(false);
   };
 
-  const applyFilters = () => {
-    onApply?.({
-      distance, verifiedOnly,
-      hiringOnly: wHiringOnly, priorityStartup: wPriorityStartup,
-      industries, skills, commitmentLevels: commitment, whoToSee,
-      matchingGoals: wMatchGoals, equityPrefs: wEquity, stages: wStage, roles: wRole,
-    });
-    onClose();
+  const applyFilters = async () => {
+    if (!token) { onClose(); return; }
+    setSaving(true);
+    try {
+      // Build the JSONB blob that the backend stores as work_filter_settings
+      const settings: Record<string, any> = {
+        distance_km:        distance >= 80 ? null : distance,
+        verified_only:      verifiedOnly,
+        hiring_only:        wHiringOnly,
+        priority_startup:   wPriorityStartup,
+        industries:         toIntArray(industries),
+        skills:             toIntArray(skills),
+        commitment_levels:  toIntArray(commitment),
+        who_to_see:         toIntArray(whoToSee),
+        job_search_statuses: toIntArray(jobSearchStatuses),
+        years_experience:   toIntArray(yearsExperience),
+      };
+      // Pro-only fields only sent when user is pro
+      if (isPro) {
+        settings.matching_goals = toIntArray(wMatchGoals);
+        settings.equity_prefs   = toIntArray(wEquity);
+        settings.stages         = toIntArray(wStage);
+        settings.roles          = toIntArray(wRole);
+        settings.num_founders   = toIntArray(wNumFounders);
+      }
+
+      const updated = await apiFetch<any>('/profile/me/filters', {
+        method: 'PATCH',
+        token,
+        body: JSON.stringify({ work_filter_settings: settings }),
+      });
+      updateProfile(updated);
+      onApply?.();
+      onClose();
+    } catch (err: any) {
+      Alert.alert('Could not save filters', err.message ?? 'Please try again.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const SecHead = ({ title }: { title: string }) => (
@@ -262,6 +335,28 @@ export default function WorkFilterSheet({ visible, onClose, colors, insets, onAp
                 )}
               </Squircle>
             </Pressable>
+
+            {/* Job Search Status — from DB */}
+            <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
+              <SecHead title="JOB SEARCH STATUS" />
+              <View style={[styles.filterChipRow, { marginTop: 12 }]}>
+                {opts('work_job_search_status').map(o => (
+                  <FilterChip key={o.value} option={o} selected={jobSearchStatuses.includes(o.value!)}
+                    onPress={() => toggle(jobSearchStatuses, setJobSearchStatuses, o.value!)} colors={colors} />
+                ))}
+              </View>
+            </Squircle>
+
+            {/* Actively Hiring */}
+            <Squircle style={[styles.filterCard, { flexDirection: 'row', alignItems: 'center', gap: 12 }]} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
+              <Squircle style={styles.filterRowIcon} cornerRadius={12} cornerSmoothing={1} fillColor={colors.surface2}>
+                <Ionicons name="megaphone-outline" size={18} color={colors.text} />
+              </Squircle>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.filterRowTitle, { color: colors.text }]}>Actively Hiring</Text>
+                <Text style={[styles.filterRowSub, { color: colors.textSecondary }]}>Show only people who are hiring</Text>
+              </View>
+              <Switch value={wHiringOnly} onValueChange={setWHiringOnly} thumbColor={colors.bg} trackColor={{ false: colors.surface2, true: colors.text }} />
             </Squircle>
 
             {/* Industries — from DB */}
@@ -304,6 +399,17 @@ export default function WorkFilterSheet({ visible, onClose, colors, insets, onAp
                 {opts('work_who_to_show').map(o => (
                   <FilterChip key={o.value} option={o} selected={whoToSee.includes(o.value!)}
                     onPress={() => setWhoToSee([o.value!])} colors={colors} />
+                ))}
+              </View>
+            </Squircle>
+
+            {/* Years of Experience — from DB */}
+            <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
+              <SecHead title="YEARS OF EXPERIENCE" />
+              <View style={[styles.filterChipRow, { marginTop: 12 }]}>
+                {opts('work_years_experience').map(o => (
+                  <FilterChip key={o.value} option={o} selected={yearsExperience.includes(o.value!)}
+                    onPress={() => toggle(yearsExperience, setYearsExperience, o.value!)} colors={colors} />
                 ))}
               </View>
             </Squircle>
@@ -375,15 +481,15 @@ export default function WorkFilterSheet({ visible, onClose, colors, insets, onAp
               </View>
             </Squircle>
 
-            <Squircle style={[styles.filterCard, { flexDirection: 'row', alignItems: 'center', gap: 12 }]} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
-              <Squircle style={styles.filterRowIcon} cornerRadius={12} cornerSmoothing={1} fillColor={colors.surface2}>
-                <Ionicons name="megaphone-outline" size={18} color={colors.text} />
-              </Squircle>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.filterRowTitle, { color: colors.text }]}>Actively Hiring</Text>
-                <Text style={[styles.filterRowSub, { color: colors.textSecondary }]}>Show only people who are hiring</Text>
+            {/* Number of Founders — from DB */}
+            <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
+              <SecHead title="NUMBER OF FOUNDERS" />
+              <View style={[styles.filterChipRow, { marginTop: 12 }]}>
+                {opts('work_num_founders').map(o => (
+                  <FilterChip key={o.value} option={o} selected={wNumFounders.includes(o.value!)}
+                    onPress={() => toggle(wNumFounders, setWNumFounders, o.value!)} colors={colors} />
+                ))}
               </View>
-              <Switch value={wHiringOnly} onValueChange={setWHiringOnly} thumbColor={colors.bg} trackColor={{ false: colors.surface2, true: colors.text }} />
             </Squircle>
 
             <Squircle style={[styles.filterCard, { flexDirection: 'row', alignItems: 'center', gap: 12 }]} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
@@ -435,7 +541,7 @@ export default function WorkFilterSheet({ visible, onClose, colors, insets, onAp
             <Text style={[styles.filterSecHead, { color: colors.textSecondary, marginLeft: 2 }]}>ADVANCED FILTERS</Text>
 
             {/* Show all locked sections with DB options (greyed out) */}
-            {(['work_matching_goals','work_equity_split','work_stage','work_role'] as const).map(cat => (
+            {(['work_matching_goals','work_equity_split','work_stage','work_role','work_num_founders'] as const).map(cat => (
               <Squircle key={cat} style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
                 <View style={styles.proFeatureRow}>
                   <SecHead title={CAT_TITLE[cat]} />
@@ -478,7 +584,7 @@ export default function WorkFilterSheet({ visible, onClose, colors, insets, onAp
                     </Squircle>
                     <View style={{ flex: 1 }}>
                       <Text style={[styles.upsellTitle, { color: colors.text }]}>Unlock Advanced Filters</Text>
-                      <Text style={[styles.upsellSub, { color: colors.textSecondary }]}>Matching goals, equity, stage & more</Text>
+                      <Text style={[styles.upsellSub, { color: colors.textSecondary }]}>Matching goals, equity, stage, founders & more</Text>
                     </View>
                   </View>
                   <Squircle style={styles.upsellBtn} cornerRadius={12} cornerSmoothing={1} fillColor={colors.surface2} strokeColor={colors.border} strokeWidth={1}>
@@ -486,16 +592,20 @@ export default function WorkFilterSheet({ visible, onClose, colors, insets, onAp
                   </Squircle>
                 </Squircle>
               </Pressable>
-              <Squircle cornerRadius={18} cornerSmoothing={1} fillColor={colors.text} style={styles.applyBtn}>
-                <Pressable onPress={applyFilters} style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-                  <Text style={[styles.applyBtnText, { color: colors.bg }]}>Apply Filters</Text>
+              <Squircle cornerRadius={18} cornerSmoothing={1} fillColor={saving ? colors.surface2 : colors.text} style={styles.applyBtn}>
+                <Pressable disabled={saving} onPress={applyFilters} style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+                  <Text style={[styles.applyBtnText, { color: saving ? colors.textSecondary : colors.bg }]}>
+                    {saving ? 'Saving…' : 'Apply Filters'}
+                  </Text>
                 </Pressable>
               </Squircle>
             </>
           ) : isPro ? (
-            <Squircle cornerRadius={18} cornerSmoothing={1} fillColor={colors.text} style={styles.applyBtn}>
-              <Pressable onPress={applyFilters} style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-                <Text style={[styles.applyBtnText, { color: colors.bg }]}>Apply Filters</Text>
+            <Squircle cornerRadius={18} cornerSmoothing={1} fillColor={saving ? colors.surface2 : colors.text} style={styles.applyBtn}>
+              <Pressable disabled={saving} onPress={applyFilters} style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+                <Text style={[styles.applyBtnText, { color: saving ? colors.textSecondary : colors.bg }]}>
+                  {saving ? 'Saving…' : 'Apply Filters'}
+                </Text>
               </Pressable>
             </Squircle>
           ) : (
@@ -520,6 +630,7 @@ const CAT_TITLE: Record<string, string> = {
   work_equity_split:    'EQUITY PREFERENCE',
   work_stage:           'STARTUP STAGE',
   work_role:            'CO-FOUNDER ROLE',
+  work_num_founders:    'NUMBER OF FOUNDERS',
 };
 
 const AI_FEATURES = [

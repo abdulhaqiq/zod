@@ -446,7 +446,7 @@ export default function ZodWorkPage() {
         keyboardShouldPersistTaps="handled"
       >
 
-        {/* ── WORK PROFILE ─────────────────────────────────────────────────── */}
+        {/* ── WORK PROFILE — temporarily hidden
         <View style={styles.section}>
           <SectionLabel title="WORK PROFILE" colors={colors} />
           <Group colors={colors}>
@@ -460,8 +460,9 @@ export default function ZodWorkPage() {
             />
           </Group>
         </View>
+        */}
 
-        {/* ── WORK HEADLINE ────────────────────────────────────────────────── */}
+        {/* ── WORK HEADLINE — temporarily hidden
         <View style={styles.section}>
           <SectionLabel title="WORK HEADLINE" colors={colors} />
           <Group colors={colors}>
@@ -497,8 +498,9 @@ export default function ZodWorkPage() {
             </View>
           </Group>
         </View>
+        */}
 
-        {/* ── I AM A... ────────────────────────────────────────────────────── */}
+        {/* ── I AM A... — temporarily hidden
         <View style={styles.section}>
           <SectionLabel title="I AM A..." colors={colors} />
           <Group colors={colors}>
@@ -534,9 +536,10 @@ export default function ZodWorkPage() {
             ))}
           </Group>
         </View>
+        */}
 
-        {/* ── FOUNDER PROFILE ──────────────────────────────────────────────── */}
-        {showFounder && (
+        {/* ── FOUNDER PROFILE — temporarily hidden */}
+        {false && showFounder && (
           <View style={styles.section}>
             <SectionLabel title="FOUNDER PROFILE" colors={colors} />
             <Group colors={colors}>
@@ -605,8 +608,8 @@ export default function ZodWorkPage() {
           </View>
         )}
 
-        {/* ── JOB SEEKER PROFILE ───────────────────────────────────────────── */}
-        {showJobSeeker && (
+        {/* ── JOB SEEKER PROFILE — temporarily hidden */}
+        {false && showJobSeeker && (
           <View style={styles.section}>
             <SectionLabel title="JOB SEEKER PROFILE" colors={colors} />
             <Group colors={colors}>
@@ -949,57 +952,7 @@ export default function ZodWorkPage() {
         </View>
 
         {/* ── PREFERENCES ──────────────────────────────────────────────────── */}
-        <View style={styles.section}>
-          <SectionLabel title="PREFERENCES" colors={colors} />
-          <Group colors={colors}>
-            <Row
-              icon="eye-outline"
-              label="Who I Want to See"
-              value={previewOne('work_who_to_show', whoToShow)}
-              colors={colors}
-              onPress={() => openChip({
-                title: 'Who I Want to See',
-                options: opts('work_who_to_show'),
-                selected: whoToShow ? [whoToShow] : [], single: true,
-                onDone: ([v]) => { setWhoToShow(v); save({ work_who_to_show_id: Number(v) }); },
-              })}
-            />
-            <ToggleRow
-              icon="megaphone-outline"
-              label="Are You Hiring?"
-              subtitle={hiring ? 'Yes, actively hiring' : 'Not currently hiring'}
-              value={hiring}
-              onChange={(v) => { setHiring(v); save({ work_are_you_hiring: v }); }}
-              colors={colors}
-            />
-            {/* Scheduling URL */}
-            <View style={[styles.row, { borderBottomWidth: 0 }]}>
-              <Squircle style={styles.iconWrap} cornerRadius={10} cornerSmoothing={1} fillColor={colors.surface2}>
-                <Ionicons name="calendar-outline" size={16} color={colors.text} />
-              </Squircle>
-              <View style={{ flex: 1, gap: 2 }}>
-                <Text style={[styles.rowLabel, { color: colors.text }]}>Scheduling Link</Text>
-                <TextInput
-                  value={schedulingUrl}
-                  onChangeText={setSchedulingUrl}
-                  onFocus={() => setUrlFocused(true)}
-                  onBlur={() => {
-                    setUrlFocused(false);
-                    save({ work_scheduling_url: schedulingUrl });
-                  }}
-                  placeholder="e.g. calendly.com/yourname"
-                  placeholderTextColor={colors.textSecondary}
-                  autoCapitalize="none"
-                  keyboardType="url"
-                  style={[
-                    styles.urlInput,
-                    { color: colors.text, borderColor: urlFocused ? colors.text : 'transparent' },
-                  ]}
-                />
-              </View>
-            </View>
-          </Group>
-        </View>
+        {/* Preferences section removed — Who I Want to See, Are You Hiring?, Scheduling Link */}
 
       </ScrollView>
 

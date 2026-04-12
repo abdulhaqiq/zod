@@ -1,6 +1,7 @@
 import { navPush } from '@/utils/nav';
 import { Ionicons } from '@expo/vector-icons';
 import * as AppleAuthentication from 'expo-apple-authentication';
+import * as Google from 'expo-auth-session/providers/google';
 import { Image } from 'expo-image';
 import * as LocalAuthentication from 'expo-local-authentication';
 import * as WebBrowser from 'expo-web-browser';
@@ -27,6 +28,8 @@ import {
   type RecentAccount,
 } from '@/context/AuthContext';
 
+WebBrowser.maybeCompleteAuthSession();
+
 const TERMS_URL   = 'https://zod.dhabli.com/terms';
 const PRIVACY_URL = 'https://zod.dhabli.com/privacy';
 
@@ -48,15 +51,34 @@ const Logo = ({ size = 180 }: { size?: number }) => {
   );
 };
 
+const GoogleLogo = () => (
+  <Svg width={20} height={20} viewBox="0 0 48 48">
+    <Path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+    <Path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+    <Path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+    <Path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+    <Path fill="none" d="M0 0h48v48H0z"/>
+  </Svg>
+);
+
+const GOOGLE_IOS_CLIENT_ID     = '48845965654-q028qerm28qe3vo5t8mh6e12r108oo2g.apps.googleusercontent.com';
+const GOOGLE_ANDROID_CLIENT_ID = 'YOUR_ANDROID_CLIENT_ID.apps.googleusercontent.com';
+
 export default function WelcomeScreen() {
   const { signIn, performQuickSignIn } = useAuth();
   const router = useRouter();
   const [appleLoading,  setAppleLoading]  = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const [quickLoading,  setQuickLoading]  = useState(false);
   const [eulaAccepted,  setEulaAccepted]  = useState(false);
   // null = loading, undefined = no recent account, RecentAccount = has one
   const [recentAccount, setRecentAccount] = useState<RecentAccount | null | undefined>(null);
   const [showOtherMethods, setShowOtherMethods] = useState(false);
+
+  const [googleRequest, googleResponse, promptGoogleAsync] = Google.useAuthRequest({
+    iosClientId:     GOOGLE_IOS_CLIENT_ID,
+    androidClientId: GOOGLE_ANDROID_CLIENT_ID,
+  });
 
   useEffect(() => {
     loadRecentAccount()
@@ -64,18 +86,69 @@ export default function WelcomeScreen() {
       .catch(() => setRecentAccount(undefined));
   }, []);
 
+  useEffect(() => {
+    if (googleResponse?.type === 'success') {
+      const { authentication } = googleResponse;
+      if (authentication?.accessToken) {
+        handleGoogleToken(authentication.accessToken);
+      }
+    } else if (googleResponse?.type === 'error') {
+      setGoogleLoading(false);
+      Alert.alert('Sign In Failed', googleResponse.error?.message ?? 'Google sign-in failed. Please try again.');
+    } else if (googleResponse?.type === 'dismiss' || googleResponse?.type === 'cancel') {
+      setGoogleLoading(false);
+    }
+  }, [googleResponse]);
+
   const openInAppBrowser = (url: string) =>
     WebBrowser.openBrowserAsync(url, {
       presentationStyle: WebBrowser.WebBrowserPresentationStyle.PAGE_SHEET,
       enableBarCollapsing: true,
     });
 
+  const handleGoogleToken = async (googleAccessToken: string) => {
+    try {
+      const data = await apiFetch<TokenResponse>('/auth/google', {
+        method: 'POST',
+        body: JSON.stringify({ access_token: googleAccessToken }),
+      });
+
+      const me = await authedFetch<{
+        is_onboarded: boolean;
+        full_name?: string | null;
+        phone?: string | null;
+        photos?: string[] | null;
+      }>('/profile/me', data.access_token);
+
+      await signIn(data.access_token, data.refresh_token, me.is_onboarded, 'google');
+
+      const dest = me.is_onboarded ? '/(tabs)' : '/gender';
+        goToPasskeySetup(
+          { name: me.full_name ?? null, phone: me.phone ?? null, photo: me.photos?.[0] ?? null, method: 'google' },
+          dest,
+        );
+    } catch (err: any) {
+      Alert.alert('Sign In Failed', err.message ?? 'Please try again.');
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    if (!eulaAccepted) {
+      Alert.alert('Please agree first', 'You must accept our Terms of Service and Community Guidelines before continuing.');
+      return;
+    }
+    setGoogleLoading(true);
+    await promptGoogleAsync();
+  };
+
   /** Navigate to passkey setup passing account info so the screen can save it.
    *  If the same user is signing in again → skip (already saved).
    *  If a different user → silently overwrite the saved account.
    *  If no saved account → show the passkey setup screen to ask permission. */
   const goToPasskeySetup = async (
-    account: { name: string | null; phone: string | null; photo: string | null; method: 'phone' | 'apple' },
+    account: { name: string | null; phone: string | null; photo: string | null; method: 'phone' | 'apple' | 'google' },
     next: string,
   ) => {
     const existing = await loadRecentAccount();
@@ -278,7 +351,7 @@ export default function WelcomeScreen() {
               /* ── Standard auth buttons ───────────────────────────── */
               <View style={styles.authButtons}>
                 <TouchableOpacity
-                  style={[styles.btnApple, !eulaAccepted && { opacity: 0.45 }]}
+                  style={styles.btnApple}
                   onPress={() => {
                     if (!eulaAccepted) {
                       Alert.alert('Please agree first', 'You must accept our Terms of Service and Community Guidelines before continuing.');
@@ -295,6 +368,22 @@ export default function WelcomeScreen() {
                     <View style={styles.btnAppleInner}>
                       <Ionicons name="logo-apple" size={20} color="#000" />
                       <Text style={styles.btnAppleText}>Continue with Apple</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.btnGoogle}
+                  onPress={handleGoogleSignIn}
+                  disabled={googleLoading || !googleRequest}
+                  activeOpacity={0.85}
+                >
+                  {googleLoading ? (
+                    <ActivityIndicator color="#444" />
+                  ) : (
+                    <View style={styles.btnGoogleInner}>
+                      <GoogleLogo />
+                      <Text style={styles.btnGoogleText}>Continue with Google</Text>
                     </View>
                   )}
                 </TouchableOpacity>
@@ -388,6 +477,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   btnPhoneText: { fontSize: 16, fontFamily: 'ProductSans-Bold', color: '#fff' },
+  btnGoogle: {
+    backgroundColor: 'transparent',
+    borderRadius: 50,
+    borderWidth: 2,
+    borderColor: '#fff',
+    paddingVertical: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 56,
+  },
+  btnGoogleInner: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  btnGoogleText: { fontSize: 16, fontFamily: 'ProductSans-Bold', color: '#fff' },
   legal: {
     color: 'rgba(255,255,255,0.7)',
     fontSize: 11,

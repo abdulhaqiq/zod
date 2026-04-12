@@ -33,6 +33,55 @@ const CARD_W          = W - 32;
 const CARD_H          = H * 0.68;
 const SWIPE_THRESHOLD = W * 0.27;
 
+// ─── Shimmer skeleton ─────────────────────────────────────────────────────────
+
+function ShimmerBox({ width, height, borderRadius = 12 }: {
+  width: number | string; height: number; borderRadius?: number;
+}) {
+  const anim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(anim, { toValue: 1, duration: 900, useNativeDriver: true }),
+        Animated.timing(anim, { toValue: 0, duration: 900, useNativeDriver: true }),
+      ])
+    ).start();
+  }, [anim]);
+  const opacity = anim.interpolate({ inputRange: [0, 1], outputRange: [0.25, 0.55] });
+  return (
+    <Animated.View style={{ width, height, borderRadius, backgroundColor: '#555', opacity }} />
+  );
+}
+
+function WorkFeedSkeleton({ colors }: { colors: any }) {
+  return (
+    <View style={{ flex: 1, width: '100%', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16 }}>
+      {/* Card skeleton */}
+      <View style={{ width: CARD_W, height: CARD_H, borderRadius: 28, overflow: 'hidden', backgroundColor: colors.surface }}>
+        <ShimmerBox width={CARD_W} height={CARD_H} borderRadius={28} />
+        {/* Bottom info area */}
+        <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: 20, gap: 10 }}>
+          {/* Name + verified */}
+          <ShimmerBox width={180} height={22} borderRadius={8} />
+          {/* Headline */}
+          <ShimmerBox width={CARD_W - 60} height={14} borderRadius={6} />
+          <ShimmerBox width={CARD_W - 100} height={14} borderRadius={6} />
+          {/* Persona + distance badges */}
+          <View style={{ flexDirection: 'row', gap: 8, marginTop: 4 }}>
+            <ShimmerBox width={110} height={28} borderRadius={20} />
+            <ShimmerBox width={80} height={28} borderRadius={20} />
+          </View>
+        </View>
+      </View>
+      {/* Pass / Connect buttons */}
+      <View style={{ flexDirection: 'row', gap: 24, marginTop: 20, alignItems: 'center' }}>
+        <ShimmerBox width={110} height={50} borderRadius={28} />
+        <ShimmerBox width={130} height={50} borderRadius={28} />
+      </View>
+    </View>
+  );
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface WorkProfile {
@@ -765,39 +814,56 @@ function WorkAiInsightsPage({ colors, insets }: { colors: any; insets: any }) {
 
 // ─── WorkFeedScreen ───────────────────────────────────────────────────────────
 
+export interface WorkFeedScreenHandle {
+  /** Reload the feed from page 0 — called by parent after work filters are saved */
+  refresh: () => void;
+}
+
 interface WorkFeedScreenProps {
   colors: any;
   insets: any;
   activeTab: string;
 }
 
-export default function WorkFeedScreen({ colors, insets, activeTab }: WorkFeedScreenProps) {
+const WorkFeedScreen = forwardRef<WorkFeedScreenHandle, WorkFeedScreenProps>(
+function WorkFeedScreen({ colors, insets, activeTab }, ref) {
   const router = useRouter();
   const { token } = useAuth();
+  // Keep a ref so fetchFeed never needs token as a useCallback dependency.
+  // This prevents the effect from re-running every time a background token
+  // refresh updates the token value in AuthContext.
+  const tokenRef = useRef(token);
+  tokenRef.current = token;
+
   const [workProfiles, setWorkProfiles] = useState<WorkProfile[]>([]);
   const [loading,      setLoading]      = useState(false);
   const [feedPage,     setFeedPage]     = useState(0);
+  // Must be declared here (not after conditional returns) to satisfy Rules of Hooks
+  const workCardRef = useRef<WorkProfileCardHandle>(null);
   const [hasMore,      setHasMore]      = useState(true);
   const [matched,      setMatched]      = useState<string[]>([]);
   const [matchedProfile, setMatchedProfile] = useState<MatchedProfile | null>(null);
   const DAILY_CONNECT_LIMIT = 20;
   const [connectsUsed, setConnectsUsed] = useState(0);
 
-  // Hydrate daily connect count from DB on mount
+  // Hydrate daily connect count from DB on mount (runs once)
   useEffect(() => {
-    if (!token) return;
-    apiFetch<{ connects_used: number }>('/discover/work/daily-status', { token })
+    const t = tokenRef.current;
+    if (!t) return;
+    apiFetch<{ connects_used: number }>('/discover/work/daily-status', { token: t })
       .then(res => setConnectsUsed(res.connects_used))
       .catch(() => {});
-  }, [token]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const fetchFeed = useCallback(async (page: number = 0, replace: boolean = true) => {
-    if (!token) return;
+    const t = tokenRef.current;
+    if (!t) return;
     setLoading(true);
     try {
       const res = await apiFetch<{ profiles: any[]; has_more: boolean }>(
         `/discover/feed?page=${page}&limit=10&mode=work`,
-        { token },
+        { token: t },
       );
       // Map API response to WorkProfile shape
       const mapped: WorkProfile[] = res.profiles.map(p => ({
@@ -844,11 +910,18 @@ export default function WorkFeedScreen({ colors, insets, activeTab }: WorkFeedSc
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  // Stable reference — reads token from tokenRef at call time so token
+  // changes never cause the initial-load useEffect to re-fire.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     fetchFeed(0, true);
   }, [fetchFeed]);
+
+  // Expose refresh() so the parent (FeedScreen) can trigger a refetch after
+  // work filters are saved without needing to remount the component.
+  useImperativeHandle(ref, () => ({ refresh: () => fetchFeed(0, true) }), [fetchFeed]);
 
   const removeTop = () => {
     setWorkProfiles(p => {
@@ -861,13 +934,14 @@ export default function WorkFeedScreen({ colors, insets, activeTab }: WorkFeedSc
 
   // Record swipe — returns the API response; handles 403 limit errors
   const recordSwipe = (profileId: string, direction: 'left' | 'right') => {
-    if (!token) return Promise.resolve(null);
+    const t = tokenRef.current;
+    if (!t) return Promise.resolve(null);
     return apiFetch<{
       match: boolean;
       work_connects_used?: number;
       work_connects_remaining?: number;
     }>('/discover/swipe', {
-      token,
+      token: t,
       method: 'POST',
       body: JSON.stringify({ swiped_id: profileId, direction, mode: 'work' }),
     }).catch(() => null);
@@ -906,15 +980,11 @@ export default function WorkFeedScreen({ colors, insets, activeTab }: WorkFeedSc
     return <WorkAiInsightsPage colors={colors} insets={insets} />;
   }
 
-  const workCardRef = useRef<WorkProfileCardHandle>(null);
-
   // 'people' tab — button-driven feed
   return (
     <View style={{ flex: 1, width: '100%', alignItems: 'center', justifyContent: 'center' }}>
       {loading && workProfiles.length === 0 ? (
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 }}>
-          <Text style={[{ fontSize: 14, fontFamily: 'ProductSans-Regular', color: colors.textSecondary }]}>Finding co-founders near you…</Text>
-        </View>
+        <WorkFeedSkeleton colors={colors} />
       ) : workProfiles.length === 0 ? (
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
           <EmptyState onReset={reset} colors={colors} />
@@ -1001,7 +1071,9 @@ export default function WorkFeedScreen({ colors, insets, activeTab }: WorkFeedSc
       )}
     </View>
   );
-}
+});
+
+export default WorkFeedScreen;
 
 // ─── Card styles ──────────────────────────────────────────────────────────────
 

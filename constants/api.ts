@@ -4,9 +4,9 @@ const PROD_API_URL = 'https://dev.zod.ailoo.co';
 
 // Set to true to always point at production, even when running in dev/Expo Go.
 // Set to false to use the local dev server at LOCAL_DEV_IP.
-const USE_PROD_API = true;
+const USE_PROD_API = false;
 
-const LOCAL_DEV_IP = '172.20.10.2'; // only used when USE_PROD_API is false
+const LOCAL_DEV_IP = '10.155.180.31'; // only used when USE_PROD_API is false
 
 const APP_API_KEY: string =
   (Constants.expoConfig?.extra as any)?.APP_API_KEY ?? '';
@@ -14,16 +14,9 @@ const APP_API_KEY: string =
 function getApiBaseUrl(): string {
   if (USE_PROD_API) return PROD_API_URL;
 
-  const debuggerHost =
-    Constants.expoConfig?.hostUri ??
-    (Constants as any).manifest2?.extra?.expoGo?.debuggerHost ??
-    (Constants as any).manifest?.debuggerHost;
-
-  if (debuggerHost) {
-    const host = debuggerHost.split(':')[0];
-    return `http://${host}:8000`;
-  }
-
+  // When the Expo dev server and the backend are on different networks
+  // (e.g. hotspot vs LAN), the auto-detected hostUri points at the wrong
+  // machine. Always use LOCAL_DEV_IP so backend calls go to the right host.
   if (__DEV__) {
     return `http://${LOCAL_DEV_IP}:8000`;
   }

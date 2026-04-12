@@ -5,6 +5,7 @@ import { useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -163,6 +164,7 @@ export default function SubscriptionPage() {
     planByInterval,
     proPlans,
     premiumPlans,
+    plansLoading,
     myFeatures,
     weeklyPackage,
     monthlyPackage,
@@ -180,7 +182,14 @@ export default function SubscriptionPage() {
   const [tier,    setTier]    = useState<PlanTier>('pro');
   const [billing, setBilling] = useState<BillingPeriod>('monthly');
 
-  const isPro     = profile?.subscription_tier === 'pro' || profile?.subscription_tier === 'premium_plus' || status?.isPro === true;
+  // The user's actual subscription tier
+  const userTier  = myFeatures?.tier ?? profile?.subscription_tier ?? 'free';
+  const isPro     = userTier === 'pro' || userTier === 'premium_plus' || status?.isPro === true;
+  // True only when the user already owns the tab they're currently viewing
+  const isAlreadyOnSelectedTier =
+    tier === 'premium_plus'
+      ? userTier === 'premium_plus'
+      : isPro; // pro or premium+ both cover the Pro tab
   const expiresAt = status?.expiresAt ?? null;
 
   // ── Feature lists from DB (fallback to hardcoded until DB responds) ──────────
@@ -212,25 +221,13 @@ export default function SubscriptionPage() {
 
   // ── Plan lookup helpers ───────────────────────────────────────────────────────
 
-  const intervalKey: BackendPlan['interval'] = billing === 'threemonths' ? 'threemonth' : billing as any;
-
   const getPlan = (t: PlanTier, b: BillingPeriod): BackendPlan | null =>
     planByInterval(t, b === 'threemonths' ? 'threemonth' : b as any);
 
-  // Fallback display values if DB not yet loaded
-  const fallbackPrice: Record<PlanTier, Record<BillingPeriod, string>> = {
-    pro:          { weekly: '$4.99/wk',  monthly: '$14.99/mo', threemonths: '$11.67/mo' },
-    premium_plus: { weekly: '$9.99/wk',  monthly: '$24.99/mo', threemonths: '$18.33/mo' },
-  };
-  const fallbackDesc: Record<PlanTier, Record<BillingPeriod, string>> = {
-    pro:          { weekly: 'Billed weekly, cancel anytime', monthly: 'Billed monthly, cancel anytime', threemonths: 'Billed $34.99 every 3 months · Save 22%' },
-    premium_plus: { weekly: 'Billed weekly, cancel anytime', monthly: 'Billed monthly, cancel anytime', threemonths: 'Billed $54.99 every 3 months · Save 27%' },
-  };
-
   const getPriceDisplay = (t: PlanTier, b: BillingPeriod) =>
-    getPlan(t, b)?.price_display ?? fallbackPrice[t][b];
+    getPlan(t, b)?.price_display ?? null;
   const getDescription  = (t: PlanTier, b: BillingPeriod) =>
-    getPlan(t, b)?.description   ?? fallbackDesc[t][b];
+    getPlan(t, b)?.description   ?? null;
   const getBadge        = (t: PlanTier, b: BillingPeriod) =>
     getPlan(t, b)?.badge         ?? null;
 
@@ -254,8 +251,8 @@ export default function SubscriptionPage() {
   // ── CTA text ──────────────────────────────────────────────────────────────────
 
   const tierName = tier === 'pro' ? 'Zod Pro' : 'Premium+';
-  const ctaPrice = getPlan(tier, billing)?.price_display ?? fallbackPrice[tier][billing];
-  const ctaDesc  = getPlan(tier, billing)?.description   ?? fallbackDesc[tier][billing];
+  const ctaPrice = getPlan(tier, billing)?.price_display ?? null;
+  const ctaDesc  = getPlan(tier, billing)?.description   ?? null;
 
   // ── Personal quota (from my-features) ────────────────────────────────────────
 
@@ -285,7 +282,7 @@ export default function SubscriptionPage() {
     const success = await purchase(pkg);
     if (success) {
       Alert.alert(`Welcome to ${tierName}!`, 'All features are now unlocked.', [
-        { text: "Let's go!", onPress: () => router.back() },
+        { text: "Let's go!", onPress: () => { if (router.canGoBack()) router.back(); } },
       ]);
     } else if (error) {
       Alert.alert('Purchase failed', error);
@@ -299,11 +296,16 @@ export default function SubscriptionPage() {
     }
     const success = await restore();
     if (success) {
-      Alert.alert('Restored!', 'Your subscription has been restored.');
-      router.back();
+      Alert.alert('Restored!', 'Your subscription has been restored.', [
+        { text: 'OK', onPress: () => { if (router.canGoBack()) router.back(); } },
+      ]);
     } else {
       Alert.alert('No subscription found', "We couldn't find an active subscription for your account.");
     }
+  };
+
+  const handleManageSubscription = () => {
+    Linking.openURL('https://apps.apple.com/account/subscriptions');
   };
 
   const billingPeriods: BillingPeriod[] = ['threemonths', 'monthly', 'weekly'];
@@ -316,7 +318,7 @@ export default function SubscriptionPage() {
     <View style={[styles.root, { backgroundColor: colors.bg }]}>
       <ScreenHeader
         title="Upgrade"
-        onClose={() => router.back()}
+        onClose={() => { if (router.canGoBack()) router.back(); }}
         colors={colors}
       />
 
@@ -373,19 +375,53 @@ export default function SubscriptionPage() {
 
         {/* ── Billing options ───────────────────────────────────────────── */}
         <View style={styles.billingWrap}>
-          {billingPeriods.map(b => (
-            <BillingOption
-              key={b}
-              label={billingLabel[b]}
-              price={getPriceDisplay(tier, b)}
-              sub={getDescription(tier, b)}
-              badge={getBadge(tier, b)}
-              selected={billing === b}
-              onSelect={() => setBilling(b)}
-              colors={colors}
-            />
-          ))}
+          {plansLoading ? (
+            // Skeleton rows while backend prices load
+            ['threemonths', 'monthly', 'weekly'].map(b => (
+              <View key={b} style={[styles.billingOptionSkeleton, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                <ActivityIndicator size="small" color={colors.textTertiary} />
+              </View>
+            ))
+          ) : (
+            billingPeriods.map(b => (
+              <BillingOption
+                key={b}
+                label={billingLabel[b]}
+                price={getPriceDisplay(tier, b) ?? '—'}
+                sub={getDescription(tier, b) ?? ''}
+                badge={getBadge(tier, b)}
+                selected={billing === b}
+                onSelect={() => setBilling(b)}
+                colors={colors}
+              />
+            ))
+          )}
         </View>
+
+        {/* ── AI Credits balance (shown when subscribed) ──────────────────── */}
+        {isPro && myFeatures != null && (
+          <Squircle style={[styles.tableCard, { marginBottom: 12 }]} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={StyleSheet.hairlineWidth}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 14 }}>
+              <Squircle style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }} cornerRadius={12} cornerSmoothing={1} fillColor={colors.surface2}>
+                <Ionicons name="flash" size={20} color={colors.text} />
+              </Squircle>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 13, fontFamily: 'ProductSans-Bold', color: colors.text }}>AI Credits</Text>
+                <Text style={{ fontSize: 12, fontFamily: 'ProductSans-Regular', color: colors.textSecondary, marginTop: 1 }}>
+                  {myFeatures.ai_credits_balance} remaining · {myFeatures.ai_credits_monthly}/mo included
+                </Text>
+              </View>
+              <Pressable
+                onPress={() => router.push('/ai-credits' as any)}
+                style={({ pressed }) => [pressed && { opacity: 0.7 }]}
+              >
+                <Squircle style={{ paddingHorizontal: 12, paddingVertical: 6 }} cornerRadius={20} cornerSmoothing={1} fillColor={colors.surface2}>
+                  <Text style={{ fontSize: 12, fontFamily: 'ProductSans-Bold', color: colors.text }}>Top Up</Text>
+                </Squircle>
+              </Pressable>
+            </View>
+          </Squircle>
+        )}
 
         {/* ── Feature comparison (all features, ✓ or ✗ for active tier) ── */}
         <Squircle style={styles.tableCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={StyleSheet.hairlineWidth}>
@@ -451,7 +487,7 @@ export default function SubscriptionPage() {
 
       {/* ── Full-width bottom CTA ─────────────────────────────────────── */}
       <View style={styles.ctaWrap} pointerEvents="box-none">
-        {!isPro && error ? (
+        {!isAlreadyOnSelectedTier && error ? (
           <View style={styles.errorRow}>
             <Squircle style={styles.errorPill} cornerRadius={14} cornerSmoothing={1} fillColor="rgba(239,68,68,0.1)" strokeColor="rgba(239,68,68,0.25)" strokeWidth={1}>
               <Ionicons name="alert-circle-outline" size={14} color="#ef4444" />
@@ -468,23 +504,29 @@ export default function SubscriptionPage() {
             android: { elevation: 12 },
           }),
         }]}>
-          {isPro ? (
+          {isAlreadyOnSelectedTier ? (
             <>
-              <View style={[styles.alreadyBtn, { backgroundColor: colors.surface2, borderRadius: 50 }]}>
-                <View style={styles.alreadyInner}>
-                  <Ionicons name="checkmark-circle" size={20} color={colors.text} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.alreadyLabel, { color: colors.text }]}>Already Subscribed</Text>
-                    <Text style={[styles.alreadySub, { color: colors.textSecondary }]}>
-                      {expiresAt
-                        ? `Renews ${new Date(expiresAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
-                        : "You're on Zod Pro · Active"}
-                    </Text>
+              <Pressable
+                onPress={handleManageSubscription}
+                style={({ pressed }) => [pressed && { opacity: 0.8 }]}
+              >
+                <View style={[styles.alreadyBtn, { backgroundColor: colors.surface2, borderRadius: 50 }]}>
+                  <View style={styles.alreadyInner}>
+                    <Ionicons name="checkmark-circle" size={20} color={colors.text} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.alreadyLabel, { color: colors.text }]}>Already Subscribed</Text>
+                      <Text style={[styles.alreadySub, { color: colors.textSecondary }]}>
+                        {expiresAt
+                          ? `Renews ${new Date(expiresAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+                          : `You're on ${tier === 'premium_plus' ? 'Premium+' : 'Zod Pro'} · Active`}
+                      </Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />
                   </View>
                 </View>
-              </View>
+              </Pressable>
               <Text style={[styles.ctaLegal, { color: colors.textTertiary }]}>
-                Manage subscription in App Store settings.
+                Tap to manage or cancel in App Store settings.
               </Text>
             </>
           ) : (
@@ -499,9 +541,13 @@ export default function SubscriptionPage() {
                   ) : storeAvailable ? (
                     <View style={styles.ctaBtnInner}>
                       <Text style={[styles.ctaBtnLabel, { color: colors.bg }]}>Get {tierName}</Text>
-                      <Text style={[styles.ctaBtnSub, { color: colors.bg, opacity: 0.7 }]}>
-                        {ctaPrice} · {ctaDesc}
-                      </Text>
+                      {ctaPrice && ctaDesc ? (
+                        <Text style={[styles.ctaBtnSub, { color: colors.bg, opacity: 0.7 }]}>
+                          {ctaPrice} · {ctaDesc}
+                        </Text>
+                      ) : ctaPrice ? (
+                        <Text style={[styles.ctaBtnSub, { color: colors.bg, opacity: 0.7 }]}>{ctaPrice}</Text>
+                      ) : null}
                     </View>
                   ) : (
                     <Text style={[styles.ctaBtnLabel, { color: colors.textSecondary }]}>Not available right now</Text>
@@ -727,6 +773,7 @@ const styles = StyleSheet.create({
 
   billingWrap:   { gap: 10, marginBottom: 20 },
   billingOption: {},
+  billingOptionSkeleton: { height: 72, borderRadius: 18, borderWidth: StyleSheet.hairlineWidth, alignItems: 'center', justifyContent: 'center' },
   billingInner:  { flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 16, paddingVertical: 16 },
   radio:         { width: 20, height: 20, borderRadius: 10, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
   radioDot:      { width: 10, height: 10, borderRadius: 5 },

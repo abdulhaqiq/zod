@@ -31,13 +31,14 @@ import Squircle from '@/components/ui/Squircle';
 import MatchScreen, { type MatchedProfile } from '@/components/MatchScreen';
 import MyProfilePage from '@/components/MyProfilePage';
 import ExplorePage from '@/components/ExplorePage';
-import WorkFeedScreen from '@/components/WorkFeedScreen';
+import WorkFeedScreen, { type WorkFeedScreenHandle } from '@/components/WorkFeedScreen';
 import ChatsPage from '@/components/ChatsPage';
 import LikedYouPage from '@/components/LikedYouPage';
 import AiMatchPage from '@/components/AiMatchPage';
 import WorkMatchedPage from '@/components/WorkMatchedPage';
 import WorkAiInsightsPage from '@/components/WorkAiInsightsPage';
 import DateFilterSheet from '@/components/filters/DateFilterSheet';
+import WorkFilterSheet from '@/components/filters/WorkFilterSheet';
 import { apiFetch, WS_V1 } from '@/constants/api';
 import { useAuth } from '@/context/AuthContext';
 import { useAppTheme } from '@/context/ThemeContext';
@@ -146,7 +147,7 @@ function HalalModeSheet({ visible, halalMode, appMode, onSelect, onSelectWork, o
   const isStandard = !halalMode && !isWork;
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
       <Pressable style={mStyles.backdrop} onPress={onClose}>
         <Pressable style={[mStyles.sheet, { backgroundColor: colors.surface }]}>
           <View style={mStyles.handle} />
@@ -194,7 +195,7 @@ function HalalModeSheet({ visible, halalMode, appMode, onSelect, onSelectWork, o
             {halalMode && !isWork && <Ionicons name="checkmark-circle" size={22} color={colors.text} />}
           </Pressable>
 
-          {/* Zod Work option */}
+          {/* Zod Work option — temporarily hidden
           <Pressable
             style={[
               mStyles.option,
@@ -214,6 +215,7 @@ function HalalModeSheet({ visible, halalMode, appMode, onSelect, onSelectWork, o
             </View>
             {isWork && <Ionicons name="checkmark-circle" size={22} color={colors.text} />}
           </Pressable>
+          */}
         </Pressable>
       </Pressable>
     </Modal>
@@ -242,12 +244,9 @@ const rStyles = StyleSheet.create({
   title:        { fontSize: 22, fontFamily: 'PageSerif', textAlign: 'center' },
   sub:          { fontSize: 13, fontFamily: 'ProductSans-Regular', textAlign: 'center', lineHeight: 19 },
 
-  grid:         { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 16, gap: 10, marginBottom: 16 },
-  gridItem:     { width: '47%' },
-  gridCard:     { padding: 14, gap: 10, minHeight: 90, position: 'relative' },
-  gridIconWrap: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  gridLabel:    { fontSize: 13, fontFamily: 'ProductSans-Bold', lineHeight: 18 },
-  gridCheck:    { position: 'absolute', top: 10, right: 10, width: 18, height: 18, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
+  listRow:      { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 13, gap: 14 },
+  listIcon:     { width: 38, height: 38, borderRadius: 11, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  listLabel:    { fontSize: 15, fontFamily: 'ProductSans-Regular', flex: 1 },
 
   customInput:  { borderRadius: 14, borderWidth: 1, padding: 14, fontSize: 14, fontFamily: 'ProductSans-Regular', minHeight: 90, textAlignVertical: 'top', marginBottom: 4 },
   charCount:    { fontSize: 11, fontFamily: 'ProductSans-Regular', textAlign: 'right' },
@@ -520,7 +519,8 @@ const ProfileCard = forwardRef<ProfileCardHandle, {
   aiCreditsBalance: number;
   onNeedCredits: () => void;
   onCreditsSpent: (newBalance: number) => void;
-}>(function ProfileCard({ profile, onSwipedLeft, onSwipedRight, onSuperLike, onReport, onBlock, colors, isPro, superLikesRemaining, token, aiCreditsBalance, onNeedCredits, onCreditsSpent }, ref) {
+  isOnline: boolean;
+}>(function ProfileCard({ profile, onSwipedLeft, onSwipedRight, onSuperLike, onReport, onBlock, colors, isPro, superLikesRemaining, token, aiCreditsBalance, onNeedCredits, onCreditsSpent, isOnline }, ref) {
   const halalBlur   = profile.halal?.blurPhotos === true;
   const dragX       = useRef(new Animated.Value(0)).current;
   const exitY       = useRef(new Animated.Value(0)).current;
@@ -532,8 +532,17 @@ const ProfileCard = forwardRef<ProfileCardHandle, {
   const [aiScore,        setAiScore]        = useState<{ percent: number; tier: string; breakdown: Record<string, number> } | null>(null);
   const [aiScoreLoading, setAiScoreLoading] = useState(false);
 
+  // On mount: load cached compatibility score for free (no credit deduction)
+  useEffect(() => {
+    if (!token || !profile?.id) return;
+    apiFetch<{ percent: number; tier: string; breakdown: Record<string, number> } | null>(
+      `/score/vs/${profile.id}/cached`, { token }
+    ).then(res => {
+      if (res) setAiScore(res);
+    }).catch(() => {});
+  }, [profile?.id, token]);
+
   const handleCheckAiScore = async () => {
-    if (aiScore) return;
     if (aiCreditsBalance < 2) { onNeedCredits(); return; }
     setAiScoreLoading(true);
     try {
@@ -551,6 +560,11 @@ const ProfileCard = forwardRef<ProfileCardHandle, {
     } finally {
       setAiScoreLoading(false);
     }
+  };
+
+  const handleRecheckAiScore = async () => {
+    setAiScore(null);
+    await handleCheckAiScore();
   };
 
   const onSwipedLeftRef  = useRef(onSwipedLeft);
@@ -677,28 +691,32 @@ const ProfileCard = forwardRef<ProfileCardHandle, {
       >
         {/* Photo */}
         <View style={[styles.photoContainer, { overflow: 'hidden' }]}>
-          <ExpoImage
-            source={{ uri: profile.images[0] }}
-            style={styles.photo}
-            contentFit="cover"
-            cachePolicy="disk"
-          />
-          {/* Halal blur — native Image with blurRadius layered on top */}
+          {halalBlur ? (
+            /* Blur-only path — the clear image is never rendered, eliminating
+               the flash of unblurred content that occurred when ExpoImage loaded
+               first and the blur overlay caught up a frame later. */
+            <Image
+              source={{ uri: profile.images[0] }}
+              style={[StyleSheet.absoluteFill, styles.photo]}
+              blurRadius={28}
+              resizeMode="cover"
+            />
+          ) : (
+            <ExpoImage
+              source={{ uri: profile.images[0] }}
+              style={styles.photo}
+              contentFit="cover"
+              cachePolicy="disk"
+            />
+          )}
+          {/* Halal blur badge — shown only in blur mode */}
           {halalBlur && (
-            <>
-              <Image
-                source={{ uri: profile.images[0] }}
-                style={[StyleSheet.absoluteFill, { zIndex: 2 }]}
-                blurRadius={25}
-                resizeMode="cover"
-              />
-              <View style={[styles.halalBlurOverlay, { zIndex: 3 }]}>
-                <View style={styles.halalBlurBadge}>
-                  <Ionicons name="moon" size={14} color="#fff" />
-                  <Text style={styles.halalBlurText}>Photos hidden until matched</Text>
-                </View>
+            <View style={styles.halalBlurOverlay}>
+              <View style={styles.halalBlurBadge}>
+                <Ionicons name="moon" size={14} color="#fff" />
+                <Text style={styles.halalBlurText}>Photos hidden until matched</Text>
               </View>
-            </>
+            </View>
           )}
           <LinearGradient
             colors={['transparent', 'rgba(0,0,0,0.55)', 'rgba(0,0,0,0.92)']}
@@ -707,7 +725,7 @@ const ProfileCard = forwardRef<ProfileCardHandle, {
             pointerEvents="none"
           />
           {/* Active now dot */}
-          {profile.last_active_at && (Date.now() - new Date(profile.last_active_at).getTime()) < 30 * 60 * 1000 && (
+          {(isOnline || (profile.last_active_at && (Date.now() - new Date(profile.last_active_at).getTime()) < 5 * 60 * 1000)) && (
             <View style={styles.activeDot} pointerEvents="none">
               <View style={styles.activeDotInner} />
               <Text style={styles.activeDotText}>Active now</Text>
@@ -794,6 +812,16 @@ const ProfileCard = forwardRef<ProfileCardHandle, {
             <Ionicons name="sparkles" size={14} color={colors.text} />
             <Text style={[aiStyles.scorePercent, { color: colors.text }]}>{aiScore.percent}%</Text>
             <Text style={[aiStyles.scoreTier, { color: colors.textSecondary }]}>{aiScore.tier} Match</Text>
+            <Pressable
+              onPress={handleRecheckAiScore}
+              hitSlop={8}
+              style={({ pressed }) => [{ marginLeft: 6, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 12, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border }, pressed && { opacity: 0.65 }]}
+            >
+              {aiScoreLoading
+                ? <ActivityIndicator size="small" color={colors.textSecondary} />
+                : <Text style={{ fontSize: 11, fontFamily: 'ProductSans-Regular', color: colors.textSecondary }}>Recheck · 2 credits</Text>
+              }
+            </Pressable>
           </View>
         ) : (
           <Pressable
@@ -1024,18 +1052,29 @@ const ProfileCard = forwardRef<ProfileCardHandle, {
   );
 });
 
-function EmptyState({ onReset, colors }: { onReset: () => void; colors: any }) {
+function EmptyState({ onOpenFilters, colors, distanceKm, activeFilterCount }: {
+  onOpenFilters: () => void;
+  colors: any;
+  distanceKm?: number | null;
+  activeFilterCount?: number;
+}) {
+  const distanceLabel = distanceKm != null ? `${distanceKm} km` : 'your area';
   return (
     <View style={styles.emptyWrap}>
       <Squircle style={styles.emptyIcon} cornerRadius={32} cornerSmoothing={1} fillColor={colors.surface2}>
-        <Ionicons name="heart-circle-outline" size={44} color={colors.textTertiary} />
+        <Ionicons name="search-outline" size={40} color={colors.textTertiary} />
       </Squircle>
-      <Text style={[styles.emptyTitle, { color: colors.text }]}>You've seen everyone!</Text>
-      <Text style={[styles.emptySub, { color: colors.textSecondary }]}>Check back soon for more people nearby</Text>
-      <Pressable onPress={onReset} style={({ pressed }) => [pressed && { opacity: 0.7 }]}>
+      <Text style={[styles.emptyTitle, { color: colors.text }]}>You've seen everyone nearby</Text>
+      <Text style={[styles.emptySub, { color: colors.textSecondary }]}>
+        {activeFilterCount && activeFilterCount > 0
+          ? `You have ${activeFilterCount} filter${activeFilterCount > 1 ? 's' : ''} active within ${distanceLabel}. Broaden your search to discover more people.`
+          : `We've shown you everyone within ${distanceLabel}. Try expanding your distance or adjusting your filters.`
+        }
+      </Text>
+      <Pressable onPress={onOpenFilters} style={({ pressed }) => [pressed && { opacity: 0.7 }]}>
         <Squircle style={styles.resetBtn} cornerRadius={20} cornerSmoothing={1} fillColor={colors.surface2} strokeColor={colors.border} strokeWidth={1.5}>
-          <Ionicons name="refresh" size={18} color={colors.text} style={{ marginRight: 6 }} />
-          <Text style={[styles.resetBtnText, { color: colors.text }]}>Start over</Text>
+          <Ionicons name="options-outline" size={18} color={colors.text} style={{ marginRight: 6 }} />
+          <Text style={[styles.resetBtnText, { color: colors.text }]}>Edit filters</Text>
         </Squircle>
       </Pressable>
     </View>
@@ -1368,24 +1407,26 @@ export default function FeedScreen() {
   }, [profile?.super_likes_remaining, profile?.subscription_tier]);
 
   // ── Restore + persist work mode via API ──────────────────────────────────
-  // `restoringRef` prevents the save effect from firing during profile restore
+  // `restoringRef` prevents the save effect from firing during profile restore.
   const restoringRef  = useRef(false);
-  const profileUidRef = useRef<string | null>(null);
+  // Seed with the current user's ID so the restore effect doesn't re-run on
+  // first mount when the lazy useState already initialised from the profile.
+  const profileUidRef = useRef<string | null>((profile as any)?.id ?? null);
 
-  // When profile loads or user changes (login/logout/switch account):
-  // always set the mode to whatever the server says.
+  // When the user changes (login/logout/account switch) set the mode to
+  // whatever the server says. Same-user refreshes are skipped so manual
+  // in-session changes aren't overwritten.
   useEffect(() => {
     if (!profile) return;
     const uid = (profile as any).id ?? null;
-    if (uid === profileUidRef.current) return; // same user, don't override manual changes
+    if (uid === profileUidRef.current) return; // same user — lazy init already handled it
     profileUidRef.current = uid;
     restoringRef.current = true;
-    setAppMode(profile.work_mode_enabled ? 'work' : 'date');
+    setAppMode('date');
   }, [profile?.work_mode_enabled, (profile as any)?.id]);
 
-  // Save to API whenever mode changes, but skip during restore
-  // Initialize to 'date' (same as the useState default) so the effect doesn't
-  // fire a spurious PATCH on first mount before the profile has been restored.
+  // Save to API whenever mode changes, but skip during restore.
+  // Mirror the appMode lazy init so the first render never triggers a spurious PATCH.
   const prevAppModeRef = useRef<AppMode>('date');
   useEffect(() => {
     if (prevAppModeRef.current === appMode) return;
@@ -1435,7 +1476,39 @@ export default function FeedScreen() {
     }).catch(() => {});
   }, [token, isPro]);
 
+  // ── Revert / undo-dislike ────────────────────────────────────────────────
+  const FREE_DAILY_REVERTS = 3;
+  const REVERT_WINDOW_MS   = 5 * 60 * 1000; // 5 minutes
+  const [lastDislike, setLastDislike] = useState<{ profileId: string; profile: Profile; swipedAt: number } | null>(null);
+  const [revertCountdown, setRevertCountdown] = useState(0);   // seconds remaining
+  const [revertsRemaining, setRevertsRemaining] = useState<number>(() =>
+    Math.max(0, FREE_DAILY_REVERTS - ((profile as any)?.daily_revert_used ?? 0))
+  );
+  const [revertToast, setRevertToast] = useState<string | null>(null);
+  const revertToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Countdown clock for the 5-minute revert window
+  useEffect(() => {
+    if (!lastDislike) { setRevertCountdown(0); return; }
+    const tick = () => {
+      const elapsed = Date.now() - lastDislike.swipedAt;
+      const remaining = Math.max(0, Math.ceil((REVERT_WINDOW_MS - elapsed) / 1000));
+      setRevertCountdown(remaining);
+      if (remaining === 0) setLastDislike(null);
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [lastDislike]);
+
+  const showRevertToast = (msg: string) => {
+    setRevertToast(msg);
+    if (revertToastTimer.current) clearTimeout(revertToastTimer.current);
+    revertToastTimer.current = setTimeout(() => setRevertToast(null), 3500);
+  };
+
   const [profiles,       setProfiles]     = useState<Profile[]>([]);
+  const profilesRef = useRef<Profile[]>([]);
   const [loadingFeed,    setLoadingFeed]  = useState(false);
   const [feedPage,       setFeedPage]     = useState(0);
   const [hasMore,        setHasMore]      = useState(true);
@@ -1444,6 +1517,8 @@ export default function FeedScreen() {
   const swipedThisSessionRef = useRef<Set<string>>(new Set());
   const [activeTab,      setActiveTab]    = useState('people');
   const [filterOpen,          setFilterOpen]          = useState(false);
+  const [workFilterOpen,      setWorkFilterOpen]      = useState(false);
+  const workFeedRef = useRef<WorkFeedScreenHandle>(null);
   const [aiCreditsBalance,    setAiCreditsBalance]    = useState(0);
   const cardRef = useRef<ProfileCardHandle>(null);
   const [exploreOpen,         setExploreOpen]         = useState(false);
@@ -1487,6 +1562,8 @@ export default function FeedScreen() {
   const [reportCustomReason,  setReportCustomReason]  = useState('');
   const [reportSubmitting,    setReportSubmitting]    = useState(false);
   const [reportDone,          setReportDone]          = useState(false);
+  // Tracks how many reports the user has filed this session to detect mass-reporting
+  const sessionReportCount = useRef(0);
 
   // Show ID gate for Muslim + halal-enabled users who haven't verified yet.
   // Re-evaluates whenever verification status changes (e.g. after successful ID scan).
@@ -1501,10 +1578,28 @@ export default function FeedScreen() {
     }
   }, [profile?.id, profile?.verification_status, profile?.is_verified, isMuslim, halalMode]);
 
-  // ── WebSocket — real-time match / liked_you events while on the feed ──────
+  // ── WebSocket — real-time match / liked_you / presence events ────────────
+  const notifyWsRef = useRef<WebSocket | null>(null);
+  const [onlineUserIds, setOnlineUserIds] = useState<Set<string>>(new Set());
+
+  // Query presence for a batch of profile IDs through the open notify WS
+  const queryPresence = useCallback((ids: string[]) => {
+    const ws = notifyWsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN || ids.length === 0) return;
+    ids.forEach(id => {
+      ws.send(JSON.stringify({ type: 'presence_query', user_id: id }));
+    });
+  }, []);
+
   useEffect(() => {
     if (!token) return;
     const ws = new WebSocket(`${WS_V1}/ws/notify?token=${token}`);
+    notifyWsRef.current = ws;
+
+    ws.onopen = () => {
+      // Query current status for all profiles already in the deck
+      queryPresence(profilesRef.current.map(p => p.id));
+    };
 
     ws.onmessage = (e) => {
       try {
@@ -1521,13 +1616,35 @@ export default function FeedScreen() {
           });
         } else if (msg.type === 'liked_you') {
           setLikedYouCount(n => n + 1);
+        } else if (msg.type === 'presence_status') {
+          // Response to an explicit presence_query
+          const { user_id, online } = msg as { user_id: string; online: boolean };
+          setOnlineUserIds(prev => {
+            const next = new Set(prev);
+            if (online) next.add(user_id); else next.delete(user_id);
+            return next;
+          });
+        } else if (msg.type === 'presence') {
+          // Broadcast from a matched partner coming online/offline
+          const { user_id, online } = msg as { user_id: string; online: boolean };
+          setOnlineUserIds(prev => {
+            const next = new Set(prev);
+            if (online) next.add(user_id); else next.delete(user_id);
+            return next;
+          });
         }
       } catch { /* ignore malformed */ }
     };
     ws.onerror = () => {};
 
-    return () => ws.close();
+    return () => {
+      ws.close();
+      notifyWsRef.current = null;
+    };
   }, [token]);
+
+  // Keep ref in sync so WS onopen can read current deck without a state-setter trick
+  useEffect(() => { profilesRef.current = profiles; }, [profiles]);
 
   const fmtBadge = (n: number) => n > 9 ? '9+' : String(n);
 
@@ -1633,6 +1750,8 @@ export default function FeedScreen() {
       });
       setHasMore(res.has_more);
       setFeedPage(page);
+      // Query real-time presence for the freshly loaded profiles
+      queryPresence(fresh.map(p => p.id));
       return true; // success
     } catch (err: any) {
       // On a halal-gate 403 the backend returns a specific message. Clear the
@@ -1679,17 +1798,6 @@ export default function FeedScreen() {
   };
   const refetchFeed = () => fetchFeed(0, true);
 
-  const handleStartOver = useCallback(async () => {
-    if (!token) return;
-    try {
-      await apiFetch('/discover/swipes/reset?mode=date', { token, method: 'DELETE' });
-    } catch { /* ignore */ }
-    // Also clear local swipe cache so reset takes full effect
-    try { await AsyncStorage.removeItem(swipeCacheKeyRef.current); } catch { /* ignore */ }
-    swipedThisSessionRef.current.clear();
-    fetchFeed(0, true);
-  }, [token, fetchFeed]);
-
   // ── Report / Block handlers ───────────────────────────────────────────────
   const handleReportPress = useCallback((profileId: string) => {
     setReportReason(null);
@@ -1712,6 +1820,7 @@ export default function FeedScreen() {
       });
     } catch { /* silent — report is best-effort */ }
     setReportSubmitting(false);
+    sessionReportCount.current += 1;
     setReportDone(true);
     setProfiles(prev => prev.filter(p => p.id !== reportTargetId));
   }, [token, reportTargetId, reportReason, reportCustomReason]);
@@ -1735,8 +1844,17 @@ export default function FeedScreen() {
 
   // ── Halal mode toggle handler ─────────────────────────────────────────────
   const _applyHalalMode = useCallback(async (halal: boolean) => {
+    // All UI state updates are synchronous so they batch into a single render
+    // and the feed reflects the new mode before any API call completes.
     setHalalMode(halal);
     halalModeRef.current = halal; // keep ref in sync for fetchFeed
+    // Drop back to date view immediately (covers Work → Halal/Standard switch).
+    setAppMode('date');
+    // Clear stale cards immediately so the old mode's profiles never flash
+    // on screen while the new feed is loading.
+    setProfiles([]);
+    setFeedPage(0);
+    setHasMore(true);
     // Persist to profile context so the value survives re-mounts and navigation
     updateProfile({ halal_mode_enabled: halal });
     swipedThisSessionRef.current.clear();
@@ -1773,8 +1891,6 @@ export default function FeedScreen() {
 
   const handleHalalSelect = useCallback((halal: boolean) => {
     setHalalSheetVisible(false);
-    // If switching to date mode from work, reset appMode first
-    if (!halal) setAppMode('date');
     // Gate: only Muslims can turn on Halal mode
     if (halal && !isMuslim) { setHalalGateMuslim(true); return; }
     const idVerified = profile?.verification_status === 'verified' && profile?.is_verified === true;
@@ -1805,15 +1921,49 @@ export default function FeedScreen() {
   };
 
   const handleSwipeLeft = (profileId: string) => {
+    const dislikedProfile = profiles[0];          // capture before removeTop
     swipedThisSessionRef.current.add(profileId);  // in-memory dedup for this session
     removeTop();
+    // Store for potential revert — only in date/halal mode
+    if (appMode !== 'work' && dislikedProfile) {
+      setLastDislike({ profileId, profile: dislikedProfile, swipedAt: Date.now() });
+    }
     if (!token) return;
     apiFetch('/discover/swipe', {
       token, method: 'POST',
-      body: JSON.stringify({ swiped_id: profileId, direction: 'left', mode: 'date' }),
+      body: JSON.stringify({ swiped_id: profileId, direction: 'left', mode: halalModeRef.current ? 'halal' : 'date' }),
     })
       .then(() => markSwipedLocally(profileId))   // persist only after backend confirms
       .catch(() => {});
+  };
+
+  const handleRevert = () => {
+    if (!lastDislike || !token) return;
+    if (!isPro && revertsRemaining <= 0) {
+      showRevertToast('No reverts remaining today');
+      return;
+    }
+    const { profileId, profile: revertedProfile } = lastDislike;
+    setLastDislike(null);  // clear immediately so the pill disappears
+
+    // ── Optimistic update — put profile back instantly, don't wait for API ──
+    swipedThisSessionRef.current.delete(profileId);
+    setProfiles(prev => [revertedProfile, ...prev.filter(p => p.id !== profileId)]);
+    if (!isPro) setRevertsRemaining(r => Math.max(0, r - 1));
+
+    apiFetch<{ reverted: boolean; reverts_remaining: number | null }>('/discover/revert', {
+      token, method: 'POST',
+      body: JSON.stringify({ swiped_id: profileId, mode: halalModeRef.current ? 'halal' : 'date' }),
+    })
+      .then(res => {
+        // Sync the server's authoritative revert count
+        if (!isPro && res.reverts_remaining != null) {
+          setRevertsRemaining(res.reverts_remaining);
+        }
+      })
+      .catch(() => {
+        // Already shown — keep profile in deck even on failure
+      });
   };
 
   const handleSwipeRight = (profileId: string) => {
@@ -1828,29 +1978,34 @@ export default function FeedScreen() {
 
     // Optimistically decrement daily counter for free users
     if (!isPro) {
-      const newRemaining = Math.max(0, (dailyLikesRemaining ?? FREE_DAILY_LIMIT) - 1);
-      setDailyLikesRemaining(newRemaining);
-      AsyncStorage.setItem(DAILY_LIKES_CACHE_KEY, String(newRemaining)).catch(() => {});
-      if (newRemaining <= 0) setDailyLimitReached(true);
+      setDailyLikesRemaining(r => {
+        const newRemaining = Math.max(0, (r ?? FREE_DAILY_LIMIT) - 1);
+        if (newRemaining <= 0) setDailyLimitReached(true);
+        // Don't write to AsyncStorage on every fast swipe — the API sync handles persistence
+        return newRemaining;
+      });
     }
 
     removeTop();
     if (!token || !swiped) return;
     apiFetch<{ match: boolean; daily_likes_remaining?: number | null }>('/discover/swipe', {
       token, method: 'POST',
-      body: JSON.stringify({ swiped_id: profileId, direction: 'right', mode: 'date' }),
+      body: JSON.stringify({ swiped_id: profileId, direction: 'right', mode: halalModeRef.current ? 'halal' : 'date' }),
     })
       .then(res => {
         markSwipedLocally(profileId);
         _showMatchIfNeeded(res, swiped);
-        // Sync authoritative remaining count from backend
+        // Sync authoritative remaining count from backend.
+        // Use Math.min so out-of-order responses during fast swiping never
+        // reset the counter UP (optimistic decrements already went lower).
         if (!isPro && res.daily_likes_remaining != null && res.daily_likes_remaining !== -1) {
-          setDailyLikesRemaining(res.daily_likes_remaining);
-          AsyncStorage.setItem(DAILY_LIKES_CACHE_KEY, String(res.daily_likes_remaining)).catch(() => {});
-          if (res.daily_likes_remaining <= 0) {
-            setDailyLimitReached(true);
-            setShowUpgradeWall(true);
-          }
+          setDailyLikesRemaining(r => {
+            const authoritative = res.daily_likes_remaining!;
+            const newVal = r !== null ? Math.min(r, authoritative) : authoritative;
+            AsyncStorage.setItem(DAILY_LIKES_CACHE_KEY, String(newVal)).catch(() => {});
+            if (newVal <= 0) { setDailyLimitReached(true); setShowUpgradeWall(true); }
+            return newVal;
+          });
         }
       })
       .catch((err: any) => {
@@ -1898,7 +2053,7 @@ export default function FeedScreen() {
     removeTop();
     apiFetch<{ match: boolean; super_likes_remaining?: number }>('/discover/swipe', {
       token, method: 'POST',
-      body: JSON.stringify({ swiped_id: profileId, direction: 'super', mode: 'date' }),
+      body: JSON.stringify({ swiped_id: profileId, direction: 'super', mode: halalModeRef.current ? 'halal' : 'date' }),
     }).then(res => {
       markSwipedLocally(profileId);               // persist only after backend confirms
       if (res.super_likes_remaining !== undefined && res.super_likes_remaining !== null) {
@@ -1921,11 +2076,19 @@ export default function FeedScreen() {
       {/* Top bar — only on People tab */}
       {showTopBar && (
         <View style={styles.topBar}>
-          <Pressable onPress={clearLocalCache} hitSlop={8}>
-            <Squircle style={styles.iconBtn} cornerRadius={14} cornerSmoothing={1} fillColor={colors.surface2}>
-              <Ionicons name="refresh-outline" size={20} color={colors.text} />
-            </Squircle>
-          </Pressable>
+          {lastDislike && (isPro || revertsRemaining > 0) && appMode !== 'work' ? (
+            <Pressable onPress={handleRevert} hitSlop={8}>
+              <Squircle style={styles.iconBtn} cornerRadius={14} cornerSmoothing={1} fillColor="rgba(99,102,241,0.15)">
+                <Ionicons name="arrow-undo" size={20} color="#818cf8" />
+              </Squircle>
+            </Pressable>
+          ) : (
+            <Pressable onPress={clearLocalCache} hitSlop={8}>
+              <Squircle style={styles.iconBtn} cornerRadius={14} cornerSmoothing={1} fillColor={colors.surface2}>
+                <Ionicons name="refresh-outline" size={20} color={colors.text} />
+              </Squircle>
+            </Pressable>
+          )}
           <AppLogo
             color={colors.text}
             bgColor={colors.bg}
@@ -1934,7 +2097,7 @@ export default function FeedScreen() {
             appMode={appMode}
             onPress={() => setHalalSheetVisible(true)}
           />
-          <Pressable onPress={() => setFilterOpen(true)} hitSlop={8}>
+          <Pressable onPress={() => appMode === 'work' ? setWorkFilterOpen(true) : setFilterOpen(true)} hitSlop={8}>
             <Squircle style={styles.iconBtn} cornerRadius={14} cornerSmoothing={1} fillColor={colors.surface2}>
               <Ionicons name="options-outline" size={20} color={colors.text} />
             </Squircle>
@@ -1942,8 +2105,8 @@ export default function FeedScreen() {
         </View>
       )}
 
-      {/* Daily likes indicator — shown for all users in date/halal feed */}
-      {showTopBar && (appMode === 'date' || halalMode) && (
+      {/* Daily likes indicator — date/halal feed only, never in Work mode */}
+      {showTopBar && appMode !== 'work' && (appMode === 'date' || halalMode) && (
         <Pressable
           onPress={() => !isUnlimitedLikes && navPush('/subscription' as any)}
           style={({ pressed }) => [{ alignSelf: 'center', marginTop: -4, marginBottom: 6 }, pressed && !isUnlimitedLikes && { opacity: 0.7 }]}
@@ -1992,13 +2155,43 @@ export default function FeedScreen() {
         </Pressable>
       )}
 
+      {/* Revert toast */}
+      {revertToast !== null && (
+        <View pointerEvents="none" style={dailyStyles.revertToastWrap}>
+          <View style={[dailyStyles.revertToast, { backgroundColor: colors.surface2 }]}>
+            <Ionicons name="checkmark-circle" size={14} color="#818cf8" />
+            <Text style={[dailyStyles.revertToastText, { color: colors.text }]}>{revertToast}</Text>
+          </View>
+        </View>
+      )}
+
       {/* Feed mode selector sheet */}
       <HalalModeSheet
         visible={halalSheetVisible}
         halalMode={halalMode}
         appMode={appMode}
         onSelect={handleHalalSelect}
-        onSelectWork={() => setAppMode(prev => prev === 'work' ? 'date' : 'work')}
+        onSelectWork={() => {
+          setProfiles([]);
+          setFeedPage(0);
+          setHasMore(true);
+          swipedThisSessionRef.current.clear();
+          const nextMode = appMode === 'work' ? 'date' : 'work';
+          setAppMode(nextMode);
+          // Always turn halal off when entering Work mode so no halal UI
+          // (likes bar, blur, etc.) bleeds through into the work feed.
+          if (nextMode === 'work' && halalMode) {
+            setHalalMode(false);
+            halalModeRef.current = false;
+            updateProfile({ halal_mode_enabled: false });
+            if (token) {
+              apiFetch('/profile/me', {
+                method: 'PATCH', token,
+                body: JSON.stringify({ halal_mode_enabled: false }),
+              }).catch(() => {});
+            }
+          }
+        }}
         onClose={() => setHalalSheetVisible(false)}
         colors={colors}
       />
@@ -2098,22 +2291,42 @@ export default function FeedScreen() {
             <View style={rStyles.handle} />
 
             {reportDone ? (
-              /* ── Success state ── */
-              <View style={rStyles.doneWrap}>
-                <Squircle style={rStyles.doneIcon} cornerRadius={28} cornerSmoothing={1} fillColor={'#22c55e18'}>
-                  <Ionicons name="checkmark-circle" size={36} color="#22c55e" />
-                </Squircle>
-                <Text style={[rStyles.doneTitle, { color: colors.text }]}>Report Submitted</Text>
-                <Text style={[rStyles.doneSub, { color: colors.textSecondary }]}>
-                  Thank you for helping keep our community safe. Your report is anonymous and will be reviewed shortly.
-                </Text>
-                <Squircle cornerRadius={18} cornerSmoothing={1} fillColor={colors.text}
-                  style={{ height: 52, overflow: 'hidden', marginTop: 8 }}>
-                  <Pressable onPress={closeReport} style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-                    <Text style={[styles.applyBtnText, { color: colors.bg }]}>Done</Text>
-                  </Pressable>
-                </Squircle>
-              </View>
+              /* ── Success / warning state ── */
+              sessionReportCount.current >= 5 ? (
+                /* Mass-reporting warning */
+                <View style={rStyles.doneWrap}>
+                  <Squircle style={rStyles.doneIcon} cornerRadius={28} cornerSmoothing={1} fillColor="#f59e0b22">
+                    <Ionicons name="alert-circle" size={36} color="#f59e0b" />
+                  </Squircle>
+                  <Text style={[rStyles.doneTitle, { color: colors.text }]}>Report Received</Text>
+                  <Text style={[rStyles.doneSub, { color: colors.textSecondary }]}>
+                    We've noticed you've filed several reports in a short time. Genuine reports help keep our community safe — but mass-reporting can lead to your own account being reviewed. Please only report profiles that truly violate our guidelines.
+                  </Text>
+                  <Squircle cornerRadius={18} cornerSmoothing={1} fillColor="#f59e0b"
+                    style={{ height: 52, overflow: 'hidden', marginTop: 8 }}>
+                    <Pressable onPress={closeReport} style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+                      <Text style={[styles.applyBtnText, { color: '#fff' }]}>Understood</Text>
+                    </Pressable>
+                  </Squircle>
+                </View>
+              ) : (
+                /* Normal success */
+                <View style={rStyles.doneWrap}>
+                  <Squircle style={rStyles.doneIcon} cornerRadius={28} cornerSmoothing={1} fillColor="#ef444420">
+                    <Ionicons name="shield-checkmark" size={36} color="#ef4444" />
+                  </Squircle>
+                  <Text style={[rStyles.doneTitle, { color: colors.text }]}>Report Submitted</Text>
+                  <Text style={[rStyles.doneSub, { color: colors.textSecondary }]}>
+                    Your report is anonymous and our team will review it shortly. Thank you for helping keep our community safe.
+                  </Text>
+                  <Squircle cornerRadius={18} cornerSmoothing={1} fillColor="#ef4444"
+                    style={{ height: 52, overflow: 'hidden', marginTop: 8 }}>
+                    <Pressable onPress={closeReport} style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+                      <Text style={[styles.applyBtnText, { color: '#fff' }]}>Done</Text>
+                    </Pressable>
+                  </Squircle>
+                </View>
+              )
             ) : (
               /* ── Select reason state ── */
               <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
@@ -2128,42 +2341,30 @@ export default function FeedScreen() {
                   </Text>
                 </View>
 
-                {/* Reason grid */}
-                <View style={rStyles.grid}>
+                {/* Reason list */}
+                <View style={{ marginBottom: 8 }}>
                   {[
-                    { key: 'fake_profile',         label: 'Fake profile',        icon: 'person-remove-outline', color: '#f97316' },
-                    { key: 'inappropriate_photos',  label: 'Inappropriate\nphotos', icon: 'images-outline',     color: '#ec4899' },
-                    { key: 'harassment',            label: 'Harassment',          icon: 'warning-outline',       color: '#eab308' },
-                    { key: 'spam',                  label: 'Spam',                icon: 'mail-unread-outline',   color: '#8b5cf6' },
-                    { key: 'scam',                  label: 'Scam',                icon: 'cash-outline',          color: '#ef4444' },
-                    { key: 'underage',              label: 'Underage user',       icon: 'shield-outline',        color: '#3b82f6' },
-                    { key: 'hate_speech',           label: 'Hate speech',         icon: 'megaphone-outline',     color: '#dc2626' },
-                    { key: 'other',                 label: 'Other',               icon: 'ellipsis-horizontal-circle-outline', color: colors.textSecondary },
+                    { key: 'fake_profile',         label: 'Fake profile',          icon: 'person-remove-outline', color: '#f97316' },
+                    { key: 'inappropriate_photos',  label: 'Inappropriate photos',  icon: 'images-outline',        color: '#ec4899' },
+                    { key: 'harassment',            label: 'Harassment',            icon: 'warning-outline',       color: '#eab308' },
+                    { key: 'spam',                  label: 'Spam',                  icon: 'mail-unread-outline',   color: '#8b5cf6' },
+                    { key: 'scam',                  label: 'Scam',                  icon: 'cash-outline',          color: '#ef4444' },
+                    { key: 'underage',              label: 'Underage user',         icon: 'shield-outline',        color: '#3b82f6' },
+                    { key: 'hate_speech',           label: 'Hate speech',           icon: 'megaphone-outline',     color: '#dc2626' },
+                    { key: 'other',                 label: 'Other',                 icon: 'ellipsis-horizontal-circle-outline', color: colors.textSecondary },
                   ].map(r => {
                     const selected = reportReason === r.key;
                     return (
                       <Pressable
                         key={r.key}
                         onPress={() => setReportReason(r.key)}
-                        style={({ pressed }) => [rStyles.gridItem, { opacity: pressed ? 0.75 : 1 }]}
+                        style={({ pressed }) => [rStyles.listRow, { opacity: pressed ? 0.75 : 1 }]}
                       >
-                        <Squircle
-                          cornerRadius={18} cornerSmoothing={1}
-                          fillColor={selected ? r.color + '20' : colors.surface2}
-                          strokeColor={selected ? r.color : colors.border}
-                          strokeWidth={selected ? 1.5 : StyleSheet.hairlineWidth}
-                          style={rStyles.gridCard}
-                        >
-                          <View style={[rStyles.gridIconWrap, { backgroundColor: selected ? r.color + '22' : colors.surface }]}>
-                            <Ionicons name={r.icon as any} size={20} color={selected ? r.color : colors.textSecondary} />
-                          </View>
-                          <Text style={[rStyles.gridLabel, { color: selected ? colors.text : colors.textSecondary }]}>{r.label}</Text>
-                          {selected && (
-                            <View style={[rStyles.gridCheck, { backgroundColor: r.color }]}>
-                              <Ionicons name="checkmark" size={10} color="#fff" />
-                            </View>
-                          )}
-                        </Squircle>
+                        <View style={[rStyles.listIcon, { backgroundColor: selected ? r.color + '20' : colors.surface2 }]}>
+                          <Ionicons name={r.icon as any} size={18} color={selected ? r.color : colors.textSecondary} />
+                        </View>
+                        <Text style={[rStyles.listLabel, { color: selected ? colors.text : colors.textSecondary }]}>{r.label}</Text>
+                        {selected && <Ionicons name="checkmark-circle" size={20} color={r.color} />}
                       </Pressable>
                     );
                   })}
@@ -2218,11 +2419,22 @@ export default function FeedScreen() {
       {activeTab === 'people' && (
         <View style={styles.cardStack}>
           {appMode === 'work' ? (
-            <WorkFeedScreen colors={colors} insets={insets} activeTab="people" />
+            <WorkFeedScreen ref={workFeedRef} colors={colors} insets={insets} activeTab="people" />
           ) : loadingFeed && profiles.length === 0 ? (
             <FeedCardSkeleton colors={colors} />
           ) : profiles.length === 0 ? (
-            <EmptyState onReset={handleStartOver} colors={colors} />
+            <EmptyState
+                onOpenFilters={() => setFilterOpen(true)}
+                colors={colors}
+                distanceKm={(profile as any)?.filter_max_distance_km ?? 20}
+                activeFilterCount={[
+                  (profile as any)?.filter_age_min || (profile as any)?.filter_age_max,
+                  (profile as any)?.filter_religions?.length > 0,
+                  (profile as any)?.filter_star_signs?.length > 0,
+                  (profile as any)?.filter_interests?.length > 0,
+                  (profile as any)?.filter_verified_only,
+                ].filter(Boolean).length}
+              />
           ) : (
             <View style={{ flex: 1, alignItems: 'center' }}>
               {/* Card shrinks to leave room for the button row below */}
@@ -2243,6 +2455,7 @@ export default function FeedScreen() {
                   aiCreditsBalance={aiCreditsBalance}
                   onNeedCredits={() => navPush('/ai-credits' as any)}
                   onCreditsSpent={(newBal) => setAiCreditsBalance(newBal)}
+                  isOnline={onlineUserIds.has(profiles[0].id)}
                 />
               </View>
 
@@ -2323,7 +2536,7 @@ export default function FeedScreen() {
       </View>
 
 
-      {/* Filter sheet */}
+      {/* Filter sheet — date/halal mode */}
       <DateFilterSheet
         visible={filterOpen}
         onClose={() => setFilterOpen(false)}
@@ -2335,6 +2548,15 @@ export default function FeedScreen() {
         colors={colors}
         insets={insets}
         halalMode={halalMode}
+      />
+
+      {/* Filter sheet — work mode */}
+      <WorkFilterSheet
+        visible={workFilterOpen}
+        onClose={() => setWorkFilterOpen(false)}
+        colors={colors}
+        insets={insets}
+        onApply={() => workFeedRef.current?.refresh()}
       />
 
       {/* Explore overlay */}
@@ -2475,7 +2697,7 @@ const styles = StyleSheet.create({
   scrollHintText: { fontSize: 11, fontFamily: 'ProductSans-Regular', color: 'rgba(255,255,255,0.55)' },
 
   // Halal blur overlay
-  halalBlurOverlay:  { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center', zIndex: 2 },
+  halalBlurOverlay:  { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' },
   halalBlurBadge:    { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(0,0,0,0.55)', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)' },
   halalBlurText:     { fontSize: 13, fontFamily: 'ProductSans-Bold', color: '#fff' },
 
@@ -2629,9 +2851,15 @@ const styles = StyleSheet.create({
 const dailyStyles = StyleSheet.create({
   // Pill in top bar
   likePill:      { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 6 },
+  rewindPill:    { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 6 },
   likePillText:  { fontSize: 11, fontFamily: 'ProductSans-Bold' },
   likeBar:       { height: 3, width: 52, borderRadius: 2, overflow: 'hidden' },
   likeBarFill:   { height: 3, borderRadius: 2 },
+
+  // Revert toast
+  revertToastWrap: { position: 'absolute', bottom: 120, left: 0, right: 0, alignItems: 'center', zIndex: 999 },
+  revertToast:     { flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 24, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 8, shadowOffset: { width: 0, height: 2 } },
+  revertToastText: { fontSize: 12, fontFamily: 'ProductSans-Bold' },
 
   // Upgrade wall modal
   wallBackdrop:    { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },

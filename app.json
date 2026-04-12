@@ -8,6 +8,7 @@
     "scheme": "zod",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "reactStrictMode": false,
     "splash": {
       "image": "./assets/images/splash-icon.png",
       "resizeMode": "contain",
@@ -16,7 +17,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.zod.ai",
-      "buildNumber": "13",
+      "buildNumber": "14",
       "infoPlist": {
         "CFBundleDevelopmentRegion": "en",
         "CFBundleLocalizations": [
@@ -28,7 +29,14 @@
         "NSCameraUsageDescription": "Allow Zod to take photos for your profile and face verification.",
         "NSPhotoLibraryUsageDescription": "Zod uses your photo library so you can select and upload profile photos. For example, choose an existing photo to display on your dating profile.",
         "NSPhotoLibraryAddUsageDescription": "Zod saves photos you take within the app — such as profile pictures or identity-verification images — to your photo library so you can access them later.",
-        "NSContactsUsageDescription": "Allow Zod to find your friends who are already on Zod."
+        "NSContactsUsageDescription": "Allow Zod to find your friends who are already on Zod.",
+        "CFBundleURLTypes": [
+          {
+            "CFBundleURLSchemes": [
+              "com.googleusercontent.apps.48845965654-q028qerm28qe3vo5t8mh6e12r108oo2g"
+            ]
+          }
+        ]
       }
     },
     "android": {

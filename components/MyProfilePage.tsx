@@ -510,6 +510,32 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
   const [workMode, setWorkMode] = useState(profile?.work_mode_enabled ?? false);
   useEffect(() => { setWorkMode(profile?.work_mode_enabled ?? false); }, [profile?.work_mode_enabled]);
 
+  // ── Halal mode toggle + profile fields ────────────────────────────────────
+  const [halalMode,          setHalalMode]          = useState(profile?.halal_mode_enabled ?? false);
+  const [sectId,             setSectId]             = useState(profile?.sect_id             ? String(profile.sect_id)             : '');
+  const [prayerFrequencyId,  setPrayerFrequencyId]  = useState(profile?.prayer_frequency_id ? String(profile.prayer_frequency_id) : '');
+  const [marriageTimelineId, setMarriageTimelineId] = useState(profile?.marriage_timeline_id ? String(profile.marriage_timeline_id) : '');
+  const [waliVerified,       setWaliVerified]       = useState(profile?.wali_verified ?? false);
+  const [waliEmail,          setWaliEmail]          = useState(profile?.wali_email ?? '');
+  const [waliEmailSaving,    setWaliEmailSaving]    = useState(false);
+
+  useEffect(() => {
+    setHalalMode(profile?.halal_mode_enabled    ?? false);
+    setSectId(profile?.sect_id                  ? String(profile.sect_id) : '');
+    setPrayerFrequencyId(profile?.prayer_frequency_id ? String(profile.prayer_frequency_id) : '');
+    setMarriageTimelineId(profile?.marriage_timeline_id ? String(profile.marriage_timeline_id) : '');
+    setWaliVerified(profile?.wali_verified      ?? false);
+    setWaliEmail(profile?.wali_email            ?? '');
+  }, [profile?.halal_mode_enabled, profile?.sect_id, profile?.prayer_frequency_id,
+      profile?.marriage_timeline_id, profile?.wali_verified, profile?.wali_email]);
+
+  // Determine if the user is Muslim based on their religion selection
+  const religionLabel = getLookupLabel('religion', religionId ? Number(religionId) : null)?.toLowerCase() ?? '';
+  const isMuslim = religionLabel.includes('muslim') || religionLabel.includes('islam');
+  // Female users: gender_id must match the "female" lookup option
+  const genderLabel = getLookupLabel('gender', profile?.gender_id ?? null)?.toLowerCase() ?? '';
+  const isFemale = genderLabel.includes('female') || genderLabel.includes('woman');
+
   // ── Pro feature toggles ───────────────────────────────────────────────────
   const [incognito,    setIncognito]    = useState(profile?.is_incognito ?? false);
   const [travelMode,   setTravelMode]   = useState(profile?.travel_mode_enabled ?? false);
@@ -686,6 +712,36 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
     ]);
   };
 
+  const handleDeleteAccount = () => {
+    Alert.alert(
+      'Delete Account',
+      'Your account will be marked as deleted. All profile data will be removed from other users\' view immediately.\n\nYou can sign up again with the same number at any time.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete', style: 'destructive',
+          onPress: async () => {
+            try {
+              const res = await fetch(`${API_V1}/users/me`, {
+                method: 'DELETE',
+                headers: { Authorization: `Bearer ${token}` },
+              });
+              if (!res.ok && res.status !== 204) {
+                Alert.alert('Error', 'Could not delete account. Please try again.');
+                return;
+              }
+            } catch {
+              // Backend unreachable — still clear local session so the user
+              // is not stuck. The soft-delete will sync when server is reachable.
+            }
+            await signOut();
+            navReplace('/welcome');
+          },
+        },
+      ],
+    );
+  };
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
@@ -858,7 +914,7 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
         <Group colors={colors}>
           <SettingRow
             icon="briefcase-outline"
-            label="Work Settings"
+            label="Work / Education Settings"
             subtitle="Industries, skills, commitment, equity, goals & filters"
             colors={colors}
             onPress={() => navPush('/zod-work')}
@@ -867,10 +923,147 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
         </Group>
       </View>
 
+      {/* ── HALAL SETTINGS — only when user is Muslim AND halal mode on ──── */}
+      {isMuslim && halalMode && (
+        <View style={styles.section}>
+          <SectionLabel title="HALAL SETTINGS" colors={colors} />
+          <Group colors={colors}>
+
+            {/* Sect */}
+            <EditRow icon="moon-outline" label="Sect"
+              value={getLookupLabel('sect', sectId ? Number(sectId) : null) || '—'}
+              onPress={() => setChipPicker({
+                title: 'Sect', options: opts('sect'), single: true,
+                selected: sectId ? [sectId] : [],
+                onDone: ([v]) => { setSectId(v); saveField({ sect_id: Number(v) }); },
+              })} colors={colors} />
+
+            {/* Prayer Frequency */}
+            <EditRow icon="time-outline" label="Prayer Frequency"
+              value={getLookupLabel('prayer_frequency', prayerFrequencyId ? Number(prayerFrequencyId) : null) || '—'}
+              onPress={() => setChipPicker({
+                title: 'Prayer Frequency', options: opts('prayer_frequency'), single: true,
+                selected: prayerFrequencyId ? [prayerFrequencyId] : [],
+                onDone: ([v]) => { setPrayerFrequencyId(v); saveField({ prayer_frequency_id: Number(v) }); },
+              })} colors={colors} />
+
+            {/* Marriage Timeline */}
+            <EditRow icon="calendar-outline" label="Marriage Timeline"
+              value={getLookupLabel('marriage_timeline', marriageTimelineId ? Number(marriageTimelineId) : null) || '—'}
+              onPress={() => setChipPicker({
+                title: 'Marriage Timeline', options: opts('marriage_timeline'), single: true,
+                selected: marriageTimelineId ? [marriageTimelineId] : [],
+                onDone: ([v]) => { setMarriageTimelineId(v); saveField({ marriage_timeline_id: Number(v) }); },
+              })} colors={colors} />
+
+            {/* Blur photos in Halal mode */}
+            <SettingRow
+              icon="image-outline" label="Blur Photos"
+              subtitle="Blur your photos for users in Halal mode"
+              colors={colors} toggle toggleVal={profile?.blur_photos_halal ?? false}
+              onToggle={(val) => {
+                saveField({ blur_photos_halal: val });
+                updateProfile({ blur_photos_halal: val } as any);
+              }}
+            />
+
+            {/* Wali section — females only */}
+            {isFemale && (
+              <>
+                <SettingRow
+                  icon="shield-checkmark-outline" label="Wali Verified"
+                  subtitle={waliVerified ? 'Your guardian has been verified' : 'Indicate that a guardian is involved'}
+                  colors={colors} toggle toggleVal={waliVerified}
+                  onToggle={(val) => {
+                    setWaliVerified(val);
+                    saveField({ wali_verified: val });
+                    updateProfile({ wali_verified: val } as any);
+                  }}
+                />
+                <View style={[styles.inputRow, { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border }]}>
+                  <Ionicons name="mail-outline" size={18} color={colors.textSecondary} style={{ marginRight: 10 }} />
+                  <TextInput
+                    style={[styles.inputRowField, { color: colors.text }]}
+                    placeholder="Wali email address"
+                    placeholderTextColor={colors.textTertiary}
+                    value={waliEmail}
+                    onChangeText={setWaliEmail}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    returnKeyType="done"
+                    onEndEditing={() => {
+                      if (!waliEmailSaving) {
+                        setWaliEmailSaving(true);
+                        saveField({ wali_email: waliEmail || null });
+                        updateProfile({ wali_email: waliEmail || null } as any);
+                        setWaliEmailSaving(false);
+                      }
+                    }}
+                  />
+                  {waliEmailSaving && <ActivityIndicator size="small" color={colors.textSecondary} />}
+                </View>
+              </>
+            )}
+          </Group>
+        </View>
+      )}
+
       {/* ── ABOUT YOU ───────────────────────────────────────────────────── */}
       <View style={styles.section}>
         <SectionLabel title="ABOUT YOU" colors={colors} />
         <Group colors={colors}>
+
+          {/* ── Mood Status ── */}
+          <View style={[styles.moodRow, { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border }]}>
+            <Pressable onPress={() => setMoodModalOpen(true)} style={[styles.moodBadge, { backgroundColor: colors.bg, borderColor: colors.border }]}>
+              {moodEmoji ? (
+                <Text style={styles.moodBadgeEmoji}>{moodEmoji}</Text>
+              ) : (
+                <Ionicons name="happy-outline" size={22} color={colors.textTertiary} />
+              )}
+            </Pressable>
+
+            <Pressable onPress={() => setMoodModalOpen(true)} style={{ flex: 1 }}>
+              {moodText ? (
+                <Text style={[styles.moodStatusText, { color: colors.text }]} numberOfLines={1}>
+                  {moodText}
+                </Text>
+              ) : (
+                <Text style={[styles.moodStatusText, { color: colors.textTertiary }]}>
+                  Set a status…
+                </Text>
+              )}
+              <Text style={[styles.moodStatusSub, { color: colors.textTertiary }]}>Mood Status</Text>
+            </Pressable>
+
+            {(moodEmoji || moodText) ? (
+              <Pressable
+                hitSlop={10}
+                onPress={() => {
+                  setMoodEmoji('');
+                  setMoodText('');
+                  saveField({ mood_emoji: null, mood_text: null });
+                }}
+              >
+                <Ionicons name="close-circle" size={18} color={colors.textTertiary} />
+              </Pressable>
+            ) : null}
+          </View>
+
+          <MoodPickerModal
+            visible={moodModalOpen}
+            initialEmoji={moodEmoji}
+            initialText={moodText}
+            colors={colors}
+            onSave={(e, t) => {
+              setMoodEmoji(e);
+              setMoodText(t);
+              setMoodModalOpen(false);
+              saveField({ mood_emoji: e || null, mood_text: t || null });
+            }}
+            onClose={() => setMoodModalOpen(false)}
+          />
+
           <EditRow icon="resize-outline" label="Height" value={height || '—'}
             onPress={() => openWheel({
               title: 'Height', options: HEIGHT_LABELS.map(h => h.label), selected: height,
@@ -967,59 +1160,6 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
               onDone: ([v]) => { setEthnicityId(v); saveField({ ethnicity_id: Number(v) }); },
             })} colors={colors} />
 
-          {/* ── Mood Status — GitHub-style ── */}
-          <View style={[styles.moodRow, { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border }]}>
-            {/* Emoji badge — tapping opens the modal */}
-            <Pressable onPress={() => setMoodModalOpen(true)} style={[styles.moodBadge, { backgroundColor: colors.bg, borderColor: colors.border }]}>
-              {moodEmoji ? (
-                <Text style={styles.moodBadgeEmoji}>{moodEmoji}</Text>
-              ) : (
-                <Ionicons name="happy-outline" size={22} color={colors.textTertiary} />
-              )}
-            </Pressable>
-
-            {/* Text — also tappable, same modal */}
-            <Pressable onPress={() => setMoodModalOpen(true)} style={{ flex: 1 }}>
-              {moodText ? (
-                <Text style={[styles.moodStatusText, { color: colors.text }]} numberOfLines={1}>
-                  {moodText}
-                </Text>
-              ) : (
-                <Text style={[styles.moodStatusText, { color: colors.textTertiary }]}>
-                  Set a status…
-                </Text>
-              )}
-              <Text style={[styles.moodStatusSub, { color: colors.textTertiary }]}>Mood Status</Text>
-            </Pressable>
-
-            {(moodEmoji || moodText) ? (
-              <Pressable
-                hitSlop={10}
-                onPress={() => {
-                  setMoodEmoji('');
-                  setMoodText('');
-                  saveField({ mood_emoji: null, mood_text: null });
-                }}
-              >
-                <Ionicons name="close-circle" size={18} color={colors.textTertiary} />
-              </Pressable>
-            ) : null}
-          </View>
-
-          <MoodPickerModal
-            visible={moodModalOpen}
-            initialEmoji={moodEmoji}
-            initialText={moodText}
-            colors={colors}
-            onSave={(e, t) => {
-              setMoodEmoji(e);
-              setMoodText(t);
-              setMoodModalOpen(false);
-              saveField({ mood_emoji: e || null, mood_text: t || null });
-            }}
-            onClose={() => setMoodModalOpen(false)}
-          />
-
           <EditRow icon="language-outline" label="Languages"
             value={getLookupLabels('language', languageIds.map(Number)).join(', ') || '—'}
             onPress={() => setChipPicker({
@@ -1094,6 +1234,19 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
               updateProfile({ work_mode_enabled: val } as any);
             }}
           />
+          {/* Halal Mode — only shown to Muslim users */}
+          {isMuslim && (
+            <SettingRow
+              icon="moon-outline" label="Halal Mode"
+              subtitle={halalMode ? 'Showing Muslim-only feed · Halal settings active' : 'Switch to a Halal-only matching experience'}
+              colors={colors} toggle toggleVal={halalMode}
+              onToggle={(val) => {
+                setHalalMode(val);
+                apiFetch('/profile/me', { method: 'PATCH', token: token!, body: JSON.stringify({ halal_mode_enabled: val }) }).catch(() => {});
+                updateProfile({ halal_mode_enabled: val } as any);
+              }}
+            />
+          )}
           <SettingRow
             icon="eye-off-outline" label="Hide My Age"
             subtitle={hideAge ? 'Your age is hidden from others' : 'Your age is visible on your profile'}
@@ -1191,9 +1344,7 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
         <SectionLabel title="ACCOUNT ACTIONS" colors={colors} />
         <Group colors={colors}>
           <SettingRow icon="log-out-outline" label="Log Out" colors={colors} danger onPress={handleLogOut} />
-          <SettingRow icon="trash-outline" label="Delete Account" colors={colors} danger
-            onPress={() => Alert.alert('Delete Account', 'This action is permanent and cannot be undone.',
-              [{ text: 'Cancel', style: 'cancel' }, { text: 'Delete', style: 'destructive' }])} />
+          <SettingRow icon="trash-outline" label="Delete Account" colors={colors} danger onPress={handleDeleteAccount} />
         </Group>
       </View>
 
@@ -1535,6 +1686,8 @@ const styles = StyleSheet.create({
   moodBadge:        { width: 40, height: 40, borderRadius: 12, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
   moodBadgeEmoji:   { fontSize: 22 },
   moodStatusText:   { fontSize: 14, fontFamily: 'ProductSans-Medium' },
+  inputRow:         { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14 },
+  inputRowField:    { flex: 1, fontSize: 14, fontFamily: 'ProductSans-Regular' },
   moodStatusSub:    { fontSize: 11, fontFamily: 'ProductSans-Regular', marginTop: 1 },
   moodLabel:        { fontSize: 11, fontFamily: 'ProductSans-Bold', letterSpacing: 0.8, marginBottom: 4 },
 

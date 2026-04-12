@@ -115,18 +115,20 @@ export default function LikedYouPage({ insets, token }: { insets: any; token: st
 
   // Like back → swipe right → if match show overlay + add to matches row
   const handleLike = async (p: Profile) => {
-    removeProfile(p.id);
     if (!token) return;
     try {
       const res = await apiFetch<{ match: boolean }>(
         '/discover/swipe',
         { method: 'POST', token, body: JSON.stringify({ swiped_id: p.id, direction: 'right', mode: 'date' }) },
       );
+      removeProfile(p.id);
       if (res.match) {
         setMatchedProfile({ id: p.id, name: p.name, age: p.age, image: p.images[0] ?? '', interests: p.interests, prompts: p.prompts });
         setRecentMatches(prev => [{ id: p.id, name: p.name, age: p.age, image: p.images[0] ?? '', matchedAt: Date.now() }, ...prev]);
       }
-    } catch { /* swipe recorded locally */ }
+    } catch {
+      // swipe failed — leave card visible so user can retry
+    }
   };
 
   // Dislike → swipe left → remove from list

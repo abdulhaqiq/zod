@@ -18,7 +18,7 @@ import Purchases, {
 } from 'react-native-purchases';
 import { NativeModules } from 'react-native';
 import { apiFetch } from '@/constants/api';
-import { RC_ENTITLEMENT, RC_OFFERING, RC_PREMIUM_OFFERING, RC_PREMIUM_ENTITLEMENT, RC_CREDITS_OFFERING, RC_CREDITS_ENTITLEMENT, type AiCreditPack } from '@/constants/iap';
+import { RC_ENTITLEMENT, RC_OFFERING, RC_PREMIUM_OFFERING, RC_PREMIUM_ENTITLEMENT, RC_CREDITS_OFFERING, RC_CREDITS_ENTITLEMENT, RC_IOS_PUBLIC_KEY, type AiCreditPack } from '@/constants/iap';
 import { useAuth } from '@/context/AuthContext';
 
 // Structured feature types stored in DB
@@ -90,6 +90,7 @@ export function useSubscription() {
   const [offering,         setOffering]         = useState<PurchasesOffering | null>(null);
   const [premiumOffering,  setPremiumOffering]  = useState<PurchasesOffering | null>(null);
   const [plans,            setPlans]            = useState<BackendPlan[]>([]);
+  const [plansLoading,     setPlansLoading]     = useState(true);
   const [myFeatures,       setMyFeatures]       = useState<MyFeatures | null>(null);
   const [status,           setStatus]           = useState<SubscriptionStatus | null>(null);
   const [loading,          setLoading]          = useState(false);
@@ -109,8 +110,8 @@ export function useSubscription() {
       // All three work in Expo Go (no native RC SDK needed).
       fetchStatus();
       apiFetch<BackendPlan[]>('/subscription/plans', { token })
-        .then(data => setPlans(data ?? []))
-        .catch(() => {});
+        .then(data => { setPlans(data ?? []); setPlansLoading(false); })
+        .catch(() => { setPlansLoading(false); });
       apiFetch<MyFeatures>('/subscription/my-features', { token })
         .then(data => {
           setMyFeatures(data);
@@ -125,12 +126,8 @@ export function useSubscription() {
       // Skip native RC SDK entirely in Expo Go — no native store available
       if (!IS_EXPO_GO) {
         try {
-          const { sdk_key } = await apiFetch<{ sdk_key: string }>(
-            '/subscription/config',
-            { token },
-          );
           Purchases.setLogLevel(LOG_LEVEL.WARN);
-          Purchases.configure({ apiKey: sdk_key });
+          Purchases.configure({ apiKey: RC_IOS_PUBLIC_KEY });
           // Load store offerings for purchase UI (only available in native builds)
           loadOffering();
         } catch { /* silent — status is already loaded from backend above */ }
@@ -281,50 +278,50 @@ export function useSubscription() {
     setPurchasingCredits(true);
     setError(null);
     try {
-      if (!IS_EXPO_GO) {
-        const offerings = await Purchases.getOfferings();
-
-        // Look in the dedicated AI credits offering first, then fall back to all offerings
-        const creditsOffering = offerings.all[RC_CREDITS_OFFERING];
-        const creditsPackages = creditsOffering
-          ? creditsOffering.availablePackages
-          : Object.values(offerings.all ?? {}).flatMap(o => o.availablePackages);
-
-        const pkg = creditsPackages.find(p => p.product?.identifier === pack.id);
-
-        if (pkg) {
-          const { customerInfo } = await Purchases.purchasePackage(pkg);
-          const rcCustomerId = customerInfo.originalAppUserId;
-
-          // Check the credits entitlement was granted (consumable — will be active briefly)
-          const creditsGranted =
-            customerInfo.entitlements.active[RC_CREDITS_ENTITLEMENT] !== undefined ||
-            customerInfo.nonSubscriptionTransactions?.some(t => t.productIdentifier === pack.id);
-
-          if (!creditsGranted) {
-            return { success: false, error: 'Purchase completed but credits could not be verified. Contact support.' };
-          }
-
-          const data = await apiFetch<{ credits_added: number; new_balance: number }>(
-            '/subscription/ai-credits/topup',
-            {
-              method: 'POST',
-              token: token ?? undefined,
-              body: JSON.stringify({ pack_id: pack.id, revenuecat_customer_id: rcCustomerId }),
-            },
-          );
-          setMyFeatures(prev => prev ? { ...prev, ai_credits_balance: data.new_balance } : prev);
-          return { success: true, newBalance: data.new_balance };
-        }
+      // AI Credits require a native build — Apple IAP is not available in Expo Go.
+      if (IS_EXPO_GO) {
+        return { success: false, error: 'AI Credits purchases require a development or App Store build. In-app purchases are not available in Expo Go.' };
       }
 
-      // In Expo Go or if product not found in RC — call backend directly (dev/test only)
+      const offerings = await Purchases.getOfferings();
+
+      // Look in the dedicated AI credits offering first, then fall back to all offerings
+      const creditsOffering = offerings.all[RC_CREDITS_OFFERING];
+      const creditsPackages = creditsOffering
+        ? creditsOffering.availablePackages
+        : Object.values(offerings.all ?? {}).flatMap(o => o.availablePackages);
+
+      // Debug: log what's actually available so we can diagnose mismatches
+      console.log('[RC] Offering keys:', Object.keys(offerings.all ?? {}));
+      console.log('[RC] Credits offering packages:', creditsPackages.map(p => `${p.identifier} → ${p.product?.identifier}`));
+      console.log('[RC] Looking for product ID:', pack.id);
+
+      const pkg = creditsPackages.find(p => p.product?.identifier === pack.id);
+
+      if (!pkg) {
+        const available = creditsPackages.map(p => p.product?.identifier).filter(Boolean).join(', ');
+        console.warn('[RC] AI credits product not found. Available:', available || 'none');
+        return { success: false, error: `This product is not available right now. Please try again later.` };
+      }
+
+      const { customerInfo } = await Purchases.purchasePackage(pkg);
+      const rcCustomerId = customerInfo.originalAppUserId;
+
+      // Check the credits entitlement was granted (consumable — will be active briefly)
+      const creditsGranted =
+        customerInfo.entitlements.active[RC_CREDITS_ENTITLEMENT] !== undefined ||
+        customerInfo.nonSubscriptionTransactions?.some(t => t.productIdentifier === pack.id);
+
+      if (!creditsGranted) {
+        return { success: false, error: 'Purchase completed but credits could not be verified. Contact support.' };
+      }
+
       const data = await apiFetch<{ credits_added: number; new_balance: number }>(
         '/subscription/ai-credits/topup',
         {
           method: 'POST',
           token: token ?? undefined,
-          body: JSON.stringify({ pack_id: pack.id, revenuecat_customer_id: 'dev_test' }),
+          body: JSON.stringify({ pack_id: pack.id, revenuecat_customer_id: rcCustomerId }),
         },
       );
       setMyFeatures(prev => prev ? { ...prev, ai_credits_balance: data.new_balance } : prev);
@@ -386,6 +383,7 @@ export function useSubscription() {
     offering,
     premiumOffering,
     plans,
+    plansLoading,
     proPlans,
     premiumPlans,
     planByInterval,

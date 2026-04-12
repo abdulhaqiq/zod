@@ -32,12 +32,12 @@ export const PRODUCT_IDS = {
 /**
  * AI Credits — consumable one-time purchases.
  * Products created in App Store Connect & RevenueCat:
- *   com.zod.ai.credits.101  — $0.99  →  10 AI Credits
+ *   com.zod.ai.credits.110  — $0.99  →  10 AI Credits
  *   com.zod.ai.credits.25   — $1.99  →  25 AI Credits
  *   com.zod.ai.credits.50   — $3.99  →  50 AI Credits
  */
 export const AI_CREDIT_PACKS = [
-  { id: 'com.zod.ai.credits.101', credits: 10, price: '$0.99', label: '10 Credits' },
+  { id: 'com.zod.ai.credits.110', credits: 10, price: '$0.99', label: '10 Credits' },
   { id: 'com.zod.ai.credits.25',  credits: 25, price: '$1.99', label: '25 Credits', badge: 'Popular' },
   { id: 'com.zod.ai.credits.50',  credits: 50, price: '$3.99', label: '50 Credits', badge: 'Best Value' },
 ] as const;
@@ -51,3 +51,8 @@ export const RC_CREDITS_OFFERING    = 'ai_credits';      // AI Credits offering
 export const RC_ENTITLEMENT         = 'pro';
 export const RC_PREMIUM_ENTITLEMENT = 'premium';
 export const RC_CREDITS_ENTITLEMENT = 'entlcbf342b9df'; // AI Credits entitlement
+
+// RevenueCat public SDK key — safe to hardcode (not a secret).
+// Get this from RevenueCat dashboard → Project Settings → API Keys → Public app-specific keys (iOS).
+// It should start with "appl_". NEVER use the secret key (sk_...) here.
+export const RC_IOS_PUBLIC_KEY = 'appl_sFbHagBoBQNbtfcctckDwybeBNT';
