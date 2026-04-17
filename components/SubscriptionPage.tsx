@@ -248,11 +248,42 @@ export default function SubscriptionPage() {
     weeklyPackage !== null || monthlyPackage !== null || threeMonthPackage !== null ||
     premiumWeeklyPackage !== null || premiumMonthlyPackage !== null || premiumThreeMonthPackage !== null;
 
+  // ── Price helpers — prefer live App Store prices from RevenueCat ──────────────
+  // Falls back to DB values only when RC packages haven't loaded yet.
+
+  const getRcPkg = (t: PlanTier, b: BillingPeriod): PurchasesPackage | null =>
+    (t === 'premium_plus' ? premiumPackageMap : proPackageMap)[b];
+
+  const getRcPriceDisplay = (t: PlanTier, b: BillingPeriod): string | null => {
+    const pkg = getRcPkg(t, b);
+    const priceStr: string = (pkg?.product as any)?.priceString ?? (pkg?.product as any)?.localizedPriceString ?? '';
+    if (!priceStr) return null;
+    if (b === 'weekly') return `${priceStr}/wk`;
+    if (b === 'monthly') return `${priceStr}/mo`;
+    // 3-month: derive per-month breakdown from the total price
+    const priceNum: number = (pkg?.product as any)?.price ?? 0;
+    if (priceNum > 0) {
+      const symbol = priceStr.replace(/[\d.,\s]/g, '');
+      const perMonth = (priceNum / 3).toFixed(2);
+      return `${symbol}${perMonth}/mo`;
+    }
+    return priceStr;
+  };
+
+  const getRcDescription = (t: PlanTier, b: BillingPeriod): string | null => {
+    const pkg = getRcPkg(t, b);
+    const priceStr: string = (pkg?.product as any)?.priceString ?? (pkg?.product as any)?.localizedPriceString ?? '';
+    if (!priceStr) return null;
+    if (b === 'weekly') return 'Billed weekly';
+    if (b === 'monthly') return 'Billed monthly';
+    return `Billed ${priceStr} every 3 months`;
+  };
+
   // ── CTA text ──────────────────────────────────────────────────────────────────
 
-  const tierName = tier === 'pro' ? 'Zod Pro' : 'Premium+';
-  const ctaPrice = getPlan(tier, billing)?.price_display ?? null;
-  const ctaDesc  = getPlan(tier, billing)?.description   ?? null;
+  const tierName = tier === 'pro' ? 'Pro' : 'Premium+';
+  const ctaPrice = getRcPriceDisplay(tier, billing) ?? getPlan(tier, billing)?.price_display ?? null;
+  const ctaDesc  = getRcDescription(tier, billing)  ?? getPlan(tier, billing)?.description   ?? null;
 
   // ── Personal quota (from my-features) ────────────────────────────────────────
 
@@ -330,12 +361,12 @@ export default function SubscriptionPage() {
             <Ionicons name={tier === 'premium_plus' ? 'diamond' : 'star' as any} size={34} color={colors.text} />
           </Squircle>
           <Text style={[styles.heroTitle, { color: colors.text }]}>
-            {tier === 'pro' ? 'Zod Pro' : 'Premium+'}
+            {tier === 'pro' ? 'Pro' : 'Premium+'}
           </Text>
           <Text style={[styles.heroSub, { color: colors.textSecondary }]}>
             {tier === 'pro'
               ? 'Everything you need to find the right person, faster.'
-              : 'The full Zod experience. Priority matching, no limits.'}
+              : 'The full experience. Priority matching, no limits.'}
           </Text>
 
           {/* Tier switcher pill — below the hero text */}
@@ -383,18 +414,27 @@ export default function SubscriptionPage() {
               </View>
             ))
           ) : (
-            billingPeriods.map(b => (
-              <BillingOption
-                key={b}
-                label={billingLabel[b]}
-                price={getPriceDisplay(tier, b) ?? '—'}
-                sub={getDescription(tier, b) ?? ''}
-                badge={getBadge(tier, b)}
-                selected={billing === b}
-                onSelect={() => setBilling(b)}
-                colors={colors}
-              />
-            ))
+            billingPeriods.map(b => {
+              const rcPrice = getRcPriceDisplay(tier, b);
+              const dbPrice = getPriceDisplay(tier, b);
+              const rcDesc  = getRcDescription(tier, b);
+              const dbDesc  = getDescription(tier, b);
+              const dbBadge = getBadge(tier, b);
+              // Fallback stand-in badge when DB hasn't returned a badge yet
+              const standInBadge = dbBadge ?? (b === 'threemonths' ? 'Best Value' : null);
+              return (
+                <BillingOption
+                  key={b}
+                  label={billingLabel[b]}
+                  price={rcPrice ?? dbPrice ?? '—'}
+                  sub={rcDesc ?? dbDesc ?? (b === 'weekly' ? 'Billed weekly' : b === 'monthly' ? 'Billed monthly' : 'Billed every 3 months')}
+                  badge={standInBadge}
+                  selected={billing === b}
+                  onSelect={() => setBilling(b)}
+                  colors={colors}
+                />
+              );
+            })
           )}
         </View>
 
@@ -518,7 +558,7 @@ export default function SubscriptionPage() {
                       <Text style={[styles.alreadySub, { color: colors.textSecondary }]}>
                         {expiresAt
                           ? `Renews ${new Date(expiresAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
-                          : `You're on ${tier === 'premium_plus' ? 'Premium+' : 'Zod Pro'} · Active`}
+                          : `You're on ${tier === 'premium_plus' ? 'Premium+' : 'Pro'} · Active`}
                       </Text>
                     </View>
                     <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />

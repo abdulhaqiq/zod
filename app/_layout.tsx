@@ -1,6 +1,5 @@
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
-import * as Notifications from 'expo-notifications';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
@@ -11,6 +10,21 @@ import 'react-native-reanimated';
 
 // Hold the native splash until our JS splash is ready to take over.
 SplashScreen.preventAutoHideAsync();
+
+// Configure how expo-notifications shows notifications while the app is in the foreground.
+// Without this iOS silently drops foreground pushes.
+{
+  const Notifications = require('expo-notifications');
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert:  true,
+      shouldPlaySound:  true,
+      shouldSetBadge:   false,
+      shouldShowBanner: true,
+      shouldShowList:   true,
+    }),
+  });
+}
 
 /**
  * Lets RootLayoutInner (deep in the provider tree) signal when
@@ -32,22 +46,11 @@ import * as Camera from 'expo-camera';
 import * as MediaLibrary from 'expo-media-library';
 import * as TrackingTransparency from 'expo-tracking-transparency';
 
-// Show match/message banners while the app is in the foreground
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge:  false,
-    shouldShowBanner: true,
-    shouldShowList:   true,
-  }),
-});
-
 export const unstable_settings = {
   initialRouteName: 'welcome',
 };
 
-const AUTH_SCREENS = ['welcome', 'phone', 'otp'];
+const AUTH_SCREENS = ['welcome', 'phone', 'otp', 'email'];
 
 const ONBOARDING_SCREENS = [
   'passkey',
@@ -127,6 +130,35 @@ const noConnStyles = StyleSheet.create({
 });
 
 
+/** Shared handler for notification taps from background/killed state. */
+function _handleNotificationTap(
+  data: Record<string, any>,
+  router: ReturnType<typeof useRouter>,
+  setIncomingCall: (call: { id: string; name: string; image?: string } | null) => void,
+) {
+  if (!data) return;
+  if (data.type === 'call') {
+    const callerName  = (data.caller_name  ?? data.sender_name ?? 'Someone') as string;
+    const callerImage = (data.caller_image ?? data.sender_image ?? '') as string;
+    const callerId    = (data.from ?? data.sender_id ?? '') as string;
+    setIncomingCall({ id: callerId, name: callerName, image: callerImage || undefined });
+    return;
+  }
+  if (data.type === 'active_call') return;
+  if (data.type === 'match' || data.type === 'chat') {
+    const otherId = data.other_user_id as string | undefined;
+    const name    = data.other_name   as string | undefined;
+    const image   = data.other_image  as string | undefined;
+    const roomId  = data.room_id      as string | undefined;
+    if (otherId) {
+      router.push({
+        pathname: '/chat',
+        params: { matchId: roomId ?? otherId, name: name ?? '', image: image ?? '', online: 'false' },
+      } as any);
+    }
+  }
+}
+
 function RootLayoutInner() {
   const { isDark, syncFromBackend, setApiFetch } = useAppTheme();
   const { token, isLoading, isOnboarded, profile, isNetworkError } = useAuth();
@@ -165,106 +197,89 @@ function RootLayoutInner() {
   // Auto-update location on every app open (non-blocking, best-effort)
   useAutoLocation();
 
-  // ── Push notification registration + call action categories ─────────────
+  // ── Register Android notification channels from API (idempotent) ────────────
+  // Only runs on Android native builds. Fetches channel definitions from the
+  // backend so we never need a client update to add/change channels.
+  // Each channel is skipped if it already exists on the device.
   useEffect(() => {
-    if (!token) return;
-
-    const register = async () => {
+    if (Platform.OS !== 'android' || _IS_EXPO_GO) return;
+    (async () => {
       try {
-        const { status: existingStatus } = await Notifications.getPermissionsAsync();
-        let finalStatus = existingStatus;
-        if (existingStatus !== 'granted') {
-          const { status } = await Notifications.requestPermissionsAsync();
-          finalStatus = status;
-        }
-        if (finalStatus !== 'granted') return;
+        const Notifications = await import('expo-notifications');
 
-        // Android needs a notification channel
-        if (Platform.OS === 'android') {
-          await Notifications.setNotificationChannelAsync('default', {
-            name: 'default',
-            importance: Notifications.AndroidImportance.MAX,
-            vibrationPattern: [0, 250, 250, 250],
+        // importance string → AndroidImportance enum
+        const importanceMap: Record<string, number> = {
+          max:     Notifications.AndroidImportance.MAX,
+          high:    Notifications.AndroidImportance.HIGH,
+          default: Notifications.AndroidImportance.DEFAULT,
+          low:     Notifications.AndroidImportance.LOW,
+          min:     Notifications.AndroidImportance.MIN,
+        };
+        const vibrationMap: Record<string, number[]> = {
+          incoming_call: [0, 500, 200, 500],
+          activity:      [0, 250, 250, 250],
+        };
+
+        // Fetch channel definitions from backend (no auth required)
+        const res = await fetch(`${API_V1}/profile/notification-channels`);
+        if (!res.ok) return;
+        const { channels } = (await res.json()) as {
+          channels: Array<{
+            id: string; name: string; description?: string;
+            importance: string; sound: boolean; vibration: boolean; badge: boolean;
+          }>;
+        };
+
+        for (const ch of channels) {
+          // Skip if this channel already exists — idempotent
+          const existing = await Notifications.getNotificationChannelAsync(ch.id);
+          if (existing) continue;
+
+          await Notifications.setNotificationChannelAsync(ch.id, {
+            name:             ch.name,
+            description:      ch.description,
+            importance:       importanceMap[ch.importance] ?? Notifications.AndroidImportance.DEFAULT,
+            sound:            ch.sound ? 'default' : null,
+            vibrationPattern: ch.vibration ? (vibrationMap[ch.id] ?? [0, 250, 250, 250]) : undefined,
+            enableVibrate:    ch.vibration,
+            showBadge:        ch.badge,
           });
-          // Separate high-priority channel for incoming calls
-          await Notifications.setNotificationChannelAsync('incoming_call', {
-            name: 'Incoming Calls',
-            importance: Notifications.AndroidImportance.MAX,
-            vibrationPattern: [0, 500, 200, 500],
-            sound: 'default',
-          });
         }
+      } catch { /* non-critical — notification channels are best-effort */ }
+    })();
+  }, []);
 
-        // Register notification category with Accept / Decline action buttons
-        await Notifications.setNotificationCategoryAsync('incoming_call', [
-          {
-            identifier: 'accept',
-            buttonTitle: '✅ Accept',
-            options: { opensAppToForeground: true },
-          },
-          {
-            identifier: 'decline',
-            buttonTitle: '❌ Decline',
-            options: { opensAppToForeground: false, isDestructive: true },
-          },
-        ]);
-
-        const pushTokenData = await Notifications.getExpoPushTokenAsync();
-        const expoPushToken = pushTokenData.data;
-
-        // Save to backend
-        await fetch(`${API_V1}/profile/me/push-token`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ token: expoPushToken }),
-        });
-      } catch { /* Expo Go or simulator — silently skip */ }
-    };
-
-    register();
-  }, [token]);
-
-  // ── Handle push notification taps (app in background / killed) ────────────
+  // ── expo-notifications — foreground receive + tap handlers ─────────────────
+  // Handles Expo push tokens (ExponentPushToken[...]). Works alongside the
+  // Firebase handlers above so both token types are covered.
   useEffect(() => {
-    const sub = Notifications.addNotificationResponseReceivedListener(response => {
-      const data   = response.notification.request.content.data as Record<string, any>;
-      const action = response.actionIdentifier;
-      if (!data) return;
+    (async () => {
+      const Notifications = await import('expo-notifications');
 
-      // ── Incoming call notification actions ──────────────────────────────
-      if (data.type === 'call') {
-        const callerName  = (data.caller_name  ?? data.sender_name ?? 'Someone') as string;
-        const callerImage = (data.caller_image ?? data.sender_image ?? '') as string;
-        const callerId    = (data.from ?? data.sender_id ?? '') as string;
-
-        if (action === 'decline') {
-          // User tapped Decline from the notification — no need to open the app
-          return;
+      // Foreground notification received (show as alert on iOS)
+      const receivedSub = Notifications.addNotificationReceivedListener(_notif => {
+        // Notifications are auto-displayed by setNotificationHandler above.
+        // Foreground call notifications are handled by the data below.
+        const data = (_notif.request.content.data ?? {}) as Record<string, any>;
+        if (data.type === 'call') {
+          const callerName  = (data.caller_name  ?? data.sender_name ?? 'Someone') as string;
+          const callerImage = (data.caller_image ?? data.sender_image ?? '') as string;
+          const callerId    = (data.from ?? data.sender_id ?? '') as string;
+          setIncomingCall({ id: callerId, name: callerName, image: callerImage || undefined });
         }
-        // 'accept' or default tap → open app and show incoming call screen
-        setIncomingCall({ id: callerId, name: callerName, image: callerImage || undefined });
-        return;
-      }
+      });
 
-      // ── Active-call persistent notification tap → just bring app to foreground
-      // (CallContext still holds the active call state, so the call screen re-appears)
-      if (data.type === 'active_call') return;
+      // Notification tapped (background / killed)
+      const responseSub = Notifications.addNotificationResponseReceivedListener(response => {
+        const data = (response.notification.request.content.data ?? {}) as Record<string, any>;
+        _handleNotificationTap(data, router, setIncomingCall);
+      });
 
-      // ── Regular chat / match notifications ──────────────────────────────
-      if (data.type === 'match' || data.type === 'chat') {
-        const otherId = data.other_user_id as string | undefined;
-        const name    = data.other_name   as string | undefined;
-        const image   = data.other_image  as string | undefined;
-        const roomId  = data.room_id      as string | undefined;
-        if (otherId) {
-          router.push({
-            pathname: '/chat',
-            params: { matchId: roomId ?? otherId, name: name ?? '', image: image ?? '', online: 'false' },
-          } as any);
-        }
-      }
-    });
-    return () => sub.remove();
+      return () => {
+        receivedSub.remove();
+        responseSub.remove();
+      };
+    })();
   }, [router, setIncomingCall]);
 
   // Sync theme from backend profile whenever profile changes
@@ -345,11 +360,14 @@ function RootLayoutInner() {
     } else if (
       isLoggedIn &&
       isOnboarded &&
+      // Only gate users who are genuinely unverified. If is_verified is already
+      // true, never redirect to face-scan — face_scan_required can be stale from a
+      // slow DB commit or a WebSocket race on re-login.
+      !profile?.is_verified &&
       (profile?.face_scan_required || profile?.id_scan_required) &&
       currentScreen !== 'face-scan-required'
     ) {
-      // Account flagged for mandatory verification (face scan or ID upload).
-      // Block access to all other screens until the required scan is completed.
+      // Face verification is mandatory — block all unverified users from entering the app.
       router.replace('/face-scan-required' as any);
       didNavigate = true;
 
@@ -368,7 +386,7 @@ function RootLayoutInner() {
       setTimeout(signalReady, didNavigate ? 100 : 0);
     }
 
-  }, [authReady, isLoggedIn, isOnboarded, isNetworkError, profile?.face_scan_required, profile?.id_scan_required, segments]);
+  }, [authReady, isLoggedIn, isOnboarded, isNetworkError, profile?.is_verified, profile?.face_scan_required, profile?.id_scan_required, segments]);
 
   const bgColor = isDark ? darkColors.bg : lightColors.bg;
 

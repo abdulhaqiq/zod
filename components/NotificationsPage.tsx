@@ -31,7 +31,7 @@ const SECTIONS: { title: string; items: NotifItem[] }[] = [
     items: [
       { id: 'liked_you',    icon: 'thumbs-up-outline',   label: 'Liked Your Profile', sub: 'When someone likes your profile'        },
       { id: 'profile_view', icon: 'eye-outline',         label: 'Profile Views',      sub: 'When someone views your profile'        },
-      { id: 'zod_picks',    icon: 'sparkles-outline',    label: 'Zod AI Picks',       sub: 'Your daily AI-curated match suggestions'},
+      { id: 'zod_picks',    icon: 'sparkles-outline',    label: 'AI Picks',           sub: 'Your daily AI-curated match suggestions'},
     ],
   },
   {

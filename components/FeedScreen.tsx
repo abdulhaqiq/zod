@@ -1392,7 +1392,7 @@ function RangeSlider({
 
 export default function FeedScreen() {
   const { colors, isDark } = useAppTheme();
-  const { profile, token, updateProfile } = useAuth();
+  const { profile, token, updateProfile, requestAndRegisterPushToken } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { lookups } = useLookups();
@@ -1405,6 +1405,14 @@ export default function FeedScreen() {
   useEffect(() => {
     setSuperLikesRemaining(profile?.super_likes_remaining ?? 0);
   }, [profile?.super_likes_remaining, profile?.subscription_tier]);
+
+  // Request notification permission & register FCM token once the feed loads.
+  // Runs in background — never blocks UI. Idempotent (exits early if already done).
+  useEffect(() => {
+    if (!token) return;
+    requestAndRegisterPushToken();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
 
   // ── Restore + persist work mode via API ──────────────────────────────────
   // `restoringRef` prevents the save effect from firing during profile restore.
@@ -1796,7 +1804,10 @@ export default function FeedScreen() {
       return next;
     });
   };
-  const refetchFeed = () => fetchFeed(0, true);
+  const refetchFeed = useCallback(() => {
+    setProfiles([]);          // clear stale deck immediately so shimmer shows
+    fetchFeed(0, true);
+  }, [fetchFeed]);
 
   // ── Report / Block handlers ───────────────────────────────────────────────
   const handleReportPress = useCallback((profileId: string) => {

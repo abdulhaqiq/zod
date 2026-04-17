@@ -616,37 +616,6 @@ export default function EditProfilePage() {
                   setPhotos(slots);
                 }}
               />
-              {profile?.is_verified ? (
-                <Pressable
-                  onPress={() => navPush({ pathname: '/verification', params: { tab: 'id' } })}
-                  style={({ pressed }) => [
-                    styles.editRow,
-                    pressed && { opacity: 0.65 },
-                  ]}
-                >
-                  <View style={[styles.editIconWrap, { backgroundColor: '#16a34a', alignItems: 'center', justifyContent: 'center' }]}>
-                    <Ionicons name="checkmark" size={16} color="#fff" />
-                  </View>
-                  <View style={{ flex: 1, gap: 1 }}>
-                    <Text style={[styles.editLabel, { color: colors.text }]}>Verification</Text>
-                    <Text style={[styles.editPreview, { color: '#22c55e' }]}>Face Verified · Complete ID</Text>
-                  </View>
-                  <View style={styles.verifiedBadge}>
-                    <Ionicons name="shield-checkmark" size={11} color="#fff" />
-                    <Text style={styles.verifiedBadgeText}>Verified</Text>
-                  </View>
-                  <Ionicons name="chevron-forward" size={16} color={colors.border} style={{ marginLeft: 4 }} />
-                </Pressable>
-              ) : (
-                <EditRow
-                  icon="checkmark-circle-outline"
-                  label="Verification"
-                  value="Get Verified"
-                  onPress={() => navPush('/verification')}
-                  colors={colors}
-                  last
-                />
-              )}
             </Group>
           </View>
 
@@ -760,66 +729,6 @@ export default function EditProfilePage() {
             </Group>
           </View>
 
-          {/* ── HALAL & FAITH (Muslims only) ────────────────────────── */}
-          {isMuslim && (
-            <View style={styles.section}>
-              <SectionLabel title="HALAL & FAITH" colors={colors} />
-              <Group colors={colors}>
-                {/* Halal mode toggle row */}
-                <View style={[
-                  styles.editRow,
-                  halalMode && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
-                ]}>
-                  <Squircle style={styles.editIconWrap} cornerRadius={10} cornerSmoothing={1} fillColor={colors.surface2}>
-                    <Ionicons name="moon-outline" size={16} color={colors.text} />
-                  </Squircle>
-                  <View style={{ flex: 1, gap: 1 }}>
-                    <Text style={[styles.editLabel, { color: colors.text }]}>Halal mode</Text>
-                    <Text style={[styles.editPreview, { color: colors.textSecondary }]}>
-                      {halalMode ? 'Enabled — only visible to Halal users' : 'Disabled'}
-                    </Text>
-                  </View>
-                  <Switch
-                    value={halalMode}
-                    onValueChange={saveHalalMode}
-                    trackColor={{ false: colors.border, true: colors.text }}
-                    thumbColor={colors.bg}
-                  />
-                </View>
-
-                {/* Faith detail rows — only shown when Halal is ON */}
-                {halalMode && (
-                  <>
-                    <EditRow
-                      icon="library-outline"
-                      label="Sect"
-                      value={sectLabel}
-                      preview={sectLabel ? undefined : 'Tap to set'}
-                      onPress={() => setShowSect(true)}
-                      colors={colors}
-                    />
-                    <EditRow
-                      icon="time-outline"
-                      label="Prayer frequency"
-                      value={prayerLabel}
-                      preview={prayerLabel ? undefined : 'Tap to set'}
-                      onPress={() => setShowPrayer(true)}
-                      colors={colors}
-                    />
-                    <EditRow
-                      icon="heart-circle-outline"
-                      label="Marriage timeline"
-                      value={marriageLabel}
-                      preview={marriageLabel ? undefined : 'Tap to set'}
-                      onPress={() => setShowMarriage(true)}
-                      colors={colors}
-                      last
-                    />
-                  </>
-                )}
-              </Group>
-            </View>
-          )}
 
           {/* ── ACCOUNT ─────────────────────────────────────────────────── */}
           <View style={styles.section}>
@@ -898,7 +807,7 @@ export default function EditProfilePage() {
             </Group>
           </View>
 
-          {/* ── WORK & EDUCATION ────────────────────────────────────────── */}
+          {/* ── WORK, EDUCATION & HALAL ─────────────────────────────────── */}
           <View style={styles.section}>
             <SectionLabel title="WORK & EDUCATION" colors={colors} />
             <Group colors={colors}>
@@ -917,8 +826,65 @@ export default function EditProfilePage() {
                 preview={eduLabel ? undefined : 'Tap to add'}
                 onPress={() => navPush('/education')}
                 colors={colors}
-                last
+                last={!isMuslim}
               />
+
+              {/* Halal mode toggle — only for Muslim users */}
+              {isMuslim && (
+                <>
+                  <View style={[
+                    styles.editRow,
+                    halalMode && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+                  ]}>
+                    <Squircle style={styles.editIconWrap} cornerRadius={10} cornerSmoothing={1} fillColor={colors.surface2}>
+                      <Ionicons name="moon-outline" size={16} color={colors.text} />
+                    </Squircle>
+                    <View style={{ flex: 1, gap: 1 }}>
+                      <Text style={[styles.editLabel, { color: colors.text }]}>Halal mode</Text>
+                      <Text style={[styles.editPreview, { color: colors.textSecondary }]}>
+                        {halalMode ? 'Enabled — only visible to Halal users' : 'Disabled'}
+                      </Text>
+                    </View>
+                    <Switch
+                      value={halalMode}
+                      onValueChange={saveHalalMode}
+                      trackColor={{ false: colors.border, true: colors.text }}
+                      thumbColor={colors.bg}
+                    />
+                  </View>
+
+                  {/* Faith detail rows — only shown when Halal mode is ON */}
+                  {halalMode && (
+                    <>
+                      <EditRow
+                        icon="library-outline"
+                        label="Sect"
+                        value={sectLabel}
+                        preview={sectLabel ? undefined : 'Tap to set'}
+                        onPress={() => setShowSect(true)}
+                        colors={colors}
+                      />
+                      <EditRow
+                        icon="time-outline"
+                        label="Prayer frequency"
+                        value={prayerLabel}
+                        preview={prayerLabel ? undefined : 'Tap to set'}
+                        onPress={() => setShowPrayer(true)}
+                        colors={colors}
+                      />
+                      <EditRow
+                        icon="heart-circle-outline"
+                        label="Marriage timeline"
+                        value={marriageLabel}
+                        preview={marriageLabel ? undefined : 'Tap to set'}
+                        onPress={() => setShowMarriage(true)}
+                        colors={colors}
+                        last
+                      />
+                    </>
+                  )}
+                </>
+              )}
             </Group>
           </View>
 

@@ -3,8 +3,10 @@
   "main": "expo-router/entry",
   "version": "1.0.0",
   "scripts": {
-    "start": "lsof -ti:8081 | xargs kill -9 2>/dev/null; expo start --port 8081 --clear",
+    "start": "node scripts/set-dev-ip.js && lsof -ti:8081 | xargs kill -9 2>/dev/null; expo start --port 8081 --clear --dev-client",
     "tunnel": "lsof -ti:8081 | xargs kill -9 2>/dev/null; expo start --port 8081 --clear --tunnel",
+    "lt": "lsof -ti:8081 | xargs kill -9 2>/dev/null; npx expo start --port 8081 --clear --dev-client & sleep 6 && npx localtunnel --port 8081",
+    "usb": "iproxy 8081 8081 & iproxy 8000 8000",
     "reset-project": "node ./scripts/reset-project.js",
     "android": "expo run:android",
     "ios": "expo run:ios",

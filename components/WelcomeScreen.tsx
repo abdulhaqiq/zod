@@ -37,6 +37,7 @@ interface TokenResponse {
   access_token: string;
   refresh_token: string;
   expires_in: number;
+  is_new_user?: boolean;
 }
 
 const Logo = ({ size = 180 }: { size?: number }) => {
@@ -123,10 +124,17 @@ export default function WelcomeScreen() {
       await signIn(data.access_token, data.refresh_token, me.is_onboarded, 'google');
 
       const dest = me.is_onboarded ? '/(tabs)' : '/gender';
-        goToPasskeySetup(
-          { name: me.full_name ?? null, phone: me.phone ?? null, photo: me.photos?.[0] ?? null, method: 'google' },
-          dest,
-        );
+
+      // New user — collect and verify phone number as part of sign-up
+      if (data.is_new_user && !me.phone) {
+        router.push({ pathname: '/phone' as any, params: { mode: 'link', next: dest } });
+        return;
+      }
+
+      goToPasskeySetup(
+        { name: me.full_name ?? null, phone: me.phone ?? null, photo: me.photos?.[0] ?? null, method: 'google' },
+        dest,
+      );
     } catch (err: any) {
       Alert.alert('Sign In Failed', err.message ?? 'Please try again.');
     } finally {
@@ -175,7 +183,8 @@ export default function WelcomeScreen() {
       // Different user — silently overwrite so the card reflects the new user
       await saveRecentAccount(account);
     }
-    router.replace(next as any);
+    // Guard in _layout.tsx handles the navigation to (tabs)/onboarding.
+    // Calling router.replace here too would double-mount the feed screen.
   };
 
   const handleAppleSignIn = async (fromQuickSignIn = false) => {
@@ -216,6 +225,13 @@ export default function WelcomeScreen() {
       // After signing in, offer to save to Keychain only if this was a fresh sign-in
       if (!fromQuickSignIn) {
         const dest = me.is_onboarded ? '/(tabs)' : '/gender';
+
+        // New user — collect and verify phone number as part of sign-up
+        if (data.is_new_user && !me.phone) {
+          router.push({ pathname: '/phone' as any, params: { mode: 'link', next: dest } });
+          return;
+        }
+
         goToPasskeySetup(
           { name: me.full_name ?? null, phone: me.phone ?? null, photo: me.photos?.[0] ?? null, method: 'apple' },
           dest,
@@ -253,8 +269,8 @@ export default function WelcomeScreen() {
     try {
       const dest = await performQuickSignIn();
       if (dest) {
-        // Success — navigate directly, no OTP needed
-        router.replace(dest as any);
+        // Success — context state was updated; the routing guard in _layout.tsx
+        // will navigate automatically. No explicit router.replace needed here.
         return;
       }
       // Token expired — clear card and fall back to normal sign-in

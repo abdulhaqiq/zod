@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
@@ -95,7 +95,23 @@ type FaceState =
   | 'passed'
   | 'failed';
 
-export function FaceTab({ colors, onSwitchToId, onPassed, skipCheck }: { colors: AppColors; onSwitchToId: () => void; onPassed?: () => void; skipCheck?: boolean }) {
+export type FaceTabHandle = { startScan: () => void };
+
+interface FaceTabProps {
+  colors: AppColors;
+  onSwitchToId: () => void;
+  onPassed?: () => void;
+  skipCheck?: boolean;
+  /** When true the internal CTA button is hidden — parent renders its own sticky button */
+  hideCta?: boolean;
+  /** Called whenever the scan state changes so the parent can drive a sticky button */
+  onStateChange?: (state: FaceState) => void;
+}
+
+export const FaceTab = forwardRef<FaceTabHandle, FaceTabProps>(function FaceTab(
+  { colors, onSwitchToId, onPassed, skipCheck, hideCta = false, onStateChange },
+  ref,
+) {
   const { token, profile } = useAuth();
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef<CameraView>(null);
@@ -107,8 +123,17 @@ export function FaceTab({ colors, onSwitchToId, onPassed, skipCheck }: { colors:
   const [failReason,   setFailReason]   = useState<string | null>(null);
   const [matchScore,   setMatchScore]   = useState<number | null>(null);
   const [initializing, setInitializing] = useState(true);
+  // Hide camera until the native layer reports it's ready — prevents the
+  // brief back-camera flash that occurs while CameraView initialises.
+  const [cameraReady,  setCameraReady]  = useState(false);
 
   const CHALLENGE_MS = 3000;
+
+  // Expose startScan so a parent can trigger it from a sticky button
+  useImperativeHandle(ref, () => ({ startScan }));
+
+  // Notify parent whenever state changes (used by sticky CTA owner)
+  useEffect(() => { onStateChange?.(state); }, [state]);
 
   // On mount: skip the status check entirely when skipCheck=true (e.g. coming
   // from the filter — user just wants to scan now, no need to hit the API).
@@ -128,8 +153,13 @@ export function FaceTab({ colors, onSwitchToId, onPassed, skipCheck }: { colors:
           setMatchScore(data.attempt?.face_match_score ?? null);
           setState('passed');
           onPassed?.();
+        } else if (s === 'rejected') {
+          // Restore rejected state so user sees the reason on re-open instead of a blank idle screen
+          setFailReason(data.attempt?.rejection_reason ?? 'Verification failed. Please try again.');
+          setMatchScore(data.attempt?.face_match_score ?? null);
+          setState('failed');
         }
-        // rejected or no attempt → stay idle (fresh start)
+        // No attempt yet → stay idle (fresh start)
       })
       .catch(() => {})
       .finally(() => setInitializing(false));
@@ -215,6 +245,7 @@ export function FaceTab({ colors, onSwitchToId, onPassed, skipCheck }: { colors:
     setChallengeIdx(0);
     setFailReason(null);
     setMatchScore(null);
+    setCameraReady(false);  // reset so the black cover shows until front cam is ready
     setState('camera');
     setTimeout(() => setState('challenge'), 1200);
   };
@@ -239,12 +270,16 @@ export function FaceTab({ colors, onSwitchToId, onPassed, skipCheck }: { colors:
 
       if (data.status === 'pending') {
         setState('pending');
+      } else if (res.status === 429) {
+        // Cooldown — show the backend's message directly (e.g. "Try again in 15 minutes")
+        setFailReason(data.detail ?? 'Too many attempts. Please wait before trying again.');
+        setState('failed');
       } else {
-        // Unexpected fallback
         setFailReason(data.detail ?? 'Submission failed. Please try again.');
         setState('failed');
       }
-    } catch {
+    } catch (err: any) {
+      console.error('[FaceScan] captureAndSubmit error:', err?.message ?? err);
       setFailReason('Could not submit scan. Check your connection and try again.');
       setState('failed');
     }
@@ -330,7 +365,18 @@ export function FaceTab({ colors, onSwitchToId, onPassed, skipCheck }: { colors:
 
         <View style={[styles.facePreview, { borderRadius: 56, overflow: 'hidden', borderWidth: 2, borderColor: ringColor }]}>
           {isLiveCamera ? (
-            <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing="front" />
+            <>
+              <CameraView
+                ref={cameraRef}
+                style={StyleSheet.absoluteFill}
+                facing="front"
+                onCameraReady={() => setCameraReady(true)}
+              />
+              {/* Black cover hides the back-camera flash while the front cam initialises */}
+              {!cameraReady && (
+                <View style={[StyleSheet.absoluteFill, { backgroundColor: '#000' }]} />
+              )}
+            </>
 
           ) : state === 'failed' ? (
             <View style={[StyleSheet.absoluteFill, styles.overlayCenter, { backgroundColor: '#1a0800' }]}>
@@ -387,15 +433,12 @@ export function FaceTab({ colors, onSwitchToId, onPassed, skipCheck }: { colors:
         </View>
       </View>
 
-      {/* Pending notice */}
+      {/* Pending: small inline hint — oval overlay already shows the state clearly */}
       {state === 'pending' && (
-        <Squircle style={styles.pendingCard} cornerRadius={16} cornerSmoothing={1}
-          fillColor={'rgba(245,158,11,0.1)'} strokeColor={'#f59e0b'} strokeWidth={StyleSheet.hairlineWidth}>
-          <Ionicons name="hourglass-outline" size={16} color="#f59e0b" />
-          <Text style={[styles.failText, { color: '#f59e0b' }]}>
-            Your scan has been submitted and is being reviewed. This usually takes a few seconds.
-          </Text>
-        </Squircle>
+        <View style={styles.pendingHint}>
+          <Ionicons name="hourglass-outline" size={13} color="#f59e0b" />
+          <Text style={styles.pendingHintText}>Analysing… usually a few seconds</Text>
+        </View>
       )}
 
       {/* Failure reason */}
@@ -432,8 +475,8 @@ export function FaceTab({ colors, onSwitchToId, onPassed, skipCheck }: { colors:
         </View>
       )}
 
-      {/* CTA — idle: start scan · failed: try again */}
-      {(state === 'idle' || state === 'failed') && (
+      {/* CTA — idle: start scan · failed: try again (hidden when parent owns the button) */}
+      {!hideCta && (state === 'idle' || state === 'failed') && (
         <Pressable style={({ pressed }) => [pressed && { opacity: 0.75 }]} onPress={startScan}>
           <Squircle style={styles.ctaBtn} cornerRadius={28} cornerSmoothing={1} fillColor={colors.text}>
             <Ionicons name="scan-outline" size={18} color={colors.bg} />
@@ -446,7 +489,7 @@ export function FaceTab({ colors, onSwitchToId, onPassed, skipCheck }: { colors:
 
     </View>
   );
-}
+});
 
 // ─── ID Upload zone ────────────────────────────────────────────────────────────
 
@@ -674,7 +717,8 @@ function IDTab({ colors, active = true }: { colors: AppColors; active?: boolean 
         setIdResult({ rejection_reason: data.detail ?? 'Submission failed.', id_face_match_score: null, id_has_name: null, id_has_dob: null, id_has_expiry: null, id_has_number: null, id_name_match: null, id_dob_match: null });
         setIdState('failed');
       }
-    } catch {
+    } catch (err: any) {
+      console.error('[IDScan] captureAndSubmit error:', err?.message ?? err);
       setIdResult({ rejection_reason: 'Could not submit. Check your connection.', id_face_match_score: null, id_has_name: null, id_has_dob: null, id_has_expiry: null, id_has_number: null, id_name_match: null, id_dob_match: null });
       setIdState('failed');
     }
@@ -1035,8 +1079,9 @@ const styles = StyleSheet.create({
   idOptionText:       { fontSize: 13, fontFamily: 'ProductSans-Bold', color: '#fff' },
   idOptionDivider:    { width: 1, height: 20 },
 
-  // Pending card
-  pendingCard:        { flexDirection: 'row', alignItems: 'flex-start', gap: 10, padding: 14 },
+  // Pending hint (replaces the old pendingCard amber block)
+  pendingHint:        { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
+  pendingHintText:    { fontSize: 13, fontFamily: 'ProductSans-Regular', color: '#f59e0b' },
 
   // ID pending state
   idPendingCard:      { borderRadius: 22, borderWidth: 1, overflow: 'hidden' },

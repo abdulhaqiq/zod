@@ -5,6 +5,7 @@
  */
 import { useEffect, useState } from 'react';
 import { apiFetch } from '@/constants/api';
+import { syncLookupCache } from '@/constants/lookupData';
 
 export interface LookupOption {
   id: number;
@@ -25,6 +26,11 @@ export function bustLookupsCache() {
   _inflight = null;
 }
 
+/** Read the current in-memory cache synchronously (null if not yet fetched). */
+export function getLookupsCache(): LookupMap | null {
+  return _cache;
+}
+
 export async function fetchLookups(): Promise<LookupMap> {
   if (_cache) return _cache;
   if (_inflight) return _inflight;
@@ -36,6 +42,7 @@ export async function fetchLookups(): Promise<LookupMap> {
         map[cat] = rows.map(r => ({ id: r.id, emoji: r.emoji ?? undefined, label: r.label, subcategory: r.subcategory ?? undefined }));
       }
       _cache = map;
+      syncLookupCache(map);
       return map;
     } finally {
       _inflight = null;

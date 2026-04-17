@@ -238,7 +238,7 @@ export default function DateFilterSheet({ visible, onClose, onApply, onNavigateT
     setVerifiedOnly(profile.filter_verified_only ?? false);
     setAgeMin(profile.filter_age_min ?? 18);
     setAgeMax(profile.filter_age_max ?? 80);
-    setDistance(profile.filter_max_distance_km != null ? Math.min(profile.filter_max_distance_km, 80) : 20);
+    setDistance(profile.filter_max_distance_km != null ? Math.min(profile.filter_max_distance_km, 80) : 80);
     setSigns(profile.filter_star_signs ?? []);
     setInterests(profile.filter_interests ?? []);
     setLangs(profile.filter_languages ?? []);
@@ -263,7 +263,7 @@ export default function DateFilterSheet({ visible, onClose, onApply, onNavigateT
     setArr(arr.includes(val) ? arr.filter(x => x !== val) : [...arr, val]);
 
   const reset = () => {
-    setVerifiedOnly(false); setAgeMin(18); setAgeMax(80); setDistance(20);
+    setVerifiedOnly(false); setAgeMin(18); setAgeMax(80); setDistance(80);
     setSigns([]); setInterests([]); setLangs([]); setEthnicities([]);
     setExercise([]); setDrinking([]); setSmoking([]); setHeightMin(140);
     setLookingFor([]); setEducation([]); setFamilyPlans([]); setHavingKids([]);
@@ -280,7 +280,7 @@ export default function DateFilterSheet({ visible, onClose, onApply, onNavigateT
       const patch: Record<string, any> = {
         filter_age_min:         ageMin <= 18 ? null : ageMin,
         filter_age_max:         ageMax >= 80 ? null : ageMax,
-        filter_max_distance_km: distance >= 80 ? null : distance,
+        filter_max_distance_km: distance,
         filter_verified_only:   verifiedOnly,
         filter_star_signs:      signs.length     ? signs     : null,
         filter_interests:       interests.length ? interests : null,
@@ -396,7 +396,7 @@ export default function DateFilterSheet({ visible, onClose, onApply, onNavigateT
             <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
               <View style={styles.sliderLabelRow}>
                 <SecHead title="MAX DISTANCE" />
-                <Text style={[styles.sliderValue, { color: colors.text }]}>{distance >= 80 ? 'Any' : `${distance} km`}</Text>
+                  <Text style={[styles.sliderValue, { color: colors.text }]}>{`${distance} km`}</Text>
               </View>
               <View style={[styles.sliderRow, { marginTop: 10 }]}>
                 <Text style={[styles.sliderSub, { color: colors.textSecondary }]}>1 km</Text>

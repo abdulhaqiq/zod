@@ -29,6 +29,7 @@ import { API_V1, apiFetch } from '@/constants/api';
 import { useAuth } from '@/context/AuthContext';
 import { useAppTheme } from '@/context/ThemeContext';
 import { getLookupLabel, getLookupLabels } from '@/constants/lookupData';
+import { fetchLookups, getLookupsCache } from '@/hooks/useLookups';
 import { useProfileSave } from '@/hooks/useProfileSave';
 import { useSubscription } from '@/hooks/useSubscription';
 import { restoreRealLocation } from '@/hooks/useAutoLocation';
@@ -67,21 +68,19 @@ const labelToCm = (label: string): number | null => {
   return match?.cm ?? null;
 };
 
-// ─── Lookup option cache (module-level so it persists across renders) ─────────
+// ─── Lookup option cache ───────────────────────────────────────────────────
+// Delegates to the shared fetchLookups() so there is a single fetch + cache.
 
 type LookupMap = Record<string, ChipOption[]>;
-let _cachedLookups: LookupMap | null = null;
 
 async function fetchAllLookups(): Promise<LookupMap> {
-  if (_cachedLookups) return _cachedLookups;
   try {
-    const data = await apiFetch<Record<string, Array<{ id: number; emoji?: string; label: string }>>>('/lookup/options');
+    const raw = await fetchLookups(); // shared cache + syncLookupCache already called inside
     const map: LookupMap = {};
-    for (const [cat, rows] of Object.entries(data)) {
-      // Store id as the `value` field so ChipSelectorSheet returns the ID (as string)
+    for (const [cat, rows] of Object.entries(raw)) {
+      // Convert to ChipOption shape: value = string ID (what ChipSelectorSheet returns)
       map[cat] = rows.map(r => ({ value: String(r.id), emoji: r.emoji ?? undefined, label: r.label }));
     }
-    _cachedLookups = map;
     return map;
   } catch {
     return {};
@@ -445,7 +444,17 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
   }, [token]);
 
   // ── Lookup options from backend ───────────────────────────────────────────
-  const [lookups, setLookups] = useState<LookupMap>(_cachedLookups ?? {});
+  // Seed from the shared module-level cache if already populated (e.g. if
+  // EditProfilePage loaded first), otherwise start empty and fill via effect.
+  const [lookups, setLookups] = useState<LookupMap>(() => {
+    const raw = getLookupsCache();
+    if (!raw) return {};
+    const map: LookupMap = {};
+    for (const [cat, rows] of Object.entries(raw)) {
+      map[cat] = rows.map(r => ({ value: String(r.id), emoji: r.emoji ?? undefined, label: r.label }));
+    }
+    return map;
+  });
   const lookupsLoaded = useRef(false);
 
   useEffect(() => {
@@ -645,7 +654,10 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
   const [wheel, setWheel] = useState<WheelState | null>(null);
 
   // Chip sheet — single-select (About You fields) or multi-select (Languages)
-  interface ChipState { title: string; subtitle?: string; options: ChipOption[]; selected: string[]; single?: boolean; onDone: (vals: string[]) => void; }
+  // `category` is the lookup key; options are derived live from `lookups` so the
+  // sheet always reflects freshly-fetched data even if the user taps before the
+  // API response arrives.
+  interface ChipState { title: string; subtitle?: string; category?: string; options?: ChipOption[]; selected: string[]; single?: boolean; onDone: (vals: string[]) => void; }
   const [chipPicker, setChipPicker] = useState<ChipState | null>(null);
 
   const openWheel = (cfg: WheelState) => setWheel(cfg);
@@ -817,6 +829,40 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
       </View>
 
 
+      {/* ── Verification banner ─────────────────────────────────────────── */}
+      <View style={{ paddingHorizontal: 16, marginTop: 10 }}>
+        <Pressable
+          onPress={() => navPush(profile?.is_verified ? { pathname: '/verification', params: { tab: 'id' } } : '/verification')}
+          style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}
+        >
+          <Squircle
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 14, paddingHorizontal: 16 }}
+            cornerRadius={18} cornerSmoothing={1}
+            fillColor={colors.surface}
+            strokeColor={profile?.is_verified ? 'rgba(34,197,94,0.35)' : colors.border}
+            strokeWidth={1}
+          >
+            <Squircle style={{ width: 34, height: 34, alignItems: 'center', justifyContent: 'center' }} cornerRadius={10} cornerSmoothing={1}
+              fillColor={profile?.is_verified ? 'rgba(34,197,94,0.15)' : colors.surface2}>
+              <Ionicons name={profile?.is_verified ? 'shield-checkmark' : 'shield-checkmark-outline'} size={17} color={profile?.is_verified ? '#22c55e' : colors.textSecondary} />
+            </Squircle>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 14, fontFamily: 'ProductSans-Bold', color: colors.text }}>Verification</Text>
+              <Text style={{ fontSize: 12, fontFamily: 'ProductSans-Regular', color: profile?.is_verified ? '#22c55e' : colors.textSecondary, marginTop: 1 }}>
+                {profile?.is_verified ? 'Face Verified · Complete ID' : 'Get verified to unlock more matches'}
+              </Text>
+            </View>
+            {profile?.is_verified && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#16a34a', borderRadius: 20, paddingHorizontal: 8, paddingVertical: 4 }}>
+                <Ionicons name="shield-checkmark" size={11} color="#fff" />
+                <Text style={{ fontSize: 11, fontFamily: 'ProductSans-Bold', color: '#fff' }}>Verified</Text>
+              </View>
+            )}
+            <Ionicons name="chevron-forward" size={13} color={colors.textSecondary} style={{ marginLeft: 4 }} />
+          </Squircle>
+        </Pressable>
+      </View>
+
       {/* ── AI Credits card ─────────────────────────────────────────────── */}
       <View style={{ paddingHorizontal: 16, marginTop: 10 }}>
         <Pressable
@@ -923,90 +969,6 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
         </Group>
       </View>
 
-      {/* ── HALAL SETTINGS — only when user is Muslim AND halal mode on ──── */}
-      {isMuslim && halalMode && (
-        <View style={styles.section}>
-          <SectionLabel title="HALAL SETTINGS" colors={colors} />
-          <Group colors={colors}>
-
-            {/* Sect */}
-            <EditRow icon="moon-outline" label="Sect"
-              value={getLookupLabel('sect', sectId ? Number(sectId) : null) || '—'}
-              onPress={() => setChipPicker({
-                title: 'Sect', options: opts('sect'), single: true,
-                selected: sectId ? [sectId] : [],
-                onDone: ([v]) => { setSectId(v); saveField({ sect_id: Number(v) }); },
-              })} colors={colors} />
-
-            {/* Prayer Frequency */}
-            <EditRow icon="time-outline" label="Prayer Frequency"
-              value={getLookupLabel('prayer_frequency', prayerFrequencyId ? Number(prayerFrequencyId) : null) || '—'}
-              onPress={() => setChipPicker({
-                title: 'Prayer Frequency', options: opts('prayer_frequency'), single: true,
-                selected: prayerFrequencyId ? [prayerFrequencyId] : [],
-                onDone: ([v]) => { setPrayerFrequencyId(v); saveField({ prayer_frequency_id: Number(v) }); },
-              })} colors={colors} />
-
-            {/* Marriage Timeline */}
-            <EditRow icon="calendar-outline" label="Marriage Timeline"
-              value={getLookupLabel('marriage_timeline', marriageTimelineId ? Number(marriageTimelineId) : null) || '—'}
-              onPress={() => setChipPicker({
-                title: 'Marriage Timeline', options: opts('marriage_timeline'), single: true,
-                selected: marriageTimelineId ? [marriageTimelineId] : [],
-                onDone: ([v]) => { setMarriageTimelineId(v); saveField({ marriage_timeline_id: Number(v) }); },
-              })} colors={colors} />
-
-            {/* Blur photos in Halal mode */}
-            <SettingRow
-              icon="image-outline" label="Blur Photos"
-              subtitle="Blur your photos for users in Halal mode"
-              colors={colors} toggle toggleVal={profile?.blur_photos_halal ?? false}
-              onToggle={(val) => {
-                saveField({ blur_photos_halal: val });
-                updateProfile({ blur_photos_halal: val } as any);
-              }}
-            />
-
-            {/* Wali section — females only */}
-            {isFemale && (
-              <>
-                <SettingRow
-                  icon="shield-checkmark-outline" label="Wali Verified"
-                  subtitle={waliVerified ? 'Your guardian has been verified' : 'Indicate that a guardian is involved'}
-                  colors={colors} toggle toggleVal={waliVerified}
-                  onToggle={(val) => {
-                    setWaliVerified(val);
-                    saveField({ wali_verified: val });
-                    updateProfile({ wali_verified: val } as any);
-                  }}
-                />
-                <View style={[styles.inputRow, { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border }]}>
-                  <Ionicons name="mail-outline" size={18} color={colors.textSecondary} style={{ marginRight: 10 }} />
-                  <TextInput
-                    style={[styles.inputRowField, { color: colors.text }]}
-                    placeholder="Wali email address"
-                    placeholderTextColor={colors.textTertiary}
-                    value={waliEmail}
-                    onChangeText={setWaliEmail}
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                    returnKeyType="done"
-                    onEndEditing={() => {
-                      if (!waliEmailSaving) {
-                        setWaliEmailSaving(true);
-                        saveField({ wali_email: waliEmail || null });
-                        updateProfile({ wali_email: waliEmail || null } as any);
-                        setWaliEmailSaving(false);
-                      }
-                    }}
-                  />
-                  {waliEmailSaving && <ActivityIndicator size="small" color={colors.textSecondary} />}
-                </View>
-              </>
-            )}
-          </Group>
-        </View>
-      )}
 
       {/* ── ABOUT YOU ───────────────────────────────────────────────────── */}
       <View style={styles.section}>
@@ -1072,14 +1034,14 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
 
           <EditRow icon="fitness-outline" label="Exercise" value={getLookupLabel('exercise', exerciseId ? Number(exerciseId) : null) || '—'}
             onPress={() => setChipPicker({
-              title: 'Exercise', options: opts('exercise'), single: true,
+              title: 'Exercise', category: 'exercise', single: true,
               selected: exerciseId ? [exerciseId] : [],
               onDone: ([v]) => { setExerciseId(v); saveField({ lifestyle: { ...lf, exercise: Number(v) } }); },
             })} colors={colors} />
 
           <EditRow icon="ribbon-outline" label="Education Level" value={getLookupLabel('education_level', educationLevelId ? Number(educationLevelId) : null) || '—'}
             onPress={() => setChipPicker({
-              title: 'Education Level', options: opts('education_level'), single: true,
+              title: 'Education Level', category: 'education_level', single: true,
               selected: educationLevelId ? [educationLevelId] : [],
               onDone: ([v]) => { setEducationLevelId(v); saveField({ education_level_id: Number(v) }); },
             })} colors={colors} />
@@ -1106,56 +1068,163 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
 
           <EditRow icon="wine-outline" label="Drinking" value={getLookupLabel('drinking', drinkingId ? Number(drinkingId) : null) || '—'}
             onPress={() => setChipPicker({
-              title: 'Drinking', options: opts('drinking'), single: true,
+              title: 'Drinking', category: 'drinking', single: true,
               selected: drinkingId ? [drinkingId] : [],
               onDone: ([v]) => { setDrinkingId(v); saveField({ lifestyle: { ...lf, drinking: Number(v) } }); },
             })} colors={colors} />
 
           <EditRow icon="flame-outline" label="Smoking" value={getLookupLabel('smoking', smokingId ? Number(smokingId) : null) || '—'}
             onPress={() => setChipPicker({
-              title: 'Smoking', options: opts('smoking'), single: true,
+              title: 'Smoking', category: 'smoking', single: true,
               selected: smokingId ? [smokingId] : [],
               onDone: ([v]) => { setSmokingId(v); saveField({ lifestyle: { ...lf, smoking: Number(v) } }); },
             })} colors={colors} />
 
           <EditRow icon="heart-outline" label="Looking For" value={getLookupLabel('looking_for', lookingForId ? Number(lookingForId) : null) || '—'}
             onPress={() => setChipPicker({
-              title: 'Looking For', options: opts('looking_for'), single: true,
+              title: 'Looking For', category: 'looking_for', single: true,
               selected: lookingForId ? [lookingForId] : [],
               onDone: ([v]) => { setLookingForId(v); saveField({ looking_for_id: Number(v) }); },
             })} colors={colors} />
 
           <EditRow icon="people-outline" label="Family Plans" value={getLookupLabel('family_plans', familyPlansId ? Number(familyPlansId) : null) || '—'}
             onPress={() => setChipPicker({
-              title: 'Family Plans', options: opts('family_plans'), single: true,
+              title: 'Family Plans', category: 'family_plans', single: true,
               selected: familyPlansId ? [familyPlansId] : [],
               onDone: ([v]) => { setFamilyPlansId(v); saveField({ family_plans_id: Number(v) }); },
             })} colors={colors} />
 
           <EditRow icon="happy-outline" label="Have Kids" value={getLookupLabel('have_kids', haveKidsId ? Number(haveKidsId) : null) || '—'}
             onPress={() => setChipPicker({
-              title: 'Have Kids', options: opts('have_kids'), single: true,
+              title: 'Have Kids', category: 'have_kids', single: true,
               selected: haveKidsId ? [haveKidsId] : [],
               onDone: ([v]) => { setHaveKidsId(v); saveField({ have_kids_id: Number(v) }); },
             })} colors={colors} />
 
           <EditRow icon="star-outline" label="Star Sign" value={getLookupLabel('star_sign', starSignId ? Number(starSignId) : null) || '—'}
             onPress={() => setChipPicker({
-              title: 'Star Sign', options: opts('star_sign'), single: true,
+              title: 'Star Sign', category: 'star_sign', single: true,
               selected: starSignId ? [starSignId] : [],
               onDone: ([v]) => { setStarSignId(v); saveField({ star_sign_id: Number(v) }); },
             })} colors={colors} />
 
           <EditRow icon="book-outline" label="Religion" value={getLookupLabel('religion', religionId ? Number(religionId) : null) || '—'}
             onPress={() => setChipPicker({
-              title: 'Religion', options: opts('religion'), single: true,
+              title: 'Religion', category: 'religion', single: true,
               selected: religionId ? [religionId] : [],
               onDone: ([v]) => { setReligionId(v); saveField({ religion_id: Number(v) }); },
             })} colors={colors} />
 
+          {/* Halal mode toggle — only shown to Muslim users */}
+          {isMuslim && (
+            <>
+              <View style={[
+                styles.settingRow,
+                halalMode && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+              ]}>
+                <Squircle style={styles.settingIconWrap} cornerRadius={10} cornerSmoothing={1} fillColor={colors.surface2}>
+                  <Ionicons name="moon-outline" size={16} color={colors.text} />
+                </Squircle>
+                <View style={{ flex: 1, gap: 1 }}>
+                  <Text style={[styles.settingLabel, { color: colors.text }]}>Halal Mode</Text>
+                  <Text style={[styles.settingSubtitle, { color: colors.textSecondary }]}>
+                    {halalMode ? 'Showing Muslim-only feed · Halal settings active' : 'Switch to a Halal-only matching experience'}
+                  </Text>
+                </View>
+                <Switch
+                  value={halalMode}
+                  onValueChange={(val) => {
+                    setHalalMode(val);
+                    apiFetch('/profile/me', { method: 'PATCH', token: token!, body: JSON.stringify({ halal_mode_enabled: val }) }).catch(() => {});
+                    updateProfile({ halal_mode_enabled: val } as any);
+                  }}
+                  trackColor={{ false: colors.border, true: colors.text }}
+                  thumbColor={colors.bg}
+                />
+              </View>
+
+              {/* Faith detail rows — visible when Halal mode is on */}
+              {halalMode && (
+                <>
+                  <EditRow icon="library-outline" label="Sect"
+                    value={getLookupLabel('sect', sectId ? Number(sectId) : null) || '—'}
+                    onPress={() => setChipPicker({
+                      title: 'Sect', category: 'sect', single: true,
+                      selected: sectId ? [sectId] : [],
+                      onDone: ([v]) => { setSectId(v); saveField({ sect_id: Number(v) }); },
+                    })} colors={colors} />
+
+                  <EditRow icon="time-outline" label="Prayer Frequency"
+                    value={getLookupLabel('prayer_frequency', prayerFrequencyId ? Number(prayerFrequencyId) : null) || '—'}
+                    onPress={() => setChipPicker({
+                      title: 'Prayer Frequency', category: 'prayer_frequency', single: true,
+                      selected: prayerFrequencyId ? [prayerFrequencyId] : [],
+                      onDone: ([v]) => { setPrayerFrequencyId(v); saveField({ prayer_frequency_id: Number(v) }); },
+                    })} colors={colors} />
+
+                  <EditRow icon="calendar-outline" label="Marriage Timeline"
+                    value={getLookupLabel('marriage_timeline', marriageTimelineId ? Number(marriageTimelineId) : null) || '—'}
+                    onPress={() => setChipPicker({
+                      title: 'Marriage Timeline', category: 'marriage_timeline', single: true,
+                      selected: marriageTimelineId ? [marriageTimelineId] : [],
+                      onDone: ([v]) => { setMarriageTimelineId(v); saveField({ marriage_timeline_id: Number(v) }); },
+                    })} colors={colors} />
+
+                  <SettingRow
+                    icon="image-outline" label="Blur Photos"
+                    subtitle="Blur your photos for users in Halal mode"
+                    colors={colors} toggle toggleVal={profile?.blur_photos_halal ?? false}
+                    onToggle={(val) => {
+                      saveField({ blur_photos_halal: val });
+                      updateProfile({ blur_photos_halal: val } as any);
+                    }}
+                  />
+
+                  {/* Wali section — females only */}
+                  {isFemale && (
+                    <>
+                      <SettingRow
+                        icon="shield-checkmark-outline" label="Wali Verified"
+                        subtitle={waliVerified ? 'Your guardian has been verified' : 'Indicate that a guardian is involved'}
+                        colors={colors} toggle toggleVal={waliVerified}
+                        onToggle={(val) => {
+                          setWaliVerified(val);
+                          saveField({ wali_verified: val });
+                          updateProfile({ wali_verified: val } as any);
+                        }}
+                      />
+                      <View style={[styles.inputRow, { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border }]}>
+                        <Ionicons name="mail-outline" size={18} color={colors.textSecondary} style={{ marginRight: 10 }} />
+                        <TextInput
+                          style={[styles.inputRowField, { color: colors.text }]}
+                          placeholder="Wali email address"
+                          placeholderTextColor={colors.textTertiary}
+                          value={waliEmail}
+                          onChangeText={setWaliEmail}
+                          keyboardType="email-address"
+                          autoCapitalize="none"
+                          returnKeyType="done"
+                          onEndEditing={() => {
+                            if (!waliEmailSaving) {
+                              setWaliEmailSaving(true);
+                              saveField({ wali_email: waliEmail || null });
+                              updateProfile({ wali_email: waliEmail || null } as any);
+                              setWaliEmailSaving(false);
+                            }
+                          }}
+                        />
+                        {waliEmailSaving && <ActivityIndicator size="small" color={colors.textSecondary} />}
+                      </View>
+                    </>
+                  )}
+                </>
+              )}
+            </>
+          )}
+
           <EditRow icon="people-outline" label="Ethnicity" value={getLookupLabel('ethnicity', ethnicityId ? Number(ethnicityId) : null) || '—'}
             onPress={() => setChipPicker({
-              title: 'Ethnicity', options: opts('ethnicity'), single: true,
+              title: 'Ethnicity', category: 'ethnicity', single: true,
               selected: ethnicityId ? [ethnicityId] : [],
               onDone: ([v]) => { setEthnicityId(v); saveField({ ethnicity_id: Number(v) }); },
             })} colors={colors} />
@@ -1164,14 +1233,14 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
             value={getLookupLabels('language', languageIds.map(Number)).join(', ') || '—'}
             onPress={() => setChipPicker({
               title: 'Languages', subtitle: 'Pick all that apply',
-              options: opts('language'), single: false, selected: languageIds,
+              category: 'language', single: false, selected: languageIds,
               onDone: (vals) => { setLanguageIds(vals); saveField({ languages: vals.map(Number) }); },
             })} colors={colors} />
 
           <EditRow icon="nutrition-outline" label="Diet"
             value={getLookupLabel('diet', dietId ? Number(dietId) : null) || '—'}
             onPress={() => setChipPicker({
-              title: 'Diet', options: opts('diet'), single: true,
+              title: 'Diet', category: 'diet', single: true,
               selected: dietId ? [dietId] : [],
               onDone: ([v]) => { setDietId(v); saveField({ lifestyle: { ...lf, diet: Number(v) } }); },
             })} colors={colors} />
@@ -1180,7 +1249,7 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
             value={getLookupLabels('interests', interestIds.map(Number)).join(', ') || '—'}
             onPress={() => setChipPicker({
               title: 'Interests', subtitle: 'Pick at least 3',
-              options: opts('interests'), single: false, selected: interestIds,
+              category: 'interests', single: false, selected: interestIds,
               onDone: (vals) => { setInterestIds(vals); saveField({ interests: vals.map(Number) }); },
             })} colors={colors} />
 
@@ -1188,7 +1257,7 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
             value={getLookupLabels('values_list', valuesIds.map(Number)).join(', ') || '—'}
             onPress={() => setChipPicker({
               title: 'Values', subtitle: 'What matters most to you',
-              options: opts('values_list'), single: false, selected: valuesIds,
+              category: 'values_list', single: false, selected: valuesIds,
               onDone: (vals) => { setValuesIds(vals); saveField({ values_list: vals.map(Number) }); },
             })} colors={colors} />
 
@@ -1196,7 +1265,7 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
             value={getLookupLabels('causes', causesIds.map(Number)).join(', ') || '—'}
             onPress={() => setChipPicker({
               title: 'Causes', subtitle: 'Causes you care about',
-              options: opts('causes'), single: false, selected: causesIds,
+              category: 'causes', single: false, selected: causesIds,
               onDone: (vals) => { setCausesIds(vals); saveField({ causes: vals.map(Number) }); },
             })} colors={colors} last />
         </Group>
@@ -1234,19 +1303,6 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
               updateProfile({ work_mode_enabled: val } as any);
             }}
           />
-          {/* Halal Mode — only shown to Muslim users */}
-          {isMuslim && (
-            <SettingRow
-              icon="moon-outline" label="Halal Mode"
-              subtitle={halalMode ? 'Showing Muslim-only feed · Halal settings active' : 'Switch to a Halal-only matching experience'}
-              colors={colors} toggle toggleVal={halalMode}
-              onToggle={(val) => {
-                setHalalMode(val);
-                apiFetch('/profile/me', { method: 'PATCH', token: token!, body: JSON.stringify({ halal_mode_enabled: val }) }).catch(() => {});
-                updateProfile({ halal_mode_enabled: val } as any);
-              }}
-            />
-          )}
           <SettingRow
             icon="eye-off-outline" label="Hide My Age"
             subtitle={hideAge ? 'Your age is hidden from others' : 'Your age is visible on your profile'}
@@ -1370,7 +1426,7 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
           subtitle={chipPicker.subtitle}
           singleSelect={chipPicker.single ?? false}
           maxSelect={chipPicker.single ? 1 : 99}
-          options={chipPicker.options}
+          options={chipPicker.category ? (lookups[chipPicker.category] ?? chipPicker.options ?? []) : (chipPicker.options ?? [])}
           selected={chipPicker.selected}
           onChange={vals => {
             chipPicker.onDone(vals);

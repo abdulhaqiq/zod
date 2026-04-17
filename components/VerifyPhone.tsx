@@ -28,13 +28,19 @@ interface TokenResponse {
   refresh_token: string;
   token_type: string;
   expires_in: number;
+  is_new_user?: boolean;
 }
 
 export default function VerifyPhone() {
   const router = useRouter();
   const { colors } = useAppTheme();
-  const { signIn } = useAuth();
-  const { phone, countryCode } = useLocalSearchParams<{ phone: string; countryCode: string }>();
+  const { signIn, token } = useAuth();
+  const { phone, countryCode, mode, next } = useLocalSearchParams<{
+    phone: string;
+    countryCode: string;
+    mode?: string;
+    next?: string;
+  }>();
 
   const inputRef = useRef<TextInput>(null);
   const [code, setCode] = useState('');
@@ -67,6 +73,24 @@ export default function VerifyPhone() {
     setVerifying(true);
     setError(null);
 
+    // ── Link mode: phone is being added to an existing social account ─────────
+    if (mode === 'link') {
+      try {
+        await apiFetch('/auth/phone/link', {
+          method: 'POST',
+          token: token ?? undefined,
+          body: JSON.stringify({ phone, code: digits }),
+        });
+        router.replace((next ?? '/gender') as any);
+      } catch (err: any) {
+        setError(err.message ?? 'Verification failed. Please try again.');
+      } finally {
+        setVerifying(false);
+      }
+      return;
+    }
+
+    // ── Normal mode: phone sign-in / sign-up ───────────────────────────────────
     try {
       const device = await getDeviceInfo();
       const data = await apiFetch<TokenResponse>('/auth/phone/verify-otp', {
@@ -80,32 +104,44 @@ export default function VerifyPhone() {
         is_onboarded: boolean;
         full_name?: string | null;
         phone?: string | null;
+        email?: string | null;
         photos?: string[] | null;
       }>('/profile/me', data.access_token);
 
-      // signIn triggers the auth guard; isOnboarded tells it where to route
+      // signIn sets token + isOnboarded in context — the routing guard in
+      // _layout.tsx will navigate to the correct screen automatically.
+      // Do NOT also call router.replace here for normal logins, otherwise
+      // the feed mounts twice (once from the guard, once from here).
       await signIn(data.access_token, data.refresh_token, me.is_onboarded, 'phone');
 
       const dest = me.is_onboarded ? '/(tabs)' : '/gender';
+      // New phone sign-up — collect email before onboarding starts
+      const isNew = data.is_new_user && !me.email;
+
+      if (isNew) {
+        // Guard won't know to go to /email — navigate explicitly
+        router.replace({ pathname: '/email' as any, params: { next: dest } });
+        return;
+      }
 
       const existing = await loadRecentAccount();
       const isSameUser = existing?.phone != null && existing.phone === (me.phone ?? null);
 
       if (existing && isSameUser) {
-        // Same user returning — skip passkey setup, they already saved their account
-        router.replace(dest as any);
+        // Guard handles routing — nothing to do here
+        return;
       } else if (existing && !isSameUser) {
-        // Different user on this device — overwrite the saved account silently
-        // (the previous user explicitly logged out, so the device is now theirs)
+        // Save the new account record, then let the guard route
         await saveRecentAccount({
           name:   me.full_name   ?? null,
           phone:  me.phone       ?? null,
           photo:  me.photos?.[0] ?? null,
           method: 'phone',
         });
-        router.replace(dest as any);
+        // Guard handles routing — nothing to do here
+        return;
       } else {
-        // No saved account yet — offer to save for quick sign-in next time
+        // First time on this device — show passkey prompt (guard won't do this)
         router.push({
           pathname: '/passkey' as any,
           params: {

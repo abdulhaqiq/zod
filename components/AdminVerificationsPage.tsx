@@ -3,11 +3,13 @@ import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import ScreenHeader from '@/components/ui/ScreenHeader';
@@ -226,6 +228,177 @@ function StatPill({ label, value, color, colors }: { label: string; value: numbe
   );
 }
 
+// ─── Send notification panel ──────────────────────────────────────────────────
+
+function SendNotificationPanel({ token, colors }: { token: string | null; colors: any }) {
+  const [expanded,   setExpanded]   = useState(false);
+  const [target,     setTarget]     = useState<'all' | 'user'>('all');
+  const [phone,      setPhone]      = useState('');
+  const [title,      setTitle]      = useState('');
+  const [body,       setBody]       = useState('');
+  const [channel,    setChannel]    = useState<'activity' | 'marketing'>('marketing');
+  const [sending,    setSending]    = useState(false);
+
+  const send = async () => {
+    if (!title.trim() || !body.trim()) {
+      Alert.alert('Missing fields', 'Title and message are required.');
+      return;
+    }
+    if (target === 'user' && !phone.trim()) {
+      Alert.alert('Missing phone', 'Enter the recipient phone number.');
+      return;
+    }
+    setSending(true);
+    try {
+      const res = await fetch(`${API_V1}/admin/notifications/send`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ title: title.trim(), body: body.trim(), target, phone: target === 'user' ? phone.trim() : undefined, channel }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail ?? 'Failed to send');
+      Alert.alert('Sent!', target === 'all'
+        ? `Notification delivered to ${data.sent} user${data.sent !== 1 ? 's' : ''}.`
+        : 'Notification sent to user.');
+      setTitle(''); setBody(''); setPhone('');
+    } catch (e: any) {
+      Alert.alert('Error', e.message ?? 'Something went wrong');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <Squircle
+      style={[notifStyles.panel]}
+      cornerRadius={18} cornerSmoothing={1}
+      fillColor={colors.surface}
+      strokeColor={colors.border}
+      strokeWidth={StyleSheet.hairlineWidth}
+    >
+      <Pressable style={notifStyles.header} onPress={() => setExpanded(e => !e)}>
+        <View style={notifStyles.headerLeft}>
+          <Squircle style={notifStyles.headerIcon} cornerRadius={10} cornerSmoothing={1} fillColor={colors.surface2}>
+            <Ionicons name="notifications-outline" size={16} color={colors.text} />
+          </Squircle>
+          <Text style={[notifStyles.headerTitle, { color: colors.text }]}>Send Notification</Text>
+        </View>
+        <Ionicons name={expanded ? 'chevron-up' : 'chevron-down' as any} size={14} color={colors.textTertiary} />
+      </Pressable>
+
+      {expanded && (
+        <View style={[notifStyles.body, { borderTopColor: colors.border }]}>
+          {/* Target toggle */}
+          <View style={notifStyles.row}>
+            <Text style={[notifStyles.label, { color: colors.textSecondary }]}>Target</Text>
+            <View style={[notifStyles.segmented, { backgroundColor: colors.surface2 }]}>
+              {(['all', 'user'] as const).map(t => (
+                <Pressable
+                  key={t}
+                  onPress={() => setTarget(t)}
+                  style={[notifStyles.segment, target === t && { backgroundColor: colors.bg, borderRadius: 8 }]}
+                >
+                  <Text style={[notifStyles.segmentText, { color: target === t ? colors.text : colors.textSecondary }]}>
+                    {t === 'all' ? 'All Users' : 'Single User'}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+
+          {/* Phone (user mode) */}
+          {target === 'user' && (
+            <View style={notifStyles.row}>
+              <Text style={[notifStyles.label, { color: colors.textSecondary }]}>Phone</Text>
+              <TextInput
+                value={phone}
+                onChangeText={setPhone}
+                placeholder="+44 7123 456789"
+                placeholderTextColor={colors.textTertiary}
+                keyboardType="phone-pad"
+                style={[notifStyles.input, { color: colors.text, borderColor: colors.border, backgroundColor: colors.surface2 }]}
+              />
+            </View>
+          )}
+
+          {/* Channel */}
+          <View style={notifStyles.row}>
+            <Text style={[notifStyles.label, { color: colors.textSecondary }]}>Channel</Text>
+            <View style={[notifStyles.segmented, { backgroundColor: colors.surface2 }]}>
+              {(['marketing', 'activity'] as const).map(c => (
+                <Pressable
+                  key={c}
+                  onPress={() => setChannel(c)}
+                  style={[notifStyles.segment, channel === c && { backgroundColor: colors.bg, borderRadius: 8 }]}
+                >
+                  <Text style={[notifStyles.segmentText, { color: channel === c ? colors.text : colors.textSecondary }]}>
+                    {c === 'marketing' ? 'Marketing' : 'Activity'}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+
+          {/* Title */}
+          <TextInput
+            value={title}
+            onChangeText={setTitle}
+            placeholder="Notification title"
+            placeholderTextColor={colors.textTertiary}
+            style={[notifStyles.input, { color: colors.text, borderColor: colors.border, backgroundColor: colors.surface2 }]}
+          />
+
+          {/* Body */}
+          <TextInput
+            value={body}
+            onChangeText={setBody}
+            placeholder="Notification message"
+            placeholderTextColor={colors.textTertiary}
+            multiline
+            numberOfLines={3}
+            style={[notifStyles.input, notifStyles.inputMulti, { color: colors.text, borderColor: colors.border, backgroundColor: colors.surface2 }]}
+          />
+
+          {/* Send button */}
+          <Pressable
+            onPress={sending ? undefined : send}
+            style={({ pressed }) => [pressed && !sending && { opacity: 0.75 }]}
+          >
+            <Squircle
+              style={notifStyles.sendBtn}
+              cornerRadius={14} cornerSmoothing={1}
+              fillColor={title && body ? colors.text : colors.surface2}
+            >
+              {sending
+                ? <ActivityIndicator color={colors.bg} size="small" />
+                : <Text style={[notifStyles.sendBtnText, { color: title && body ? colors.bg : colors.textTertiary }]}>Send</Text>
+              }
+            </Squircle>
+          </Pressable>
+        </View>
+      )}
+    </Squircle>
+  );
+}
+
+const notifStyles = StyleSheet.create({
+  panel:        { overflow: 'hidden', marginBottom: 4 },
+  header:       { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 14 },
+  headerLeft:   { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  headerIcon:   { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
+  headerTitle:  { fontSize: 14, fontFamily: 'ProductSans-Bold' },
+  body:         { borderTopWidth: StyleSheet.hairlineWidth, padding: 14, gap: 10 },
+  row:          { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  label:        { fontSize: 12, fontFamily: 'ProductSans-Regular', width: 56 },
+  segmented:    { flex: 1, flexDirection: 'row', borderRadius: 10, padding: 3, gap: 2 },
+  segment:      { flex: 1, alignItems: 'center', paddingVertical: 6 },
+  segmentText:  { fontSize: 12, fontFamily: 'ProductSans-Bold' },
+  input:        { borderWidth: StyleSheet.hairlineWidth, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, fontSize: 13, fontFamily: 'ProductSans-Regular', flex: 1 },
+  inputMulti:   { textAlignVertical: 'top', minHeight: 72, flex: undefined },
+  sendBtn:      { paddingVertical: 13, alignItems: 'center', justifyContent: 'center' },
+  sendBtnText:  { fontSize: 14, fontFamily: 'ProductSans-Black' },
+});
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function AdminVerificationsPage() {
@@ -279,6 +452,8 @@ export default function AdminVerificationsPage() {
           />
         }
       >
+        <SendNotificationPanel token={token} colors={colors} />
+
         {loading ? (
           <View style={styles.center}>
             <ActivityIndicator size="large" color={colors.text} />

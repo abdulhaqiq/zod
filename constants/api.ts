@@ -3,10 +3,8 @@ import Constants from 'expo-constants';
 const PROD_API_URL = 'https://dev.zod.ailoo.co';
 
 // Set to true to always point at production, even when running in dev/Expo Go.
-// Set to false to use the local dev server at LOCAL_DEV_IP.
+// Set to false to auto-detect the local dev server IP from Expo's hostUri.
 const USE_PROD_API = false;
-
-const LOCAL_DEV_IP = '10.155.180.31'; // only used when USE_PROD_API is false
 
 const APP_API_KEY: string =
   (Constants.expoConfig?.extra as any)?.APP_API_KEY ?? '';
@@ -14,11 +12,34 @@ const APP_API_KEY: string =
 function getApiBaseUrl(): string {
   if (USE_PROD_API) return PROD_API_URL;
 
-  // When the Expo dev server and the backend are on different networks
-  // (e.g. hotspot vs LAN), the auto-detected hostUri points at the wrong
-  // machine. Always use LOCAL_DEV_IP so backend calls go to the right host.
   if (__DEV__) {
-    return `http://${LOCAL_DEV_IP}:8000`;
+    // 1. Explicit override from .env.local — most reliable for physical devices.
+    //    Set EXPO_PUBLIC_DEV_API_URL=http://<Mac-WiFi-IP>:8000 in main-app/.env.local
+    //    or EXPO_PUBLIC_DEV_API_URL=http://localhost:8000 when using USB + iproxy.
+    const envUrl = process.env.EXPO_PUBLIC_DEV_API_URL;
+    if (envUrl) {
+      console.log('[API] DEV mode — using EXPO_PUBLIC_DEV_API_URL:', envUrl);
+      return envUrl;
+    }
+
+    // 2. Auto-detect from Expo Constants (works reliably in Expo Go).
+    const hostUri: string =
+      Constants.expoConfig?.hostUri ??
+      (Constants as any).manifest2?.extra?.expoClient?.hostUri ??
+      (Constants as any).manifest?.hostUri ??
+      (Constants as any).manifest?.debuggerHost ??
+      '';
+
+    const devHost = hostUri.split(':')[0];
+    if (devHost && devHost !== 'localhost' && devHost !== '127.0.0.1') {
+      const url = `http://${devHost}:8000`;
+      console.log('[API] DEV mode — detected local backend:', url);
+      return url;
+    }
+
+    // 3. Last resort: localhost (works with USB iproxy and iOS Simulator).
+    console.log('[API] DEV mode — falling back to localhost:8000');
+    return 'http://localhost:8000';
   }
 
   return PROD_API_URL;

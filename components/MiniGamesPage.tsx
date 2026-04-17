@@ -38,7 +38,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Squircle from '@/components/ui/Squircle';
 import { apiFetch } from '@/constants/api';
-import { setPendingGame } from '@/constants/gameQueue';
+import { setPendingGame, sendCardDirect } from '@/constants/gameQueue';
 import { useAuth } from '@/context/AuthContext';
 import { useAppTheme } from '@/context/ThemeContext';
 
@@ -320,10 +320,10 @@ function CategoryPill({ label, isActive, accent, onPress }: {
     <Pressable onPress={onPress} style={({ pressed }) => [{ opacity: pressed ? 0.75 : 1 }]}>
       <Squircle style={s.catPill}
         cornerRadius={50} cornerSmoothing={1}
-        fillColor={isActive ? 'rgba(255,255,255,0.12)' : 'transparent'}
-        strokeColor={isActive ? 'rgba(255,255,255,0.55)' : 'rgba(255,255,255,0.18)'}
-        strokeWidth={isActive ? 1.5 : 1}>
-        <Text style={[s.catPillText, { color: isActive ? '#ffffff' : 'rgba(255,255,255,0.45)' }]}>{label}</Text>
+        fillColor={isActive ? accent : 'rgba(255,255,255,0.07)'}
+        strokeColor={isActive ? accent : 'rgba(255,255,255,0.15)'}
+        strokeWidth={isActive ? 0 : 1}>
+        <Text style={[s.catPillText, { color: isActive ? contrastText(accent) : 'rgba(255,255,255,0.5)' }]}>{label}</Text>
       </Squircle>
     </Pressable>
   );
@@ -851,23 +851,48 @@ function TruthDareTabs({ active, onChange }: { active: string; onChange: (v: str
 function CardListRow({ card, game, onSelect }: {
   card: GameCardData; game: MiniGameMeta; onSelect: () => void;
 }) {
-  const { bg, border, label } = getCategoryColors(card.category, game.game_type, game.accent_color);
+  const { border, label } = getCategoryColors(card.category, game.game_type, game.accent_color);
   const preview = game.game_type === 'wyr' && card.option_a && card.option_b
     ? `${card.option_a}  ·  ${card.option_b}`
     : card.question;
 
   return (
-    <Pressable onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onSelect(); }}
-      style={({ pressed }) => [{ opacity: pressed ? 0.75 : 1, transform: [{ scale: pressed ? 0.988 : 1 }] }]}>
-      <Squircle style={s.cardRow} cornerRadius={18} cornerSmoothing={1}
-        fillColor={bg} strokeColor={border} strokeWidth={1}>
-        <View style={{ flex: 1, gap: 5 }}>
-          {card.category ? (
-            <Text style={[s.cardRowCat, { color: label }]}>{card.category.toUpperCase()}</Text>
-          ) : null}
-          <Text style={s.cardRowText} numberOfLines={3}>{preview}</Text>
+    <Pressable
+      onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onSelect(); }}
+      style={({ pressed }) => [{ opacity: pressed ? 0.82 : 1, transform: [{ scale: pressed ? 0.985 : 1 }] }]}
+    >
+      <Squircle
+        style={s.cardRow}
+        cornerRadius={20} cornerSmoothing={1}
+        fillColor="rgba(255,255,255,0.05)"
+        strokeColor={border}
+        strokeWidth={1}
+      >
+        {/* Emoji icon */}
+        <View style={[s.cardRowIcon, { backgroundColor: `${label}18` }]}>
+          <Text style={{ fontSize: 20 }}>{card.emoji ?? '❓'}</Text>
         </View>
-        <Ionicons name="chevron-forward" size={13} color="rgba(255,255,255,0.22)" style={{ marginTop: 2 }} />
+
+        {/* Content */}
+        <View style={{ flex: 1, gap: 6 }}>
+          {card.category ? (
+            <View style={[s.cardRowCatPill, { backgroundColor: `${label}22`, borderColor: `${label}40` }]}>
+              <Text style={[s.cardRowCat, { color: label }]}>{card.category.toUpperCase()}</Text>
+            </View>
+          ) : null}
+          <Text style={s.cardRowText} numberOfLines={2}>{preview}</Text>
+        </View>
+
+        {/* Send button */}
+        <Squircle
+          style={s.cardRowSendBtn}
+          cornerRadius={50} cornerSmoothing={1}
+          fillColor={`${label}25`}
+          strokeColor={`${label}40`}
+          strokeWidth={1}
+        >
+          <Ionicons name="send" size={13} color={label} />
+        </Squircle>
       </Squircle>
     </Pressable>
   );
@@ -1021,8 +1046,8 @@ function GameDetailScreen({ game, token, partnerId, partnerName, roomId, onBack,
                 >
                   <Squircle style={s.bigSendBtn} cornerRadius={50} cornerSmoothing={1}
                     fillColor={game.accent_color} strokeWidth={0}>
-                    <Ionicons name="send" size={16} color="#fff" />
-                    <Text style={s.bigSendBtnText}>{sendLabel}</Text>
+                    <Ionicons name="send" size={16} color={contrastText(game.accent_color)} />
+                    <Text style={[s.bigSendBtnText, { color: contrastText(game.accent_color) }]}>{sendLabel}</Text>
                   </Squircle>
                 </Pressable>
               </>
@@ -1249,6 +1274,18 @@ export default function MiniGamesPage() {
         ? `${game.emoji} ${game.name}: ${label.slice(0, 60)}`
         : `${game.emoji} ${game.name}`;
 
+    // For question_cards: fire directly via the registered sender (no navigation
+    // round-trip required) — eliminates the ~350ms focus-animation delay.
+    if (game.game_type === 'question_cards' && card) {
+      const sent = sendCardDirect({
+        question: card.question,
+        emoji:    card.emoji ?? '❓',
+        category: card.category ?? '',
+        gameName: game.name,
+      });
+      if (sent) { router.back(); return; }
+    }
+
     // Store payload in a module-level slot, then navigate back.
     // router.setParams() after router.back() is unreliable (race with focus
     // animation), so ChatConversationPage picks this up via useFocusEffect.
@@ -1393,10 +1430,13 @@ const s = StyleSheet.create({
   backBtn:           { width: 38, height: 38, alignItems: 'center', justifyContent: 'center' },
   hubSubPill:        { alignSelf: 'flex-start' },
 
-  // Card list row (inside detail screen) — no icon, text-only
-  cardRow:     { flexDirection: 'row', alignItems: 'flex-start', gap: 10, paddingVertical: 14, paddingHorizontal: 16 },
-  cardRowCat:  { fontSize: 10, fontFamily: 'ProductSans-Black', letterSpacing: 1, opacity: 0.9 },
-  cardRowText: { fontSize: 14, fontFamily: 'ProductSans-Bold', color: '#DDDEFF', lineHeight: 21 },
+  // Card list row
+  cardRow:          { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 13, paddingHorizontal: 14 },
+  cardRowIcon:      { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  cardRowCatPill:   { alignSelf: 'flex-start', borderRadius: 50, borderWidth: 1, paddingHorizontal: 8, paddingVertical: 2 },
+  cardRowCat:       { fontSize: 10, fontFamily: 'ProductSans-Black', letterSpacing: 0.8 },
+  cardRowText:      { fontSize: 14, fontFamily: 'ProductSans-Bold', color: '#E8E8FF', lineHeight: 20 },
+  cardRowSendBtn:   { width: 34, height: 34, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
 
   // Detail screen
   detailRoot:      { flex: 1 },

@@ -4,12 +4,14 @@
  */
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { Alert, KeyboardAvoidingView, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Animated, KeyboardAvoidingView, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
+import * as Haptics from 'expo-haptics';
 import Button from '@/components/ui/Button';
 import NoNetworkOverlay from '@/components/ui/NoNetworkOverlay';
 import Squircle from '@/components/ui/Squircle';
 import { useAuth } from '@/context/AuthContext';
 import { useAppTheme } from '@/context/ThemeContext';
+import { useEffect, useRef } from 'react';
 
 // Muslim religion lookup ID (from lookup_options table, category='religion')
 const MUSLIM_RELIGION_ID = 49;
@@ -68,6 +70,18 @@ export default function OnboardingShell({
   const isMuslim = profile?.religion_id === MUSLIM_RELIGION_ID;
   const TOTAL_STEPS = totalStepsProp ?? (isMuslim ? 12 : 11);
 
+  const percent = Math.round((step / TOTAL_STEPS) * 100);
+
+  // Animate the progress bar width whenever step changes
+  const progressAnim = useRef(new Animated.Value((step - 1) / TOTAL_STEPS)).current;
+  useEffect(() => {
+    Animated.timing(progressAnim, {
+      toValue: step / TOTAL_STEPS,
+      duration: 350,
+      useNativeDriver: false,
+    }).start();
+  }, [step, TOTAL_STEPS]);
+
   const handleLogout = () => {
     Alert.alert('Log out', 'Are you sure you want to log out?', [
       { text: 'Cancel', style: 'cancel' },
@@ -100,12 +114,24 @@ export default function OnboardingShell({
             </Squircle>
           </Pressable>
         )}
-        <View style={[styles.stepBadge, { backgroundColor: colors.surface2 }]}>
-          <Text style={[styles.stepText, { color: colors.textSecondary }]}>
-            {step} / {TOTAL_STEPS}
-          </Text>
+        {/* Progress bar + percentage */}
+        <View style={styles.progressWrapper}>
+          <View style={[styles.progressTrack, { backgroundColor: colors.surface2 }]}>
+            <Animated.View
+              style={[
+                styles.progressFill,
+                {
+                  backgroundColor: colors.btnPrimaryBg,
+                  width: progressAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: ['0%', '100%'],
+                  }),
+                },
+              ]}
+            />
+          </View>
+          <Text style={[styles.percentText, { color: colors.textSecondary }]}>{percent}%</Text>
         </View>
-        <View style={{ flex: 1 }} />
         <Pressable onPress={handleLogout} hitSlop={12}>
           <Text style={[styles.logoutText, { color: colors.textSecondary }]}>Log out</Text>
         </Pressable>
@@ -139,7 +165,12 @@ export default function OnboardingShell({
       <View style={[styles.footer, { backgroundColor: colors.bg }]}>
         <Button
           title={loading ? 'Saving…' : (continueLabel ?? 'Continue')}
-          onPress={onContinue}
+          onPress={() => {
+            if (!continueDisabled && !loading) {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            }
+            onContinue();
+          }}
           disabled={continueDisabled || loading}
           style={styles.btn}
         />
@@ -179,8 +210,10 @@ const styles = StyleSheet.create({
   safe: { flex: 1 },
   topBar: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 20, paddingTop: 8, paddingBottom: 12 },
   backBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
-  stepBadge: { paddingHorizontal: 9, paddingVertical: 4, borderRadius: 20 },
-  stepText: { fontSize: 11, fontFamily: 'ProductSans-Medium', letterSpacing: 0.3 },
+  progressWrapper: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  progressTrack: { flex: 1, height: 6, borderRadius: 99, overflow: 'hidden' },
+  progressFill: { height: '100%', borderRadius: 99 },
+  percentText: { fontSize: 12, fontFamily: 'ProductSans-Bold', minWidth: 34, textAlign: 'right' },
   body: { flex: 1, paddingHorizontal: 24, paddingTop: 24 },
   bodyScroll: { flex: 1 },
   bodyScrollContent: { paddingHorizontal: 24, paddingTop: 24, paddingBottom: 24 },

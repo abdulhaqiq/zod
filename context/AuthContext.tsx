@@ -1,9 +1,17 @@
 import * as SecureStore from 'expo-secure-store';
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
-import { AppState, AppStateStatus, Platform } from 'react-native';
+import { AppState, AppStateStatus, NativeModules } from 'react-native';
 import { API_V1, WS_V1, registerAuthHandlers } from '@/constants/api';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
+
+// RevenueCat is only available in native dev/production builds (not Expo Go)
+const _IS_EXPO_GO =
+  !NativeModules.RNPurchases ||
+  Constants.executionEnvironment === ExecutionEnvironment.StoreClient ||
+  (Constants as any).appOwnership === 'expo';
 
 export const RECENT_ACCOUNT_KEY = 'recent_account';
+const FCM_TOKEN_KEY = 'fcm_token_v1';
 export interface RecentAccount {
   name: string | null;
   phone: string | null;
@@ -43,6 +51,7 @@ export interface UserProfile {
   phone: string | null;
   email: string | null;
   apple_id: string | null;
+  google_id: string | null;
   full_name: string | null;
   date_of_birth: string | null;      // YYYY-MM-DD
   gender_id: number | null;          // lookup_options id (category=gender)
@@ -169,6 +178,7 @@ export interface UserProfile {
 
   face_scan_required: boolean;
   id_scan_required:   boolean;
+  has_push_token:     boolean;
 }
 
 interface AuthContextValue {
@@ -187,6 +197,9 @@ interface AuthContextValue {
   /** Silently re-authenticates using the persisted quick-sign-in refresh token.
    *  Returns the destination route on success, or null if the token has expired. */
   performQuickSignIn: () => Promise<string | null>;
+  /** Request notification permission (if not already granted) and register the
+   *  FCM token with the backend. Safe to call multiple times — idempotent. */
+  requestAndRegisterPushToken: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue>({
@@ -203,6 +216,7 @@ const AuthContext = createContext<AuthContextValue>({
   tryRefresh: async () => null,
   retryBootstrap: () => {},
   performQuickSignIn: async () => null,
+  requestAndRegisterPushToken: async () => {},
 });
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -280,7 +294,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           const data = JSON.parse(e.data);
           if (data.type === 'heartbeat') return;
           if (typeof data.required === 'boolean') {
-            setProfile(prev => prev ? { ...prev, face_scan_required: data.required } : prev);
+            setProfile(prev => {
+              if (!prev) return prev;
+              // Once the user is verified, never re-impose the face-scan gate from
+              // a stale WebSocket message (e.g. DB not yet reflecting the latest
+              // scan result due to a slow commit or network blip).
+              if (data.required && prev.is_verified) return prev;
+              return { ...prev, face_scan_required: data.required };
+            });
           }
         } catch {}
       };
@@ -494,40 +515,92 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return _doRefresh(refresh);
   };
 
-  async function _registerPushToken(accessToken: string) {
+  /**
+   * Sends a known FCM token to the backend.
+   * Call this whenever a token is available (login, token refresh, feed mount).
+   */
+  async function _sendPushTokenToBackend(fcmToken: string, accessToken: string) {
     try {
-      const Notifications = await import('expo-notifications');
-      // Request permissions (iOS requires explicit grant)
-      const { status: existingStatus } = await Notifications.getPermissionsAsync();
-      let finalStatus = existingStatus;
-      if (existingStatus !== 'granted') {
-        const { status } = await Notifications.requestPermissionsAsync();
-        finalStatus = status;
-      }
-      if (finalStatus !== 'granted') return;
-
-      // Set notification channel for Android
-      if (Platform.OS === 'android') {
-        await Notifications.setNotificationChannelAsync('default', {
-          name: 'Default',
-          importance: Notifications.AndroidImportance.HIGH,
-          vibrationPattern: [0, 250, 250, 250],
-          lightColor: '#FF231F7C',
-        });
-      }
-
-      // Get Expo push token (works in Expo Go + EAS builds)
-      const tokenData = await Notifications.getExpoPushTokenAsync();
-      const pushToken = tokenData.data;
-
-      // Register with backend
       await fetch(`${API_V1}/profile/me/push-token`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
-        body: JSON.stringify({ token: pushToken }),
+        body: JSON.stringify({ token: fcmToken }),
       });
-    } catch {
-      // Push token registration is non-critical — never block sign-in
+    } catch { /* non-critical */ }
+  }
+
+  /**
+   * Silently registers the push token when the user is already authenticated.
+   * Called on sign-in if the backend already has a token (cheap idempotency check).
+   */
+  async function _registerPushToken(accessToken: string, _profileHasPushToken?: boolean) {
+    try {
+      const pushToken = await _getExpoPushToken();
+      if (!pushToken) return;
+      await SecureStore.setItemAsync(FCM_TOKEN_KEY, pushToken);
+      await _sendPushTokenToBackend(pushToken, accessToken);
+    } catch { /* non-critical — never block sign-in */ }
+  }
+
+  /**
+   * Uses expo-notifications to get an Expo push token.
+   *
+   * We use Expo's push service instead of Firebase's getToken() because
+   * Firebase SDK 12.x has a known hang in FIRInstallations.authTokenWithCompletion
+   * on certain iOS 26 device/OS combinations. Expo's push service handles APNs
+   * token exchange internally on their servers, which is fully compatible with
+   * ExpoAppDelegate and works reliably on iOS 26.
+   *
+   * The returned token looks like: ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]
+   */
+  async function _getExpoPushToken(): Promise<string | null> {
+    try {
+      const Notifications = await import('expo-notifications');
+      const result = await Notifications.getExpoPushTokenAsync({
+        projectId: 'fec81194-6a20-43f7-bf00-fb4638346ba2',
+      });
+      return result.data ?? null;
+    } catch (e) {
+      console.warn('[PUSH] getExpoPushToken failed:', e);
+      return null;
+    }
+  }
+
+  /**
+   * Called from the feed page on first mount.
+   * Requests notification permission and registers the push token with the backend.
+   * Uses Expo push tokens (ExponentPushToken[...]) which work on iOS 26.
+   */
+  async function requestAndRegisterPushToken() {
+    const accessToken = await SecureStore.getItemAsync(ACCESS_KEY);
+    if (!accessToken) return;
+    try {
+      console.log('[PUSH] requestAndRegisterPushToken: starting...');
+      const Notifications = await import('expo-notifications');
+
+      // Request permission
+      const { status } = await Notifications.requestPermissionsAsync({
+        ios: { allowAlert: true, allowBadge: true, allowSound: true },
+      });
+      console.log('[PUSH] permission status:', status);
+      if (status !== 'granted') {
+        console.log('[PUSH] permission not granted — skipping');
+        return;
+      }
+
+      // Get Expo push token (fast, reliable on iOS 26)
+      const pushToken = await _getExpoPushToken();
+      if (!pushToken) {
+        console.warn('[PUSH] could not get Expo push token');
+        return;
+      }
+
+      console.log('[PUSH] token received:', pushToken.slice(0, 30) + '…');
+      await SecureStore.setItemAsync(FCM_TOKEN_KEY, pushToken);
+      await _sendPushTokenToBackend(pushToken, accessToken);
+      console.log('[PUSH] token sent to backend ✅');
+    } catch (e) {
+      console.warn('[PUSH] requestAndRegisterPushToken error:', e);
     }
   }
 
@@ -547,14 +620,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Fetch fresh profile immediately after login
     const me = await _fetchProfile(accessToken);
     if (me && me !== 'network_error') setProfile(me);
-    // Register push token in the background — non-blocking
-    _registerPushToken(accessToken);
+    // Register push token in background — skip if backend already has a valid FCM token
+    const hasPushToken = me && me !== 'network_error' ? (me as any).has_push_token === true : false;
+    _registerPushToken(accessToken, hasPushToken);
     // NOTE: saving the recent account is intentionally NOT done here.
     // The caller (OTP screen / Apple sign-in) asks the user first, then
     // calls saveRecentAccount() if they agree.
   };
 
   const signOut = async () => {
+    // Reset RevenueCat to anonymous so the next login gets a fresh customer profile.
+    // This prevents a new account logged in on the same device from inheriting the
+    // previous account's subscription entitlements.
+    if (!_IS_EXPO_GO) {
+      try {
+        const Purchases = require('react-native-purchases').default;
+        await Purchases.logOut();
+      } catch { /* non-critical — RC may not be configured yet */ }
+    }
     await _clearSession();
     setToken(null);
     setRefresh(null);
@@ -595,11 +678,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     registerAuthHandlers(tryRefresh, signOut);
   }, [refreshToken]);
 
+
   return (
     <AuthContext.Provider value={{
       token, refreshToken, isOnboarded, isLoading, isNetworkError, profile,
       signIn, signOut, setOnboarded, updateProfile, tryRefresh, retryBootstrap,
-      performQuickSignIn,
+      performQuickSignIn, requestAndRegisterPushToken,
     }}>
       {children}
     </AuthContext.Provider>

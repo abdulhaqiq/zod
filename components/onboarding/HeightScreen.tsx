@@ -3,6 +3,7 @@ import { navPush, navReplace } from '@/utils/nav';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import * as Haptics from 'expo-haptics';
 import { useAuth } from '@/context/AuthContext';
 import { useAppTheme } from '@/context/ThemeContext';
 import { useProfileSave } from '@/hooks/useProfileSave';
@@ -63,16 +64,26 @@ export default function HeightScreen() {
       {/* +/- controls */}
       <View style={styles.controls}>
         <Pressable
-          style={[styles.controlBtn, { backgroundColor: colors.surface }]}
-          onPress={() => setHeightCm((c) => Math.max(140, c - 1))}
+          style={({ pressed }) => [styles.controlBtn, { backgroundColor: colors.surface, opacity: pressed ? 0.7 : 1 }]}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            const step = unit === 'ft' ? 3 : 1;
+            setHeightCm((c) => Math.max(140, c - step));
+          }}
+          hitSlop={16}
         >
-          <Text style={[styles.controlIcon, { color: colors.text }]}>−</Text>
+          <Text style={[styles.controlIcon, { color: colors.text }]} pointerEvents="none">−</Text>
         </Pressable>
         <Pressable
-          style={[styles.controlBtn, { backgroundColor: colors.surface }]}
-          onPress={() => setHeightCm((c) => Math.min(220, c + 1))}
+          style={({ pressed }) => [styles.controlBtn, { backgroundColor: colors.surface, opacity: pressed ? 0.7 : 1 }]}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            const step = unit === 'ft' ? 3 : 1;
+            setHeightCm((c) => Math.min(220, c + step));
+          }}
+          hitSlop={16}
         >
-          <Text style={[styles.controlIcon, { color: colors.text }]}>+</Text>
+          <Text style={[styles.controlIcon, { color: colors.text }]} pointerEvents="none">+</Text>
         </Pressable>
       </View>
     </OnboardingShell>
@@ -84,7 +95,7 @@ const styles = StyleSheet.create({
   toggleBtn: { paddingHorizontal: 24, paddingVertical: 10 },
   toggleText: { fontSize: 14, fontFamily: 'ProductSans-Medium' },
   display: { fontSize: 72, fontFamily: 'ProductSans-Black', textAlign: 'center', marginBottom: 40 },
-  controls: { flexDirection: 'row', justifyContent: 'center', gap: 24 },
-  controlBtn: { width: 64, height: 64, borderRadius: 32, justifyContent: 'center', alignItems: 'center' },
-  controlIcon: { fontSize: 32, fontFamily: 'ProductSans-Light' },
+  controls: { flexDirection: 'row', justifyContent: 'center', gap: 32 },
+  controlBtn: { width: 72, height: 72, borderRadius: 36, justifyContent: 'center', alignItems: 'center' },
+  controlIcon: { fontSize: 36, fontFamily: 'ProductSans-Light', lineHeight: 40 },
 });

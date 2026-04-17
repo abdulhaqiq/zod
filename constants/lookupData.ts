@@ -329,16 +329,34 @@ export const LOOKUP: Record<string, LookupItem[]> = {
   ],
 };
 
+// ── Live cache bridge ───────────────────────────────────────────────────────
+// Populated by useLookups / fetchAllLookups after the API responds.
+// When set, getLookupLabel uses this instead of the static LOOKUP table so
+// labels always reflect the actual database — even when IDs or text change.
+let _liveCache: Record<string, LookupItem[]> | null = null;
+
+/** Called by the lookup-fetch layer once the API data is ready. */
+export function syncLookupCache(cache: Record<string, { id: number; emoji?: string; label: string }[]>): void {
+  _liveCache = {};
+  for (const [cat, rows] of Object.entries(cache)) {
+    _liveCache[cat] = rows.map(r => ({ id: r.id, emoji: r.emoji ?? undefined, label: r.label }));
+  }
+}
+
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-/** Get the label for a given category + ID */
+/** Get the label for a given category + ID — prefers live backend data */
 export function getLookupLabel(category: string, id: number | null | undefined): string {
   if (id == null) return '';
+  const live = _liveCache?.[category];
+  if (live) return live.find(item => item.id === id)?.label ?? '';
   return LOOKUP[category]?.find(item => item.id === id)?.label ?? '';
 }
 
 /** Get the ID for a given category + label */
 export function getLookupId(category: string, label: string): number | undefined {
+  const live = _liveCache?.[category];
+  if (live) return live.find(item => item.label === label)?.id;
   return LOOKUP[category]?.find(item => item.label === label)?.id;
 }
 

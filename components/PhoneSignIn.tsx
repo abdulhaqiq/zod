@@ -1,13 +1,14 @@
-import { navPush, navReplace } from '@/utils/nav';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
   SafeAreaView,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -17,21 +18,26 @@ import Button from '@/components/ui/Button';
 import Squircle from '@/components/ui/Squircle';
 import CountryPicker from '@/components/CountryPicker';
 import { COUNTRIES, type Country } from '@/constants/countries';
-import { apiFetch } from '@/constants/api';
+import { apiFetch, authedFetch } from '@/constants/api';
+import { useAuth, loadRecentAccount, saveRecentAccount } from '@/context/AuthContext';
 import { useAppTheme } from '@/context/ThemeContext';
 import { getDeviceInfo } from '@/utils/deviceInfo';
 
 const US = COUNTRIES[0];
+const OTP_LENGTH = 5;
+const RESEND_COUNTDOWN = 30;
 
-/**
- * Detect the user's country via IP geolocation — the same approach used by
- * WhatsApp, Telegram and every major app. Returns the matching Country or US.
- */
+interface TokenResponse {
+  access_token: string;
+  refresh_token: string;
+  expires_in: number;
+  is_new_user?: boolean;
+}
+
 async function detectCountryByIP(): Promise<Country> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 4000); // 4 s timeout
+  const timer = setTimeout(() => controller.abort(), 4000);
   try {
-    // api.country.is is purpose-built, tiny, and returns only { ip, country }
     const res = await fetch('https://api.country.is/', { signal: controller.signal });
     if (!res.ok) throw new Error('non-200');
     const data: { country: string } = await res.json();
@@ -59,28 +65,45 @@ function getDigits(raw: string): string {
   return raw.replace(/\D/g, '');
 }
 
-function validate(digits: string, country: Country): string | null {
+function validatePhone(digits: string, country: Country): string | null {
   if (digits.length === 0) return 'Please enter your phone number';
   if (digits.length < country.minLen)
-    return `Phone number must be ${country.minLen} digits for ${country.name}`;
+    return `Phone number must be at least ${country.minLen} digits for ${country.name}`;
   return null;
 }
 
 export default function PhoneSignIn() {
   const router = useRouter();
   const { colors } = useAppTheme();
-  const inputRef = useRef<TextInput>(null);
-  const params = useLocalSearchParams<{ phone?: string }>();
+  const { signIn, token: authToken } = useAuth();
+  const params = useLocalSearchParams<{ phone?: string; mode?: string; next?: string }>();
 
+  // ── Phase state ───────────────────────────────────────────────────────────
+  const [phase, setPhase] = useState<'phone' | 'otp'>('phone');
+
+  // ── Phone phase ───────────────────────────────────────────────────────────
+  const phoneInputRef = useRef<TextInput>(null);
   const [country, setCountry] = useState<Country>(US);
+  const [phone, setPhone] = useState(() => {
+    if (!params.phone) return '';
+    return params.phone.replace(/^\+\d{1,3}\s?/, '');
+  });
+  const [phoneTouched, setPhoneTouched] = useState(false);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [sendLoading, setSendLoading] = useState(false);
+  const [e164, setE164] = useState('');
 
-  // Detect country from IP in the background — fast (< 1 s on good network),
-  // accurate, and requires no permissions. Falls back to US on timeout/error.
-  // Skip IP detection if the user came from the recent-account quick sign-in
-  // (we already know their country code from the stored phone number).
+  // ── OTP phase ─────────────────────────────────────────────────────────────
+  const otpInputRef = useRef<TextInput>(null);
+  const [otp, setOtp] = useState('');
+  const [otpError, setOtpError] = useState<string | null>(null);
+  const [verifying, setVerifying] = useState(false);
+  const [resending, setResending] = useState(false);
+  const [countdown, setCountdown] = useState(RESEND_COUNTDOWN);
+
+  // ── Country detection ─────────────────────────────────────────────────────
   useEffect(() => {
     if (params.phone) {
-      // Try to extract the country code from the E.164 number and match it
       const match = params.phone.match(/^(\+\d{1,4})/);
       if (match) {
         const code = match[1];
@@ -89,28 +112,23 @@ export default function PhoneSignIn() {
       }
     }
     let cancelled = false;
-    detectCountryByIP().then((c) => {
-      if (!cancelled) setCountry(c);
-    });
+    detectCountryByIP().then((c) => { if (!cancelled) setCountry(c); });
     return () => { cancelled = true; };
   }, []);
 
-  // Pre-fill phone number if navigated from the recent-account quick sign-in
-  const [phone, setPhone] = useState(() => {
-    if (!params.phone) return '';
-    // Strip the country code prefix if present (e.g. "+44 7700..." → "7700...")
-    const raw = params.phone.replace(/^\+\d{1,3}\s?/, '');
-    return raw;
-  });
-  const [touched, setTouched] = useState(false);
-  const [modalVisible, setModalVisible] = useState(false);
-  const [loading, setLoading] = useState(false);
+  // ── Countdown timer for resend ────────────────────────────────────────────
+  useEffect(() => {
+    if (phase !== 'otp' || countdown <= 0) return;
+    const t = setTimeout(() => setCountdown((c) => c - 1), 1000);
+    return () => clearTimeout(t);
+  }, [phase, countdown]);
 
+  // ── Phone validation ──────────────────────────────────────────────────────
   const digits = getDigits(phone);
-  const error = touched ? validate(digits, country) : null;
-  const isValid = validate(digits, country) === null;
+  const phoneError = phoneTouched ? validatePhone(digits, country) : null;
+  const isPhoneValid = validatePhone(digits, country) === null;
 
-  const handleChange = (text: string) => {
+  const handlePhoneChange = (text: string) => {
     const raw = getDigits(text);
     const capped = raw.slice(0, country.minLen + 2);
     setPhone(formatPhone(capped, country));
@@ -119,32 +137,180 @@ export default function PhoneSignIn() {
   const handleCountrySelect = (c: Country) => {
     setCountry(c);
     setPhone('');
-    setTouched(false);
-    setTimeout(() => inputRef.current?.focus(), 300);
+    setPhoneTouched(false);
+    setTimeout(() => phoneInputRef.current?.focus(), 300);
   };
 
-  const handleContinue = async () => {
-    setTouched(true);
-    if (!isValid) return;
+  // ── Send OTP ──────────────────────────────────────────────────────────────
+  const sendOtp = async (phoneE164: string, channel: 'sms' | 'whatsapp' = 'sms') => {
+    const device = await getDeviceInfo();
+    await apiFetch('/auth/phone/send-otp', {
+      method: 'POST',
+      body: JSON.stringify({ phone: phoneE164, channel, device }),
+    });
+  };
 
-    // Build E.164 phone number: country code + digits only
-    const e164 = `${country.code}${digits}`;
+  const handleSendCode = async () => {
+    setPhoneTouched(true);
+    if (!isPhoneValid) return;
 
-    setLoading(true);
+    const fullE164 = `${country.code}${digits}`;
+    setSendLoading(true);
     try {
-      const device = await getDeviceInfo();
-      await apiFetch('/auth/phone/send-otp', {
-        method: 'POST',
-        body: JSON.stringify({ phone: e164, channel: 'sms', device }),
-      });
-      navPush({ pathname: '/otp', params: { phone: e164, countryCode: country.code } });
+      await sendOtp(fullE164);
+      setE164(fullE164);
+      setOtp('');
+      setOtpError(null);
+      setCountdown(RESEND_COUNTDOWN);
+      setPhase('otp');
+      setTimeout(() => otpInputRef.current?.focus(), 300);
     } catch (err: any) {
       Alert.alert('Could not send OTP', err.message ?? 'Please try again.');
     } finally {
-      setLoading(false);
+      setSendLoading(false);
     }
   };
 
+  // ── OTP change / auto-submit ──────────────────────────────────────────────
+  const handleOtpChange = (text: string) => {
+    const d = text.replace(/\D/g, '').slice(0, OTP_LENGTH);
+    setOtp(d);
+    setOtpError(null);
+    if (d.length === OTP_LENGTH) {
+      otpInputRef.current?.blur();
+      setTimeout(() => handleVerify(d), 100);
+    }
+  };
+
+  // ── Verify OTP ────────────────────────────────────────────────────────────
+  const handleVerify = async (code: string) => {
+    if (code.length < OTP_LENGTH) return;
+    setVerifying(true);
+    setOtpError(null);
+
+    // Link mode: attaching phone to an existing social account
+    if (params.mode === 'link') {
+      try {
+        await apiFetch('/auth/phone/link', {
+          method: 'POST',
+          token: authToken ?? undefined,
+          body: JSON.stringify({ phone: e164, code }),
+        });
+        router.replace((params.next ?? '/gender') as any);
+      } catch (err: any) {
+        setOtpError(err.message ?? 'Verification failed. Please try again.');
+        setOtp('');
+        setTimeout(() => otpInputRef.current?.focus(), 100);
+      } finally {
+        setVerifying(false);
+      }
+      return;
+    }
+
+    // Normal sign-in / sign-up
+    try {
+      const device = await getDeviceInfo();
+      const data = await apiFetch<TokenResponse>('/auth/phone/verify-otp', {
+        method: 'POST',
+        body: JSON.stringify({ phone: e164, code, device }),
+      });
+
+      const me = await authedFetch<{
+        is_onboarded: boolean;
+        full_name?: string | null;
+        phone?: string | null;
+        email?: string | null;
+        photos?: string[] | null;
+      }>('/profile/me', data.access_token);
+
+      // signIn updates context → _layout.tsx routing guard handles navigation.
+      // Do NOT also call router.replace here — that causes a double-mount of the feed.
+      await signIn(data.access_token, data.refresh_token, me.is_onboarded, 'phone');
+
+      const dest = me.is_onboarded ? '/(tabs)' : '/gender';
+      const isNew = data.is_new_user && !me.email;
+
+      if (isNew) {
+        // Guard won't know to go to /email — navigate explicitly
+        router.replace({ pathname: '/email' as any, params: { next: dest } });
+        return;
+      }
+
+      const existing = await loadRecentAccount();
+      const isSameUser = existing?.phone != null && existing.phone === (me.phone ?? null);
+
+      if (existing && isSameUser) {
+        // Guard handles routing
+        return;
+      } else if (existing && !isSameUser) {
+        await saveRecentAccount({
+          name:   me.full_name   ?? null,
+          phone:  me.phone       ?? null,
+          photo:  me.photos?.[0] ?? null,
+          method: 'phone',
+        });
+        // Guard handles routing
+        return;
+      } else {
+        // First time on this device — show passkey prompt
+        router.push({
+          pathname: '/passkey' as any,
+          params: {
+            name:   me.full_name   ?? '',
+            phone:  me.phone       ?? '',
+            photo:  me.photos?.[0] ?? '',
+            method: 'phone',
+            next:   dest,
+          },
+        });
+      }
+    } catch (err: any) {
+      setOtpError(err.message ?? 'Invalid code. Please try again.');
+      setOtp('');
+      setTimeout(() => otpInputRef.current?.focus(), 100);
+    } finally {
+      setVerifying(false);
+    }
+  };
+
+  // ── Resend ────────────────────────────────────────────────────────────────
+  const handleResend = async (channel: 'sms' | 'whatsapp') => {
+    if (!e164) return;
+    setResending(true);
+    setOtp('');
+    setOtpError(null);
+    try {
+      await sendOtp(e164, channel);
+      setCountdown(RESEND_COUNTDOWN);
+      setTimeout(() => otpInputRef.current?.focus(), 100);
+    } catch (err: any) {
+      Alert.alert('Could not resend', err.message ?? 'Please try again.');
+    } finally {
+      setResending(false);
+    }
+  };
+
+  // ── OTP box rendering ─────────────────────────────────────────────────────
+  const renderOtpBoxes = () =>
+    Array.from({ length: OTP_LENGTH }).map((_, i) => {
+      const char = otp[i] ?? '';
+      const isActive = otp.length === i;
+      return (
+        <Squircle
+          key={i}
+          style={styles.otpBox}
+          cornerRadius={16}
+          cornerSmoothing={1}
+          fillColor={colors.surface}
+          strokeColor={otpError ? colors.errorBorder : isActive ? colors.text : colors.border}
+          strokeWidth={isActive ? 2 : 1.5}
+        >
+          <Text style={[styles.otpChar, { color: colors.text }]}>{char}</Text>
+        </Squircle>
+      );
+    });
+
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.bg }]}>
       <KeyboardAvoidingView
@@ -152,87 +318,164 @@ export default function PhoneSignIn() {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         <View style={styles.topBar}>
-          <Pressable onPress={() => router.back()} hitSlop={12}>
-            <Squircle
-              style={styles.backBtn}
-              cornerRadius={14}
-              cornerSmoothing={1}
-              fillColor={colors.backBtnBg}
-            >
+          <Pressable
+            onPress={() => {
+              if (phase === 'otp') { setPhase('phone'); setOtp(''); setOtpError(null); }
+              else router.back();
+            }}
+            hitSlop={12}
+          >
+            <Squircle style={styles.backBtn} cornerRadius={14} cornerSmoothing={1} fillColor={colors.backBtnBg}>
               <Ionicons name="arrow-back" size={20} color={colors.text} />
             </Squircle>
           </Pressable>
         </View>
 
-        <View style={styles.body}>
-          <Text style={[styles.title, { color: colors.text }]}>What's your{'\n'}number?</Text>
-          <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-            We'll send a verification code. Standard SMS rates may apply.
-          </Text>
+        <ScrollView
+          style={styles.body}
+          contentContainerStyle={styles.bodyContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          {phase === 'phone' ? (
+            <>
+              <Text style={[styles.title, { color: colors.text }]}>What's your{'\n'}number?</Text>
+              <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+                We'll send a verification code. Standard SMS rates may apply.
+              </Text>
 
-          <Squircle
-            style={styles.inputContainer}
-            cornerRadius={22}
-            cornerSmoothing={1}
-            fillColor={error ? colors.errorBg : colors.surface}
-            strokeColor={error ? colors.errorBorder : colors.border}
-            strokeWidth={1.5}
-          >
-            <Pressable
-              onPress={() => setModalVisible(true)}
-              style={({ pressed }) => [styles.countryPicker, pressed && { opacity: 0.6 }]}
-            >
-              <Text style={styles.flag}>{country.flag}</Text>
-              <Text style={[styles.countryCode, { color: colors.text }]}>{country.code}</Text>
-              <Ionicons name="chevron-down" size={14} color={colors.textTertiary} />
-            </Pressable>
-
-            <View style={[styles.divider, { backgroundColor: colors.border }]} />
-
-            <TextInput
-              ref={inputRef}
-              style={[styles.phoneInput, { color: colors.text }]}
-              placeholder={country.code === '+1' ? '(000) 000-0000' : '000 000 0000'}
-              placeholderTextColor={colors.placeholder}
-              value={phone}
-              onChangeText={handleChange}
-              keyboardType="phone-pad"
-              onBlur={() => setTouched(true)}
-              selectionColor={colors.text}
-              autoFocus
-            />
-
-            {phone.length > 0 && (
-              <Pressable
-                onPress={() => { setPhone(''); setTouched(false); inputRef.current?.focus(); }}
-                style={styles.clearBtn}
-                hitSlop={8}
+              <Squircle
+                style={styles.inputContainer}
+                cornerRadius={22}
+                cornerSmoothing={1}
+                fillColor={phoneError ? colors.errorBg : colors.surface}
+                strokeColor={phoneError ? colors.errorBorder : colors.border}
+                strokeWidth={1.5}
               >
-                <Ionicons name="close-circle" size={18} color={colors.textTertiary} />
-              </Pressable>
-            )}
-          </Squircle>
+                <Pressable
+                  onPress={() => setModalVisible(true)}
+                  style={({ pressed }) => [styles.countryPicker, pressed && { opacity: 0.6 }]}
+                >
+                  <Text style={styles.flag}>{country.flag}</Text>
+                  <Text style={[styles.countryCode, { color: colors.text }]}>{country.code}</Text>
+                  <Ionicons name="chevron-down" size={14} color={colors.textTertiary} />
+                </Pressable>
 
-          {error ? (
-            <View style={styles.errorRow}>
-              <Ionicons name="warning" size={14} color={colors.error} />
-              <Text style={[styles.errorText, { color: colors.error }]}>{error}</Text>
-            </View>
+                <View style={[styles.divider, { backgroundColor: colors.border }]} />
+
+                <TextInput
+                  ref={phoneInputRef}
+                  style={[styles.phoneInput, { color: colors.text }]}
+                  placeholder={country.code === '+1' ? '(000) 000-0000' : '000 000 0000'}
+                  placeholderTextColor={colors.placeholder}
+                  value={phone}
+                  onChangeText={handlePhoneChange}
+                  keyboardType="phone-pad"
+                  onBlur={() => setPhoneTouched(true)}
+                  selectionColor={colors.text}
+                  autoFocus
+                />
+
+                {phone.length > 0 && (
+                  <Pressable
+                    onPress={() => { setPhone(''); setPhoneTouched(false); phoneInputRef.current?.focus(); }}
+                    style={styles.clearBtn}
+                    hitSlop={8}
+                  >
+                    <Ionicons name="close-circle" size={18} color={colors.textTertiary} />
+                  </Pressable>
+                )}
+              </Squircle>
+
+              {phoneError ? (
+                <View style={styles.errorRow}>
+                  <Ionicons name="warning" size={14} color={colors.error} />
+                  <Text style={[styles.errorText, { color: colors.error }]}>{phoneError}</Text>
+                </View>
+              ) : (
+                <Text style={[styles.hint, { color: colors.textTertiary }]}>
+                  We only use this to verify your identity. Your number is never shown to others.
+                </Text>
+              )}
+            </>
           ) : (
-            <Text style={[styles.hint, { color: colors.textTertiary }]}>
-              We only use this to verify your identity. Your number is never shown to others.
-            </Text>
-          )}
-        </View>
+            <>
+              <Text style={[styles.title, { color: colors.text }]}>Enter the{'\n'}code</Text>
+              <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+                Sent to {e164}
+                {'  '}
+                <Text
+                  style={{ color: colors.primary, fontFamily: 'ProductSans-Medium' }}
+                  onPress={() => { setPhase('phone'); setOtp(''); setOtpError(null); }}
+                >
+                  Edit
+                </Text>
+              </Text>
 
-        <View style={styles.footer}>
-          <Button
-            title={loading ? 'Sending code…' : 'Continue'}
-            onPress={handleContinue}
-            disabled={(touched && !isValid) || loading}
-            style={styles.btn}
-          />
-        </View>
+              {/* Hidden text input captures keyboard */}
+              <TextInput
+                ref={otpInputRef}
+                value={otp}
+                onChangeText={handleOtpChange}
+                keyboardType="number-pad"
+                maxLength={OTP_LENGTH}
+                style={styles.hiddenInput}
+                autoFocus
+                caretHidden
+              />
+
+              {/* Visual OTP boxes */}
+              <Pressable onPress={() => otpInputRef.current?.focus()}>
+                <View style={styles.otpRow}>{renderOtpBoxes()}</View>
+              </Pressable>
+
+              {otpError && (
+                <View style={[styles.errorRow, { marginTop: 16 }]}>
+                  <Ionicons name="alert-circle-outline" size={14} color={colors.error} />
+                  <Text style={[styles.errorText, { color: colors.error }]}>{otpError}</Text>
+                </View>
+              )}
+
+              {verifying && (
+                <View style={styles.verifyingRow}>
+                  <ActivityIndicator size="small" color={colors.textSecondary} />
+                  <Text style={[styles.verifyingText, { color: colors.textSecondary }]}>Verifying…</Text>
+                </View>
+              )}
+
+              <View style={styles.resendRow}>
+                {countdown > 0 ? (
+                  <Text style={[styles.resendCountdown, { color: colors.textTertiary }]}>
+                    Resend in {countdown}s
+                  </Text>
+                ) : resending ? (
+                  <ActivityIndicator size="small" color={colors.textSecondary} />
+                ) : (
+                  <>
+                    <Pressable onPress={() => handleResend('sms')} hitSlop={8}>
+                      <Text style={[styles.resendLink, { color: colors.primary }]}>Resend SMS</Text>
+                    </Pressable>
+                    <Text style={[styles.resendDot, { color: colors.textTertiary }]}> · </Text>
+                    <Pressable onPress={() => handleResend('whatsapp')} hitSlop={8}>
+                      <Text style={[styles.resendLink, { color: colors.primary }]}>WhatsApp</Text>
+                    </Pressable>
+                  </>
+                )}
+              </View>
+            </>
+          )}
+        </ScrollView>
+
+        {phase === 'phone' && (
+          <View style={styles.footer}>
+            <Button
+              title={sendLoading ? 'Sending code…' : 'Get verification code'}
+              onPress={handleSendCode}
+              disabled={(phoneTouched && !isPhoneValid) || sendLoading}
+              style={styles.btn}
+            />
+          </View>
+        )}
 
         <CountryPicker
           visible={modalVisible}
@@ -250,9 +493,11 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   topBar: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 4 },
   backBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
-  body: { flex: 1, paddingHorizontal: 24, paddingTop: 32 },
+  body: { flex: 1 },
+  bodyContent: { paddingHorizontal: 24, paddingTop: 32, paddingBottom: 24 },
   title: { fontSize: 36, fontFamily: 'ProductSans-Black', lineHeight: 42, marginBottom: 12 },
   subtitle: { fontSize: 14, fontFamily: 'ProductSans-Regular', lineHeight: 20, marginBottom: 36 },
+  // phone phase
   inputContainer: { flexDirection: 'row', alignItems: 'center', height: 64, paddingHorizontal: 16 },
   countryPicker: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingRight: 4 },
   flag: { fontSize: 22 },
@@ -263,6 +508,18 @@ const styles = StyleSheet.create({
   errorRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10 },
   errorText: { fontSize: 13, fontFamily: 'ProductSans-Regular', flex: 1 },
   hint: { fontSize: 12, fontFamily: 'ProductSans-Regular', marginTop: 12, lineHeight: 18 },
+  // otp phase
+  hiddenInput: { position: 'absolute', opacity: 0, height: 0, width: 0 },
+  otpRow: { flexDirection: 'row', gap: 10, marginBottom: 8 },
+  otpBox: { flex: 1, height: 64, alignItems: 'center', justifyContent: 'center' },
+  otpChar: { fontSize: 26, fontFamily: 'ProductSans-Black' },
+  verifyingRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 20 },
+  verifyingText: { fontSize: 14, fontFamily: 'ProductSans-Regular' },
+  resendRow: { flexDirection: 'row', alignItems: 'center', marginTop: 24 },
+  resendCountdown: { fontSize: 14, fontFamily: 'ProductSans-Regular' },
+  resendLink: { fontSize: 14, fontFamily: 'ProductSans-Medium' },
+  resendDot: { fontSize: 14 },
+  // footer
   footer: { paddingHorizontal: 24, paddingBottom: 24, paddingTop: 12 },
   btn: { width: '100%' },
 });

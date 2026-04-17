@@ -52,8 +52,9 @@ export default function ProfileScreen() {
   };
   const { profile } = useAuth();
 
-  // Email is locked (pre-filled, non-editable) when it came from Apple Sign In
-  const emailFromApple = !!(profile?.apple_id && profile?.email);
+  // Email is locked when it came from a social sign-in (Google or Apple)
+  const emailFromSocial = !!(profile?.email && (profile?.apple_id || profile?.google_id));
+  const socialProvider = profile?.google_id ? 'Google' : 'Apple';
 
   const [fullName, setFullName] = useState(profile?.full_name ?? '');
   const [email, setEmail] = useState(profile?.email ?? '');
@@ -111,8 +112,8 @@ export default function ProfileScreen() {
       full_name: fullName.trim(),
       date_of_birth: dob!.toISOString().split('T')[0],
     };
-    // Only send email if it's user-entered — Apple-provided email is already on the account
-    if (!emailFromApple) {
+    // Only send email if it's user-entered — social-provider email is already on the account
+    if (!emailFromSocial) {
       fields.email = email.trim().toLowerCase();
     }
     const ok = await save(fields);
@@ -163,9 +164,9 @@ export default function ProfileScreen() {
         />
       </Squircle>
 
-      {/* Email input — locked when it came from Apple Sign In */}
+      {/* Email input — locked when it came from Google or Apple Sign In */}
       <Squircle
-        style={[styles.inputBox, { marginBottom: emailError ? 6 : 28, opacity: emailFromApple ? 0.6 : 1 }]}
+        style={[styles.inputBox, { marginBottom: emailError ? 6 : 28, opacity: emailFromSocial ? 0.6 : 1 }]}
         cornerRadius={18}
         cornerSmoothing={1}
         fillColor={colors.surface}
@@ -177,14 +178,14 @@ export default function ProfileScreen() {
           placeholder="Email address"
           placeholderTextColor={colors.placeholder}
           value={email}
-          onChangeText={emailFromApple ? undefined : handleEmailChange}
-          editable={!emailFromApple}
+          onChangeText={emailFromSocial ? undefined : handleEmailChange}
+          editable={!emailFromSocial}
           keyboardType="email-address"
           autoCapitalize="none"
           autoCorrect={false}
           returnKeyType="done"
         />
-        {emailFromApple ? (
+        {emailFromSocial ? (
           <Ionicons name="lock-closed" size={14} color={colors.textSecondary} style={{ marginRight: 2 }} />
         ) : checkingEmail ? (
           <ActivityIndicator size="small" color={colors.textSecondary} style={{ marginRight: 4 }} />
@@ -192,9 +193,9 @@ export default function ProfileScreen() {
       </Squircle>
       {emailError ? (
         <Text style={[styles.errorText, { color: '#ef4444' }]}>{emailError}</Text>
-      ) : emailFromApple ? (
+      ) : emailFromSocial ? (
         <Text style={[styles.errorText, { color: colors.textSecondary, marginBottom: 14 }]}>
-          Email set by Apple Sign In · cannot be changed
+          Email set by {socialProvider} Sign In · cannot be changed
         </Text>
       ) : null}
 

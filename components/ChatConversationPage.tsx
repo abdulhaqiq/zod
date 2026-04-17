@@ -40,7 +40,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Squircle from '@/components/ui/Squircle';
 import { apiFetch, API_V1, WS_V1 } from '@/constants/api';
-import { takePendingGame } from '@/constants/gameQueue';
+import { takePendingGame, registerCardSend } from '@/constants/gameQueue';
 import { useAuth } from '@/context/AuthContext';
 import { useCall } from '@/context/CallContext';
 import { useAppTheme } from '@/context/ThemeContext';
@@ -79,6 +79,7 @@ interface Msg {
   isAnswer?: boolean;
   answerTo?: string;
   replyToId?: string;
+  cardMeta?: { emoji?: string; category?: string; gameName?: string };
   // sending → sent (echoed back) → delivered (partner has ws open) → read
   status?: 'sending' | 'sent' | 'delivered' | 'read';
   // Truth or Dare game messages
@@ -1486,11 +1487,12 @@ function Bubble({ msg, colors, myId, onAnswer, answeredCards, myAvatar, partnerA
   }
 
   if (msg.isCard) {
-    const meta      = (msg as any).todExtra ?? (msg as any).cardMeta ?? {};
+    const meta      = msg.cardMeta ?? (msg as any).todExtra ?? (msg as any).cardMeta2 ?? {};
     const category  = meta.category as string | undefined;
-    const accent    = category ? (CAT_ACCENT[category] ?? '#6366f1') : '#6366f1';
+    const cardEmoji = meta.emoji as string | undefined;
+    const gameName  = (meta.gameName as string | undefined) ?? 'Question Cards';
+    const accent    = category ? (CAT_ACCENT[category] ?? '#818cf8') : '#818cf8';
     const cardBg    = category ? (CAT_BG[category]    ?? '#1a1a2e') : '#1a1a2e';
-    const catEmoji  = category ? (CAT_EMOJI[category] ?? '❓') : '❓';
     const isAnswered = answeredCards?.has(msg.text) ?? false;
 
     const bubble = (
@@ -1499,25 +1501,38 @@ function Bubble({ msg, colors, myId, onAnswer, answeredCards, myAvatar, partnerA
         cornerRadius={22} cornerSmoothing={1}
         fillColor={cardBg}
       >
-        <Text style={{ fontSize: 11, fontFamily: 'ProductSans-Bold', color: 'rgba(255,255,255,0.45)', marginBottom: 2 }}>
-          {isMe ? 'You sent a card' : 'Question card'}
-        </Text>
-        <View style={[styles.cardTag, { backgroundColor: `${accent}30` }]}>
-          <Text style={{ fontSize: 12 }}>{catEmoji}</Text>
-          <Text style={[styles.cardTagText, { color: accent }]}>{category ?? 'Question'}</Text>
+        {/* Game name badge */}
+        <View style={[styles.cardGameBadge, { backgroundColor: `${accent}25`, borderColor: `${accent}40` }]}>
+          <Text style={{ fontSize: 13 }}>🃏</Text>
+          <Text style={[styles.cardGameBadgeText, { color: accent }]}>{gameName}</Text>
         </View>
-        <Text style={styles.cardBubbleEmoji}>❓</Text>
-        <Text style={[styles.cardBubbleQuestion, { color: '#fff' }]}>{msg.text}</Text>
-        <View style={[styles.cardBubbleFooter, { borderTopColor: 'rgba(255,255,255,0.12)' }]}>
+
+        {/* Emoji */}
+        {cardEmoji ? (
+          <Text style={styles.cardBubbleEmoji}>{cardEmoji}</Text>
+        ) : null}
+
+        {/* Question */}
+        <Text style={styles.cardBubbleQuestion}>{msg.text}</Text>
+
+        {/* Category pill */}
+        {category ? (
+          <View style={[styles.cardTag, { backgroundColor: `${accent}20` }]}>
+            <Text style={[styles.cardTagText, { color: accent }]}>{category}</Text>
+          </View>
+        ) : null}
+
+        {/* Footer: time + answer */}
+        <View style={[styles.cardBubbleFooter, { borderTopColor: `${accent}25` }]}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-            <Text style={[styles.bubbleTimeInline, { color: 'rgba(255,255,255,0.4)' }]}>{msg.time}</Text>
+            <Text style={[styles.bubbleTimeInline, { color: `${accent}90` }]}>{msg.time}</Text>
             {isMe && <MsgTicks status={msg.status} />}
           </View>
           {!isMe && (
             isAnswered ? (
               <View style={styles.answeredBadge}>
-                <Ionicons name="checkmark" size={11} color="rgba(255,255,255,0.55)" />
-                <Text style={styles.answeredBadgeText}>Answered</Text>
+                <Ionicons name="checkmark-circle" size={12} color={accent} />
+                <Text style={[styles.answeredBadgeText, { color: accent }]}>Answered</Text>
               </View>
             ) : onAnswer ? (
               <Pressable
@@ -4219,13 +4234,38 @@ export default function ChatConversationPage() {
     const isImage   = m.msg_type === 'image';
     const isVoice   = m.msg_type === 'voice';
     const isCall    = m.msg_type === 'call';
+
+    // Detect new-style card messages (msg_type === 'card')
+    const isNewCard = m.msg_type === 'card';
+    // Detect old-style card messages stored as plain text before the card-send fix:
+    // they were sent as "🃏 Question Cards: <question>" with msg_type 'text'.
+    const OLD_CARD_PREFIX = '🃏 Question Cards: ';
+    const isOldCard = !isNewCard && m.msg_type === 'text' && m.content?.startsWith(OLD_CARD_PREFIX);
+    const isCard = isNewCard || isOldCard;
+
+    // cardMeta from metadata (new flow) or extracted from old-style prefix
+    let cardMeta: Msg['cardMeta'] | undefined;
+    if (isNewCard && m.metadata) {
+      const meta = m.metadata as Record<string, any>;
+      if (meta.cardEmoji || meta.cardCategory || meta.gameName) {
+        cardMeta = { emoji: meta.cardEmoji, category: meta.cardCategory, gameName: meta.gameName };
+      }
+    } else if (isOldCard) {
+      cardMeta = { gameName: 'Question Cards' };
+    }
+
+    const rawText = (isImage || isVoice || isCall) ? '' : m.content;
+    // Strip old-style prefix so the card bubble shows just the question
+    const text = isOldCard ? rawText.replace(OLD_CARD_PREFIX, '') : rawText;
+
     return {
       id:      m.id,
-      text:    (isImage || isVoice || isCall) ? '' : m.content,
+      text,
       from:    m.sender_id === myId ? 'me' : 'them',
       time:    _formatTime(m.created_at),
       rawTime: m.created_at,
-      isCard:  m.msg_type === 'card',
+      isCard,
+      cardMeta,
       isAnswer: m.msg_type === 'answer',
       answerTo: m.metadata?.answerTo,
       replyToId: m.metadata?.replyToId,
@@ -4402,6 +4442,7 @@ export default function ChatConversationPage() {
                 rawTime: msg.rawTime,
                 ...(msg.isTod   ? { todExtra:  msg.todExtra  } : {}),
                 ...(msg.isGame  ? { gameExtra: msg.gameExtra } : {}),
+                ...(msg.isCard  ? { isCard: true, cardMeta: msg.cardMeta } : {}),
               });
               return prev.map(x => x.id === pendingId ? confirmed : x);
             }
@@ -4549,13 +4590,19 @@ export default function ChatConversationPage() {
   };
 
   // ── Send message ──────────────────────────────────────────────────────────
-  const sendMessage = (txt: string, opts?: { isCard?: boolean; isAnswer?: boolean; answerTo?: string; replyToId?: string }) => {
+  const sendMessage = (txt: string, opts?: { isCard?: boolean; isAnswer?: boolean; answerTo?: string; replyToId?: string; cardMeta?: { emoji?: string; category?: string; gameName?: string } }) => {
     if (!txt.trim()) return;
 
     const msgType  = opts?.isCard ? 'card' : opts?.isAnswer ? 'answer' : 'text';
-    const metadata = opts?.answerTo
-      ? { answerTo: opts.answerTo, ...(opts.replyToId ? { replyToId: opts.replyToId } : {}) }
-      : null;
+    const metadata = opts?.isCard && opts.cardMeta
+      ? {
+          gameName:     opts.cardMeta.gameName,
+          cardEmoji:    opts.cardMeta.emoji,
+          cardCategory: opts.cardMeta.category,
+        }
+      : opts?.answerTo
+        ? { answerTo: opts.answerTo, ...(opts.replyToId ? { replyToId: opts.replyToId } : {}) }
+        : null;
 
     // Optimistic UI update
     const optimisticId = `opt-${Date.now()}`;
@@ -4568,6 +4615,7 @@ export default function ChatConversationPage() {
       isAnswer: opts?.isAnswer,
       answerTo: opts?.answerTo,
       replyToId: opts?.replyToId,
+      cardMeta:  opts?.cardMeta,
       status:   'sending',
     };
     pendingOptIdRef.current = optimisticId;
@@ -5056,6 +5104,19 @@ export default function ChatConversationPage() {
     }, [handleGameSend]),
   );
 
+  // Register a direct card-send function so MiniGamesPage can fire a question
+  // card message immediately (before router.back()) — eliminates the ~350ms
+  // focus-animation delay.
+  useEffect(() => {
+    registerCardSend(({ question, emoji, category, gameName }) => {
+      sendMessage(question, {
+        isCard: true,
+        cardMeta: { emoji, category, gameName },
+      });
+    });
+    return () => registerCardSend(null);
+  }, [sendMessage]);
+
 
   useEffect(() => {
     if (!loadingHistory) {
@@ -5318,9 +5379,8 @@ export default function ChatConversationPage() {
         {/* ── Input bar ── */}
         <View style={[
           styles.inputBar,
-          { borderTopColor: colors.border, backgroundColor: colors.bg, paddingBottom: keyboardShown ? 8 : insets.bottom + 8 },
+          { borderTopColor: colors.border, backgroundColor: colors.bg, paddingBottom: keyboardShown ? 6 : insets.bottom + 6 },
         ]}>
-          {/* Reply-to strip (swipe-to-reply) */}
           {/* Content restriction warning */}
           {contentWarning && (
             <View style={[styles.answerStrip, { backgroundColor: 'rgba(239,68,68,0.10)', borderColor: 'rgba(239,68,68,0.35)' }]}>
@@ -5375,7 +5435,6 @@ export default function ChatConversationPage() {
             {/* Games + Photo buttons — hidden while typing */}
             {!text.trim() && (
               <>
-                {/* Games button (full-screen hub) */}
                 <Pressable
                   onPress={() => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -5390,40 +5449,39 @@ export default function ChatConversationPage() {
                       },
                     });
                   }}
-                  hitSlop={8}
-                  style={({ pressed }) => [pressed && { opacity: 0.6 }]}
+                  hitSlop={6}
+                  style={({ pressed }) => [pressed && { opacity: 0.55 }]}
                 >
                   <Squircle
-                    style={styles.inputSideBtn} cornerRadius={14} cornerSmoothing={1}
+                    style={styles.inputSideBtn} cornerRadius={16} cornerSmoothing={1}
                     fillColor={colors.surface2}
                   >
-                    <Ionicons name="game-controller" size={18} color={colors.text} />
+                    <Ionicons name="game-controller" size={20} color={colors.text} />
                   </Squircle>
                 </Pressable>
 
-                {/* Photo upload button */}
                 <Pressable
                   onPress={handlePhotoSend}
-                  hitSlop={8}
-                  style={({ pressed }) => [pressed && { opacity: 0.6 }]}
+                  hitSlop={6}
+                  style={({ pressed }) => [pressed && { opacity: 0.55 }]}
                 >
                   <Squircle
-                    style={styles.inputSideBtn} cornerRadius={14} cornerSmoothing={1}
+                    style={styles.inputSideBtn} cornerRadius={16} cornerSmoothing={1}
                     fillColor={colors.surface2}
                   >
-                    <Ionicons name="image-outline" size={18} color={colors.text} />
+                    <Ionicons name="image-outline" size={20} color={colors.text} />
                   </Squircle>
                 </Pressable>
               </>
             )}
 
-            {/* Text input */}
+            {/* Text input pill */}
             <Squircle
-              style={styles.inputWrap} cornerRadius={22} cornerSmoothing={1}
-              fillColor={colors.surface} strokeColor={colors.border} strokeWidth={StyleSheet.hairlineWidth}
+              style={styles.inputWrap} cornerRadius={26} cornerSmoothing={1}
+              fillColor={colors.surface2}
             >
               {isListening ? (
-                <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 4 }}>
+                <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 2 }}>
                   <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#ef4444' }} />
                   <Text style={{ fontFamily: 'ProductSans-Bold', fontSize: 15, color: '#ef4444' }}>
                     {(() => { const s = Math.floor(recState.durationMillis / 1000); return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`; })()}
@@ -5439,7 +5497,7 @@ export default function ChatConversationPage() {
                     placeholder={
                       answeringCard ? 'Your answer…'
                       : replyingTo ? 'Reply…'
-                      : 'Message…'
+                      : 'Message...'
                     }
                     placeholderTextColor={colors.placeholder}
                     value={text}
@@ -5448,18 +5506,17 @@ export default function ChatConversationPage() {
                     maxLength={500}
                     selectionColor={colors.text}
                   />
-                  {/* AI sparkles */}
+                  {/* AI sparkles — always visible inside the input */}
                   <Pressable
                     onPress={() => { Keyboard.dismiss(); setShowAi(true); setShowCards(false); }}
                     hitSlop={8}
-                    style={({ pressed }) => [pressed && { opacity: 0.6 }]}
+                    style={({ pressed }) => [pressed && { opacity: 0.55 }]}
                   >
-                    <Squircle
-                      style={styles.aiInlineBtn} cornerRadius={12} cornerSmoothing={1}
-                      fillColor={showAi ? '#7c3aed' : colors.surface2}
-                    >
-                      <Ionicons name="sparkles" size={13} color={showAi ? '#fff' : colors.text} />
-                    </Squircle>
+                    <Ionicons
+                      name="sparkles"
+                      size={20}
+                      color={showAi ? '#7c3aed' : colors.textSecondary}
+                    />
                   </Pressable>
                 </>
               )}
@@ -5468,11 +5525,11 @@ export default function ChatConversationPage() {
             {/* Send / mic */}
             <Pressable
               onPress={text.trim() ? handleSend : handleMicPress}
-              hitSlop={8}
-              style={({ pressed }) => [pressed && { opacity: 0.7 }]}
+              hitSlop={6}
+              style={({ pressed }) => [pressed && { opacity: 0.6 }]}
             >
               <Squircle
-                style={styles.inputSideBtn} cornerRadius={14} cornerSmoothing={1}
+                style={styles.inputSideBtn} cornerRadius={16} cornerSmoothing={1}
                 fillColor={
                   contentWarning
                     ? '#ef4444'
@@ -5485,7 +5542,7 @@ export default function ChatConversationPage() {
               >
                 <Ionicons
                   name={contentWarning ? 'ban' : text.trim() ? 'send' : isListening ? 'stop-circle' : 'mic' as any}
-                  size={18}
+                  size={20}
                   color={contentWarning ? '#fff' : text.trim() ? ((answeringCard || replyingTo) ? '#fff' : colors.bg) : isListening ? '#fff' : colors.text}
                 />
               </Squircle>
@@ -5720,17 +5777,19 @@ const styles = StyleSheet.create({
   bubbleTimeInline: { fontSize: 10, fontFamily: 'ProductSans-Regular', marginBottom: 1, flexShrink: 0 },
 
   // Card bubble
-  cardBubble:         { width: W * 0.68, padding: 14, gap: 8 },
+  cardBubble:         { width: W * 0.72, padding: 16, gap: 10 },
+  cardGameBadge:      { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 50, borderWidth: 1 },
+  cardGameBadgeText:  { fontSize: 11, fontFamily: 'ProductSans-Black', letterSpacing: 0.4 },
   cardTag:            { flexDirection: 'row', alignItems: 'center', gap: 5, alignSelf: 'flex-start', paddingHorizontal: 9, paddingVertical: 4, borderRadius: 20 },
   cardTagDot:         { width: 5, height: 5, borderRadius: 2.5 },
-  cardTagText:        { fontSize: 10, fontFamily: 'ProductSans-Bold', letterSpacing: 0.2 },
-  cardBubbleEmoji:    { fontSize: 32, textAlign: 'center' },
-  cardBubbleQuestion: { fontSize: 14, fontFamily: 'ProductSans-Black', lineHeight: 20, color: '#fff' },
+  cardTagText:        { fontSize: 10, fontFamily: 'ProductSans-Bold', letterSpacing: 0.5 },
+  cardBubbleEmoji:    { fontSize: 34, textAlign: 'center', marginVertical: 2 },
+  cardBubbleQuestion: { fontSize: 15, fontFamily: 'ProductSans-Black', lineHeight: 22, color: '#fff' },
   cardBubbleFooter:   { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 10, marginTop: 2 },
   answerBtn:          { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20 },
   answerBtnText:      { fontSize: 11, fontFamily: 'ProductSans-Bold' },
   answeredBadge:      { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5 },
-  answeredBadgeText:  { fontSize: 11, fontFamily: 'ProductSans-Regular', color: 'rgba(255,255,255,0.5)' },
+  answeredBadgeText:  { fontSize: 11, fontFamily: 'ProductSans-Bold' },
 
   // Answer bubble (reply context)
   answerBubble:      { maxWidth: W * 0.68, alignSelf: 'flex-start', paddingHorizontal: 12, paddingTop: 10, paddingBottom: 7, gap: 6 },
@@ -5738,14 +5797,14 @@ const styles = StyleSheet.create({
   answerContextText: { fontSize: 12, fontFamily: 'ProductSans-Regular', lineHeight: 16 },
 
   // Input bar
-  inputBar:     { borderTopWidth: StyleSheet.hairlineWidth },
-  answerStrip:  { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderLeftWidth: 3 },
+  inputBar:        { borderTopWidth: StyleSheet.hairlineWidth },
+  answerStrip:     { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderLeftWidth: 3 },
   answerStripText: { flex: 1, fontSize: 12, fontFamily: 'ProductSans-Regular' },
-  inputRow:     { flexDirection: 'row', alignItems: 'flex-end', gap: 8, paddingHorizontal: 12, paddingTop: 10 },
-  inputSideBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  inputWrap:    { flex: 1, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 8, gap: 8, minHeight: 44, maxHeight: 120 },
-  inputField:   { flex: 1, fontSize: 15, fontFamily: 'ProductSans-Regular', maxHeight: 100, paddingTop: 0, paddingBottom: 0, textAlignVertical: 'center' },
-  aiInlineBtn:  { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
+  inputRow:        { flexDirection: 'row', alignItems: 'flex-end', gap: 10, paddingHorizontal: 12, paddingTop: 10, paddingBottom: 2 },
+  inputSideBtn:    { width: 48, height: 48, alignItems: 'center', justifyContent: 'center' },
+  inputWrap:       { flex: 1, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 10, gap: 10, minHeight: 48, maxHeight: 130 },
+  inputField:      { flex: 1, fontSize: 15, fontFamily: 'ProductSans-Regular', maxHeight: 108, paddingTop: 0, paddingBottom: 0, textAlignVertical: 'center' },
+  aiInlineBtn:     { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
 
   // Panels (shared)
   panel:        { position: 'absolute', bottom: 0, left: 0, right: 0, borderTopWidth: StyleSheet.hairlineWidth, borderTopLeftRadius: 28, borderTopRightRadius: 28, overflow: 'hidden', shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 28, shadowOffset: { width: 0, height: -4 }, elevation: 22 },

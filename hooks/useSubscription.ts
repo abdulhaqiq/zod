@@ -85,7 +85,7 @@ export type SubscriptionStatus = {
 };
 
 export function useSubscription() {
-  const { token, updateProfile } = useAuth();
+  const { token, profile, updateProfile } = useAuth();
 
   const [offering,         setOffering]         = useState<PurchasesOffering | null>(null);
   const [premiumOffering,  setPremiumOffering]  = useState<PurchasesOffering | null>(null);
@@ -109,8 +109,15 @@ export function useSubscription() {
       // Fetch status, plan catalog, and personal feature limits from backend.
       // All three work in Expo Go (no native RC SDK needed).
       fetchStatus();
-      apiFetch<BackendPlan[]>('/subscription/plans', { token })
-        .then(data => { setPlans(data ?? []); setPlansLoading(false); })
+      // 8-second timeout — if the DB is unreachable the skeleton won't spin forever.
+      const plansTimeout = new Promise<BackendPlan[]>((_, reject) =>
+        setTimeout(() => reject(new Error('timeout')), 8000)
+      );
+      Promise.race([
+        apiFetch<BackendPlan[]>('/subscription/plans', { token }),
+        plansTimeout,
+      ])
+        .then(data => { setPlans((data as BackendPlan[]) ?? []); setPlansLoading(false); })
         .catch(() => { setPlansLoading(false); });
       apiFetch<MyFeatures>('/subscription/my-features', { token })
         .then(data => {
@@ -136,6 +143,15 @@ export function useSubscription() {
 
     init();
   }, [token]);
+
+  // ── Identify user in RevenueCat whenever profile loads/changes ───────────
+  // This ensures purchases are per-account, not per-device. Without logIn,
+  // RevenueCat uses a shared anonymous ID and all accounts on the same device
+  // would see each other's subscriptions.
+  useEffect(() => {
+    if (IS_EXPO_GO || !profile?.id) return;
+    Purchases.logIn(profile.id).catch(() => {});
+  }, [profile?.id]);
 
   // ── Load offering ─────────────────────────────────────────────────────────
 
