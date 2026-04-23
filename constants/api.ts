@@ -31,7 +31,7 @@ function getApiBaseUrl(): string {
       '';
 
     const devHost = hostUri.split(':')[0];
-    if (devHost && devHost !== 'localhost' && devHost !== '127.0.0.1') {
+    if (devHost && devHost !== 'localhost') {
       const url = `http://${devHost}:8000`;
       console.log('[API] DEV mode — detected local backend:', url);
       return url;

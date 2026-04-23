@@ -3,8 +3,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Image as ExpoImage } from 'expo-image';
 import { useRouter } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import {
+  Animated,
   Dimensions,
   Pressable,
   ScrollView,
@@ -33,34 +34,75 @@ interface Profile {
   languages: string[];
 }
 
-interface RecentMatch {
+export interface RecentMatch {
   id: string; name: string; age: number; image: string; matchedAt: number;
+  isSuperLike?: boolean;
+}
+
+function ShimmerBar({ width, height, borderRadius = 8, style }: { width: number | string; height: number; borderRadius?: number; style?: any }) {
+  const anim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(anim, { toValue: 1, duration: 850, useNativeDriver: true }),
+        Animated.timing(anim, { toValue: 0, duration: 850, useNativeDriver: true }),
+      ])
+    ).start();
+  }, [anim]);
+  const opacity = anim.interpolate({ inputRange: [0, 1], outputRange: [0.3, 0.65] });
+  return (
+    <Animated.View style={[{ width, height, borderRadius, backgroundColor: '#888', opacity }, style]} />
+  );
 }
 
 function LikedCardSkeleton() {
   const { colors } = useAppTheme();
   return (
     <View style={[styles.cardWrap, { width: LIKED_CARD_W }]}>
-      <View style={[styles.card, { backgroundColor: colors.surface }]}>
-        <View style={{ width: LIKED_CARD_W, height: LIKED_PHOTO_H, backgroundColor: colors.surface2 }} />
+      <View style={[styles.card, { backgroundColor: colors.surface, overflow: 'hidden' }]}>
+        <ShimmerBar width={LIKED_CARD_W} height={LIKED_PHOTO_H} borderRadius={0} />
         <View style={{ padding: 10, gap: 8 }}>
-          <View style={{ width: '70%', height: 12, borderRadius: 6, backgroundColor: colors.surface2 }} />
-          <View style={{ width: '40%', height: 10, borderRadius: 6, backgroundColor: colors.surface2 }} />
+          <ShimmerBar width="70%" height={13} />
+          <ShimmerBar width="45%" height={11} />
+          <View style={{ flexDirection: 'row', gap: 8, marginTop: 2 }}>
+            <ShimmerBar width={38} height={38} borderRadius={19} />
+            <ShimmerBar width={80} height={38} borderRadius={19} style={{ flex: 1 }} />
+          </View>
         </View>
       </View>
     </View>
   );
 }
 
-function format24h(matchedAt: number): string {
-  const remaining = Math.max(0, 24 * 60 * 60 * 1000 - (Date.now() - matchedAt));
+const REGULAR_WINDOW = 24 * 60 * 60 * 1000;   // 24 h
+const SUPER_WINDOW   = 48 * 60 * 60 * 1000;   // 48 h
+
+function formatMatchTimer(matchedAt: number, isSuper?: boolean): string {
+  const window    = isSuper ? SUPER_WINDOW : REGULAR_WINDOW;
+  const remaining = Math.max(0, window - (Date.now() - matchedAt));
   if (remaining === 0) return 'Expired';
   const hh = Math.floor(remaining / (60 * 60 * 1000));
   const mm = Math.floor((remaining % (60 * 60 * 1000)) / (60 * 1000));
   return `${hh}h ${mm}m left`;
 }
 
-export default function LikedYouPage({ insets, token }: { insets: any; token: string | null }) {
+function isMatchExpired(matchedAt: number, isSuper?: boolean): boolean {
+  const window = isSuper ? SUPER_WINDOW : REGULAR_WINDOW;
+  return Date.now() - matchedAt > window;
+}
+
+export default function LikedYouPage({
+  insets, token, externalMatch, feedDislikedId, onCountChange,
+}: {
+  insets: any;
+  token: string | null;
+  /** Match created outside this page (e.g. super_like from the feed) */
+  externalMatch?: RecentMatch | null;
+  /** ID of a profile just left-swiped on the feed — remove them instantly */
+  feedDislikedId?: string | null;
+  /** Called whenever the real liked-you count changes so the parent can sync its badge */
+  onCountChange?: (count: number) => void;
+}) {
   const router     = useRouter();
   const { colors } = useAppTheme();
 
@@ -74,7 +116,7 @@ export default function LikedYouPage({ insets, token }: { insets: any; token: st
   const wsRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
-    const t = setInterval(() => setTick(n => n + 1), 60_000);
+    const t = setInterval(() => setTick(n => n + 1), 30_000);
     return () => clearInterval(t);
   }, []);
 
@@ -91,6 +133,23 @@ export default function LikedYouPage({ insets, token }: { insets: any; token: st
       .finally(() => setLoading(false));
   }, [token]);
 
+  // Absorb an external match (e.g. super_like from the feed) into the circle row
+  useEffect(() => {
+    if (!externalMatch) return;
+    setRecentMatches(prev => prev.some(m => m.id === externalMatch.id) ? prev : [externalMatch, ...prev]);
+  }, [externalMatch]);
+
+  // Instantly remove a profile the user left-swiped on the feed
+  useEffect(() => {
+    if (!feedDislikedId) return;
+    setLikedProfiles(prev => prev.filter(p => p.id !== feedDislikedId));
+  }, [feedDislikedId]);
+
+  // Sync actual count up to parent so the badge stays accurate
+  useEffect(() => {
+    onCountChange?.(likedProfiles.length);
+  }, [likedProfiles.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // WebSocket — real-time new likes / matches
   useEffect(() => {
     if (!token) return;
@@ -102,7 +161,16 @@ export default function LikedYouPage({ insets, token }: { insets: any; token: st
         if (msg.type === 'liked_you' && msg.profile) {
           setLikedProfiles(prev => prev.some(p => p.id === msg.profile.id) ? prev : [msg.profile, ...prev]);
         } else if (msg.type === 'match' && msg.profile) {
-          setMatchedProfile({ id: msg.profile.id, name: msg.profile.name, age: msg.profile.age, image: msg.profile.images?.[0] ?? '', interests: msg.profile.interests, prompts: msg.profile.prompts });
+          const matchEntry: RecentMatch = {
+            id: msg.profile.id,
+            name: msg.profile.name,
+            age: msg.profile.age,
+            image: msg.profile.images?.[0] ?? '',
+            matchedAt: Date.now(),
+            isSuperLike: !!msg.is_super,
+          };
+          setMatchedProfile({ id: msg.profile.id, name: msg.profile.name, age: msg.profile.age, image: msg.profile.images?.[0] ?? '', interests: msg.profile.interests, prompts: msg.profile.prompts, isSuperLike: !!msg.is_super });
+          setRecentMatches(prev => prev.some(m => m.id === matchEntry.id) ? prev : [matchEntry, ...prev]);
         }
       } catch { /* ignore */ }
     };
@@ -113,22 +181,24 @@ export default function LikedYouPage({ insets, token }: { insets: any; token: st
   // Remove a profile from the list (after like or dislike)
   const removeProfile = (id: string) => setLikedProfiles(prev => prev.filter(p => p.id !== id));
 
-  // Like back → swipe right → if match show overlay + add to matches row
+  // Like back → guaranteed match (they're already in liked_you = they liked us first)
   const handleLike = async (p: Profile) => {
     if (!token) return;
-    try {
-      const res = await apiFetch<{ match: boolean }>(
-        '/discover/swipe',
-        { method: 'POST', token, body: JSON.stringify({ swiped_id: p.id, direction: 'right', mode: 'date' }) },
-      );
-      removeProfile(p.id);
-      if (res.match) {
-        setMatchedProfile({ id: p.id, name: p.name, age: p.age, image: p.images[0] ?? '', interests: p.interests, prompts: p.prompts });
-        setRecentMatches(prev => [{ id: p.id, name: p.name, age: p.age, image: p.images[0] ?? '', matchedAt: Date.now() }, ...prev]);
-      }
-    } catch {
-      // swipe failed — leave card visible so user can retry
-    }
+    // Optimistically show match immediately — no need to wait for API since
+    // the other person is already in our liked_you list (mutual like = match).
+    removeProfile(p.id);
+    const matchEntry: RecentMatch = {
+      id: p.id, name: p.name, age: p.age,
+      image: p.images[0] ?? '', matchedAt: Date.now(), isSuperLike: false,
+    };
+    setMatchedProfile({ id: p.id, name: p.name, age: p.age, image: p.images[0] ?? '', interests: p.interests, prompts: p.prompts, isSuperLike: !!p.is_super_like });
+    setRecentMatches(prev => prev.some(m => m.id === p.id) ? prev : [matchEntry, ...prev]);
+
+    // Fire API in background to persist the swipe record
+    apiFetch('/discover/swipe', {
+      method: 'POST', token,
+      body: JSON.stringify({ swiped_id: p.id, direction: 'right', mode: 'date' }),
+    }).catch(() => {/* match already shown — ignore errors */});
   };
 
   // Dislike → swipe left → remove from list
@@ -177,25 +247,45 @@ export default function LikedYouPage({ insets, token }: { insets: any; token: st
           </Pressable>
         )}
 
-        {/* Matches row — circular avatars with 24h countdown */}
+        {/* Matches row — same circle style as Chats page + 24h timer */}
         {recentMatches.length > 0 && (
-          <View style={{ paddingHorizontal: 16, marginBottom: 16 }}>
-            <Text style={[styles.matchesRowLabel, { color: colors.textSecondary }]}>MATCHES</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 14, paddingTop: 10 }}>
+          <View style={{ marginBottom: 24 }}>
+            <Text style={[styles.matchesRowLabel, { color: colors.textSecondary, paddingHorizontal: 16, marginBottom: 14 }]}>
+              MATCHES
+            </Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 14, paddingHorizontal: 16 }}>
               {recentMatches.map(m => {
-                const expired = Date.now() - m.matchedAt > 24 * 60 * 60 * 1000;
+                const expired   = isMatchExpired(m.matchedAt, m.isSuperLike);
+                const ringColor = expired ? colors.surface2 : m.isSuperLike ? '#F59E0B' : '#6366f1';
                 return (
                   <Pressable
                     key={m.id}
-                    style={({ pressed }) => [styles.matchCircleWrap, pressed && { opacity: 0.75 }]}
                     onPress={() => navPush({ pathname: '/chat', params: { matchId: m.id, name: m.name, image: m.image, online: 'true' } } as any)}
+                    style={({ pressed }) => [{ alignItems: 'center', gap: 6, maxWidth: 72 }, pressed && { opacity: 0.75 }]}
                   >
-                    <View style={[styles.matchCircleRing, { borderColor: expired ? colors.surface2 : colors.text }]}>
-                      <ExpoImage source={{ uri: m.image }} style={styles.matchCircleAvatar} contentFit="cover" />
+                    {/* Ring + avatar */}
+                    <View style={styles.matchRingWrap}>
+                      <View style={[styles.matchRing, { borderColor: ringColor }, m.isSuperLike && !expired && styles.matchCircleGolden]}>
+                        <ExpoImage source={{ uri: m.image }} style={styles.matchAvatar} contentFit="cover" />
+                      </View>
+                      {/* NEW pill (only for non-expired non-superlike) */}
+                      {!expired && !m.isSuperLike && (
+                        <View style={[styles.newBadge, { borderColor: colors.bg }]}>
+                          <Text style={styles.newBadgeText}>NEW</Text>
+                        </View>
+                      )}
+                      {/* Star badge for super likes */}
+                      {m.isSuperLike && !expired && (
+                        <View style={[styles.superStarBadge, { borderColor: colors.bg }]}>
+                          <Ionicons name="star" size={9} color="#fff" />
+                        </View>
+                      )}
                     </View>
-                    <Text style={[styles.matchCircleName, { color: colors.text }]} numberOfLines={1}>{m.name.split(' ')[0]}</Text>
-                    <Text style={[styles.matchCircleTimer, { color: expired ? colors.textSecondary : colors.text }]}>
-                      {expired ? 'Expired' : format24h(m.matchedAt)}
+                    <Text style={[styles.matchName, { color: m.isSuperLike && !expired ? '#F59E0B' : colors.text }]} numberOfLines={1}>
+                      {m.name.split(' ')[0]}
+                    </Text>
+                    <Text style={[styles.matchCircleTimer, { color: expired ? colors.textSecondary : m.isSuperLike ? '#F59E0B' : '#6366f1' }]}>
+                      {expired ? 'Expired' : formatMatchTimer(m.matchedAt, m.isSuperLike)}
                     </Text>
                   </Pressable>
                 );
@@ -204,80 +294,100 @@ export default function LikedYouPage({ insets, token }: { insets: any; token: st
           </View>
         )}
 
-        {/* Cards grid — all blurred for free users, all visible for Pro */}
+        {/* Cards grid — blurred for free users, visible for Pro */}
         <View style={styles.grid}>
           {loading ? (
             <>
               <LikedCardSkeleton /><LikedCardSkeleton />
               <LikedCardSkeleton /><LikedCardSkeleton />
             </>
-          ) : likedProfiles.map((p, i) => {
+          ) : likedProfiles.map(p => {
             const isBlurred = !isPro;
             return (
               <View key={p.id} style={[styles.cardWrap, { width: LIKED_CARD_W }]}>
                 <Squircle style={styles.card} cornerRadius={24} cornerSmoothing={1}
                   fillColor={colors.surface} strokeColor={colors.border} strokeWidth={StyleSheet.hairlineWidth}>
-                  <View style={styles.photoWrap}>
+                  <Pressable
+                    style={styles.photoWrap}
+                    onPress={() => !isBlurred && navPush({ pathname: '/profile-view', params: { id: p.id } } as any)}
+                    disabled={isBlurred}
+                  >
                     <ExpoImage
                       source={{ uri: p.images[0] }}
                       style={styles.photo}
                       contentFit="cover"
-                      blurRadius={isBlurred ? 20 : 0}
+                      blurRadius={isBlurred ? 22 : 0}
                     />
-                    {/* Gradient + name/distance overlay — only on unblurred cards */}
+
+                    {/* Gradient + name overlay — unblurred only */}
                     {!isBlurred && (
-                      <LinearGradient colors={['transparent', 'rgba(0,0,0,0.72)']} style={styles.photoGrad}>
-                        <Text style={styles.photoName}>{p.name}, {p.age}</Text>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                          {(p.distance || p.location) && (
-                            <>
-                              <Ionicons name="location-outline" size={10} color="rgba(255,255,255,0.7)" />
-                              <Text style={styles.photoDist}>{p.distance || p.location}</Text>
-                            </>
-                          )}
-                          {p.verified && <Ionicons name="checkmark-circle" size={11} color="#fff" />}
-                        </View>
+                      <LinearGradient
+                        colors={['transparent', 'rgba(0,0,0,0.55)', 'rgba(0,0,0,0.82)']}
+                        style={styles.photoGrad}
+                      >
+                        {/* Verified badge */}
+                        {p.verified && (
+                          <View style={styles.verifiedBadge}>
+                            <Ionicons name="checkmark-circle" size={11} color="#fff" />
+                            <Text style={styles.verifiedText}>Verified</Text>
+                          </View>
+                        )}
+                        <Text style={styles.photoName} numberOfLines={1}>{p.name}, {p.age}</Text>
+                        {(p.distance || p.location) && (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                            <Ionicons name="location-outline" size={10} color="rgba(255,255,255,0.7)" />
+                            <Text style={styles.photoDist}>{p.distance || p.location}</Text>
+                          </View>
+                        )}
                       </LinearGradient>
                     )}
+
                     {/* Blurred lock overlay */}
                     {isBlurred && (
                       <Pressable
                         style={[StyleSheet.absoluteFill, styles.lockOverlay]}
                         onPress={() => navPush('/subscription')}
                       >
-                        <Squircle style={styles.lockIcon} cornerRadius={14} cornerSmoothing={1} fillColor="rgba(0,0,0,0.45)">
-                          <Ionicons name="lock-closed" size={18} color="#fff" />
+                        <LinearGradient
+                          colors={['transparent', 'rgba(0,0,0,0.6)']}
+                          style={StyleSheet.absoluteFill}
+                        />
+                        <Squircle style={styles.lockIcon} cornerRadius={16} cornerSmoothing={1} fillColor="rgba(0,0,0,0.5)">
+                          <Ionicons name="lock-closed" size={20} color="#fff" />
                         </Squircle>
-                        <Text style={styles.lockText}>Upgrade{'\n'}to see</Text>
+                        <Text style={styles.lockText}>Upgrade to see</Text>
                       </Pressable>
                     )}
-                    {/* Heart / Super Like badge — only on unblurred */}
+
+                    {/* Heart / Super Like badge top-right — unblurred only */}
                     {!isBlurred && (
-                      <View style={[styles.heartBadge, p.is_super_like ? styles.superBadge : { backgroundColor: colors.text }]}>
-                        <Ionicons name={p.is_super_like ? 'star' : 'heart' as any} size={11} color="#fff" />
+                      <View style={[styles.heartBadge, p.is_super_like ? styles.superBadge : styles.heartBadgeDefault]}>
+                        <Ionicons name={p.is_super_like ? 'star' : 'heart' as any} size={12} color="#fff" />
                       </View>
                     )}
-                  </View>
+                  </Pressable>
 
-                  {/* Actions — only on unblurred cards */}
+                  {/* Action row — unblurred only */}
                   {!isBlurred && (
                     <View style={styles.infoRow}>
                       {p.interests[0] && (
                         <Squircle style={styles.chip} cornerRadius={20} cornerSmoothing={1} fillColor={colors.surface2}>
                           <Text style={styles.chipEmoji}>{p.interests[0].emoji}</Text>
-                          <Text style={[styles.chipLabel, { color: colors.text }]}>{p.interests[0].label}</Text>
+                          <Text style={[styles.chipLabel, { color: colors.text }]} numberOfLines={1}>{p.interests[0].label}</Text>
                         </Squircle>
                       )}
                       <View style={styles.actions}>
-                        <Pressable onPress={() => handleDislike(p.id)} style={({ pressed }) => [pressed && { opacity: 0.65 }]} hitSlop={6}>
+                        <Pressable onPress={() => handleDislike(p.id)} hitSlop={6}
+                          style={({ pressed }) => [pressed && { opacity: 0.65 }]}>
                           <Squircle style={styles.passBtn} cornerRadius={50} cornerSmoothing={1}
                             fillColor={colors.surface2} strokeColor={colors.border} strokeWidth={StyleSheet.hairlineWidth}>
                             <Ionicons name="close" size={18} color={colors.text} />
                           </Squircle>
                         </Pressable>
-                        <Pressable onPress={() => handleLike(p)} style={({ pressed }) => [pressed && { opacity: 0.65 }, { flex: 1 }]} hitSlop={6}>
+                        <Pressable onPress={() => handleLike(p)} hitSlop={6}
+                          style={({ pressed }) => [pressed && { opacity: 0.65 }, { flex: 1 }]}>
                           <Squircle style={styles.likeBtn} cornerRadius={50} cornerSmoothing={1} fillColor={colors.text}>
-                            <Ionicons name="heart" size={15} color={colors.bg} />
+                            <Ionicons name="heart" size={14} color={colors.bg} />
                             <Text style={[styles.likeBtnText, { color: colors.bg }]}>Like back</Text>
                           </Squircle>
                         </Pressable>
@@ -328,25 +438,32 @@ const styles = StyleSheet.create({
   upgradeTitle:       { fontSize: 14, fontFamily: 'ProductSans-Black' },
   upgradeSub:         { fontSize: 12, fontFamily: 'ProductSans-Regular' },
 
-  matchesRowLabel:    { fontSize: 11, fontFamily: 'ProductSans-Bold', letterSpacing: 1.2 },
-  matchCircleWrap:    { alignItems: 'center', gap: 4, width: 68 },
-  matchCircleRing:    { width: 60, height: 60, borderRadius: 30, borderWidth: 2, overflow: 'hidden' },
-  matchCircleAvatar:  { width: '100%', height: '100%' },
-  matchCircleName:    { fontSize: 11, fontFamily: 'ProductSans-Bold', maxWidth: 68, textAlign: 'center' },
-  matchCircleTimer:   { fontSize: 10, fontFamily: 'ProductSans-Regular', textAlign: 'center' },
+  matchesRowLabel:   { fontSize: 10, fontFamily: 'ProductSans-Bold', letterSpacing: 1.5 },
+  matchRingWrap:     { position: 'relative' },
+  matchRing:         { width: 66, height: 66, borderRadius: 33, borderWidth: 2, padding: 2 },
+  matchAvatar:       { width: 58, height: 58, borderRadius: 29 },
+  matchCircleGolden: { borderWidth: 2.5, shadowColor: '#F59E0B', shadowOpacity: 0.6, shadowRadius: 6, shadowOffset: { width: 0, height: 0 } },
+  matchName:         { fontSize: 12, fontFamily: 'ProductSans-Medium', textAlign: 'center' },
+  matchCircleTimer:  { fontSize: 10, fontFamily: 'ProductSans-Regular', textAlign: 'center' },
+  newBadge:          { position: 'absolute', top: 0, right: 0, backgroundColor: '#6366f1', borderRadius: 10, minWidth: 18, height: 18, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4, borderWidth: 2 },
+  newBadgeText:      { color: '#fff', fontSize: 9, fontFamily: 'ProductSans-Bold' },
+  superStarBadge:    { position: 'absolute', bottom: 1, right: 1, width: 16, height: 16, borderRadius: 8, backgroundColor: '#F59E0B', alignItems: 'center', justifyContent: 'center', borderWidth: 2 },
 
   grid:               { flexDirection: 'row', flexWrap: 'wrap', gap: 10, paddingHorizontal: 16 },
   cardWrap:           {},
   card:               { width: '100%', overflow: 'hidden', borderRadius: 24 },
   photoWrap:          { width: LIKED_CARD_W, height: LIKED_PHOTO_H, position: 'relative' },
   photo:              { width: LIKED_CARD_W, height: LIKED_PHOTO_H },
-  photoGrad:          { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 10, gap: 2 },
+  photoGrad:          { position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 10, paddingTop: 28, paddingBottom: 10, gap: 3 },
   photoName:          { fontSize: 14, fontFamily: 'ProductSans-Black', color: '#fff' },
   photoDist:          { fontSize: 10, fontFamily: 'ProductSans-Regular', color: 'rgba(255,255,255,0.75)' },
-  heartBadge:         { position: 'absolute', top: 10, right: 10, width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
+  verifiedBadge:      { flexDirection: 'row', alignItems: 'center', gap: 3, alignSelf: 'flex-start', backgroundColor: 'rgba(79,195,247,0.25)', paddingHorizontal: 7, paddingVertical: 3, borderRadius: 20, marginBottom: 2 },
+  verifiedText:       { fontSize: 10, fontFamily: 'ProductSans-Bold', color: '#fff' },
+  heartBadge:         { position: 'absolute', top: 10, right: 10, width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  heartBadgeDefault:  { backgroundColor: 'rgba(232,23,93,0.9)' },
   superBadge:         { backgroundColor: '#3B82F6' },
-  lockOverlay:        { alignItems: 'center', justifyContent: 'center', gap: 8 },
-  lockIcon:           { width: 42, height: 42, alignItems: 'center', justifyContent: 'center' },
+  lockOverlay:        { alignItems: 'center', justifyContent: 'center', gap: 10 },
+  lockIcon:           { width: 46, height: 46, alignItems: 'center', justifyContent: 'center' },
   lockText:           { fontSize: 12, fontFamily: 'ProductSans-Bold', color: '#fff', textAlign: 'center' },
 
   infoRow:            { padding: 10, gap: 8 },

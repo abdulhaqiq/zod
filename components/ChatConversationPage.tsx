@@ -1,5 +1,5 @@
 import { navPush, navReplace } from '@/utils/nav';
-import { checkContent } from '@/utils/contentFilter';
+import { checkContent, sanitizeContent } from '@/utils/contentFilter';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
@@ -4029,16 +4029,19 @@ export default function ChatConversationPage() {
   const insets  = useSafeAreaInsets();
   const { colors } = useAppTheme();
   const { token, profile } = useAuth();
-  const params  = useLocalSearchParams<{ partnerId?: string; name?: string; image?: string; online?: string }>();
+  const params  = useLocalSearchParams<{ partnerId?: string; name?: string; image?: string; online?: string; expiresAt?: string; isSuper?: string }>();
 
   const partnerId = params.partnerId ?? '';
   const name      = params.name   ?? 'Match';
   const image     = params.image  ?? '';
   const online    = params.online !== 'false';
+  const expiresAt = params.expiresAt ?? '';
+  const isSuper   = params.isSuper === 'true';
 
   const [messages,      setMessages]      = useState<Msg[]>([]);
   const [text,          setText]          = useState('');
   const [contentWarning, setContentWarning] = useState<string | null>(null);
+  const [, setTimerTick] = useState(0);
   const [showAi,        setShowAi]        = useState(false);
   const [showCards,     setShowCards]     = useState(false);
   const [showInsight,   setShowInsight]   = useState(false);
@@ -4082,6 +4085,31 @@ export default function ChatConversationPage() {
       return next;
     });
   }, []);
+
+  // Tick every 30s to keep countdown timer fresh
+  useEffect(() => {
+    if (!expiresAt) return;
+    const id = setInterval(() => setTimerTick(t => t + 1), 30_000);
+    return () => clearInterval(id);
+  }, [expiresAt]);
+
+  // Match timer helpers (inline so they re-evaluate on tick)
+  const _matchIsPermanent = !expiresAt || (new Date(expiresAt).getTime() - Date.now() > 7 * 24 * 3600 * 1000);
+  const matchTimerStr = (() => {
+    if (_matchIsPermanent || !expiresAt) return null;
+    const ms = new Date(expiresAt).getTime() - Date.now();
+    if (ms <= 0) return 'Expired';
+    const h = Math.floor(ms / 3600000);
+    const m = Math.floor((ms % 3600000) / 60000);
+    if (h >= 24) return `${Math.floor(h / 24)}d ${h % 24}h`;
+    if (h >= 1) return `${h}h ${m}m`;
+    return `${m}m`;
+  })();
+
+  // 2-message limit: disable input until partner replies
+  const myMsgCount       = messages.filter(m => m.from === 'me').length;
+  const partnerHasReplied = messages.some(m => m.from === 'them');
+  const isInputBlocked   = !partnerHasReplied && myMsgCount >= 2;
 
   const openCtxMenu = useCallback((msg: Msg) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -4391,33 +4419,36 @@ export default function ChatConversationPage() {
     if (!token || !partnerId) return;
 
     let disposed = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
-    // Queue for messages sent before onopen fires
+    // Shared queue that survives reconnects
     const pendingQueue: string[] = [];
 
-    const ws = new WebSocket(`${WS_V1}/ws/chat/${partnerId}?token=${token}`);
-
-    const safeSend = (raw: string) => {
+    function connect() {
       if (disposed) return;
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(raw);
-      } else {
-        pendingQueue.push(raw);
-      }
-    };
 
-    // Expose safeSend via ref so sendMessage always calls the current socket's sender
-    wsRef.current = ws;
-    safeSendRef.current = safeSend;
+      const ws = new WebSocket(`${WS_V1}/ws/chat/${partnerId}?token=${token}`);
 
-    ws.onopen = () => {
-      if (disposed) { ws.close(); return; }
-      // Flush queued messages
-      while (pendingQueue.length > 0) {
-        ws.send(pendingQueue.shift()!);
-      }
-      ws.send(JSON.stringify({ type: 'read' }));
-    };
+      const safeSend = (raw: string) => {
+        if (disposed) return;
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(raw);
+        } else {
+          pendingQueue.push(raw);
+        }
+      };
+
+      wsRef.current = ws;
+      safeSendRef.current = safeSend;
+
+      ws.onopen = () => {
+        if (disposed) { ws.close(); return; }
+        // Flush queued messages that were sent while WS was reconnecting
+        while (pendingQueue.length > 0) {
+          ws.send(pendingQueue.shift()!);
+        }
+        ws.send(JSON.stringify({ type: 'read' }));
+      };
 
     ws.onmessage = (e) => {
       if (disposed) return;
@@ -4509,20 +4540,39 @@ export default function ChatConversationPage() {
             setMessages(prev => prev.filter(x => x.id !== pid));
             pendingOptIdRef.current = null;
           }
-          Alert.alert('Message blocked', payload.detail ?? 'This content is not allowed in chat.');
+          Alert.alert('Content censored', payload.detail ?? 'Restricted content was replaced with ***.');
+
+        } else if (payload.type === 'error') {
+          if (payload.code === 'verification_required') {
+            Alert.alert(
+              'Verification Required',
+              payload.detail ?? 'This person only accepts messages from verified users. Verify your photo to send a message.',
+              [{ text: 'OK' }],
+            );
+          } else {
+            Alert.alert('Error', payload.detail ?? 'Something went wrong.');
+          }
         }
       } catch {}
     };
 
-    ws.onerror = () => {};
-    ws.onclose = () => {
-      if (!disposed) wsRef.current = null;
-    };
+      ws.onerror = () => { ws.close(); };
+      ws.onclose = () => {
+        if (!disposed) {
+          wsRef.current = null;
+          safeSendRef.current = null;
+          retryTimer = setTimeout(connect, 3000);
+        }
+      };
+    }
+
+    connect();
 
     return () => {
       disposed = true;
+      if (retryTimer) clearTimeout(retryTimer);
       safeSendRef.current = null;
-      ws.close();
+      wsRef.current?.close();
       wsRef.current = null;
     };
   }, [token, partnerId]);
@@ -4593,6 +4643,9 @@ export default function ChatConversationPage() {
   const sendMessage = (txt: string, opts?: { isCard?: boolean; isAnswer?: boolean; answerTo?: string; replyToId?: string; cardMeta?: { emoji?: string; category?: string; gameName?: string } }) => {
     if (!txt.trim()) return;
 
+    // Sanitise restricted content (phone numbers, 18+ language, etc.) → ***
+    const clean = sanitizeContent(txt.trim());
+
     const msgType  = opts?.isCard ? 'card' : opts?.isAnswer ? 'answer' : 'text';
     const metadata = opts?.isCard && opts.cardMeta
       ? {
@@ -4604,11 +4657,11 @@ export default function ChatConversationPage() {
         ? { answerTo: opts.answerTo, ...(opts.replyToId ? { replyToId: opts.replyToId } : {}) }
         : null;
 
-    // Optimistic UI update
+    // Optimistic UI update — show the sanitised version immediately
     const optimisticId = `opt-${Date.now()}`;
     const optimistic: Msg = {
       id:       optimisticId,
-      text:     txt.trim(),
+      text:     clean,
       from:     'me',
       time:     nowTime(),
       isCard:   opts?.isCard,
@@ -4626,14 +4679,14 @@ export default function ChatConversationPage() {
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 80);
 
     // Send via WebSocket (queuing if not yet open), fall back to REST only if no WS at all
-    const payload = JSON.stringify({ type: 'message', content: txt.trim(), msg_type: msgType, metadata });
+    const payload = JSON.stringify({ type: 'message', content: clean, msg_type: msgType, metadata });
     if (safeSendRef.current) {
       safeSendRef.current(payload);
     } else if (token && partnerId) {
       apiFetch<ApiMessage>(`/chat/${partnerId}/messages`, {
         token,
         method: 'POST',
-        body: JSON.stringify({ content: txt.trim(), msg_type: msgType, metadata }),
+        body: JSON.stringify({ content: clean, msg_type: msgType, metadata }),
       }).then(saved => {
         const real = apiMsgToMsg(saved);
         seenMsgIdsRef.current.add(real.id);
@@ -4644,10 +4697,7 @@ export default function ChatConversationPage() {
   };
 
   const handleSend = () => {
-    if (contentWarning) {
-      Alert.alert('Message blocked', contentWarning);
-      return;
-    }
+    // Restricted content is sanitised to *** inside sendMessage — no hard block.
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     if (answeringCard) {
       sendMessage(text, { isAnswer: true, answerTo: answeringCard });
@@ -5091,6 +5141,38 @@ export default function ChatConversationPage() {
     }
   };
 
+  // ── Catch-up fetch on focus — picks up messages missed while app was backgrounded ─
+  // Runs every time this screen gains focus (e.g. user taps a push notification
+  // and lands here). Fetches any messages newer than the latest cached message
+  // so the conversation is always up-to-date, even if the WS was disconnected.
+  useFocusEffect(
+    useCallback(() => {
+      if (!token || !partnerId) return;
+      (async () => {
+        try {
+          const lastTime = getLatestCachedTime(partnerId);
+          if (!lastTime) return;
+          const r = await apiFetch<{ messages: ApiMessage[]; has_more: boolean }>(
+            `/chat/${partnerId}/messages?after=${encodeURIComponent(lastTime)}&limit=60`,
+            { token },
+          );
+          if (r.messages.length > 0) {
+            const newMsgs = r.messages.map(apiMsgToMsg);
+            appendToCache(partnerId, newMsgs as CachedMsg[]);
+            setMessages(prev => {
+              const existingIds = new Set(prev.map(m => m.id));
+              const toAdd = newMsgs.filter(m => !existingIds.has(m.id));
+              if (toAdd.length === 0) return prev;
+              toAdd.forEach(m => seenMsgIdsRef.current.add(m.id));
+              return [...prev, ...toAdd];
+            });
+            setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 80);
+          }
+        } catch { /* non-critical */ }
+      })();
+    }, [token, partnerId]),
+  );
+
   // ── Fire pending game from MiniGamesPage when this screen regains focus ─────
   // Using useFocusEffect + a module-level queue is more reliable than
   // router.setParams() after router.back(), which suffers a focus-animation
@@ -5169,6 +5251,22 @@ export default function ChatConversationPage() {
           </Pressable>
         </View>
       </View>
+
+      {/* ── Match countdown banner ── */}
+      {matchTimerStr && (
+        <View style={{
+          backgroundColor: isSuper ? 'rgba(245,158,11,0.12)' : 'rgba(99,102,241,0.10)',
+          paddingVertical: 7, paddingHorizontal: 16,
+          flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+        }}>
+          <Ionicons name="timer-outline" size={13} color={isSuper ? '#F59E0B' : '#6366f1'} />
+          <Text style={{ fontSize: 12, fontFamily: 'ProductSans-Medium', color: isSuper ? '#F59E0B' : '#6366f1' }}>
+            {matchTimerStr === 'Expired'
+              ? 'Match expired — start a new conversation'
+              : `Match expires in ${matchTimerStr} — say something!`}
+          </Text>
+        </View>
+      )}
 
       {/* ── Messages ── */}
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={0}>
@@ -5381,12 +5479,12 @@ export default function ChatConversationPage() {
           styles.inputBar,
           { borderTopColor: colors.border, backgroundColor: colors.bg, paddingBottom: keyboardShown ? 6 : insets.bottom + 6 },
         ]}>
-          {/* Content restriction warning */}
+          {/* Content restriction warning — restricted parts will be sent as *** */}
           {contentWarning && (
             <View style={[styles.answerStrip, { backgroundColor: 'rgba(239,68,68,0.10)', borderColor: 'rgba(239,68,68,0.35)' }]}>
               <Ionicons name="shield-outline" size={13} color="#ef4444" />
               <Text style={[styles.answerStripText, { color: '#ef4444', flex: 1 }]} numberOfLines={2}>
-                {contentWarning}
+                {contentWarning.replace(/\.$/, '')} — will be sent as ***
               </Text>
             </View>
           )}
@@ -5431,9 +5529,19 @@ export default function ChatConversationPage() {
             </View>
           )}
 
+          {/* Message limit hint */}
+          {!partnerHasReplied && myMsgCount === 1 && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingBottom: 6 }}>
+              <Ionicons name="information-circle-outline" size={13} color={colors.textSecondary} />
+              <Text style={{ fontSize: 11, fontFamily: 'ProductSans-Medium', color: colors.textSecondary }}>
+                1 opening message left — waiting for {name.split(' ')[0]} to reply
+              </Text>
+            </View>
+          )}
+
           <View style={styles.inputRow}>
             {/* Games + Photo buttons — hidden while typing */}
-            {!text.trim() && (
+            {!text.trim() && !isInputBlocked && (
               <>
                 <Pressable
                   onPress={() => {
@@ -5480,11 +5588,19 @@ export default function ChatConversationPage() {
               style={styles.inputWrap} cornerRadius={26} cornerSmoothing={1}
               fillColor={colors.surface2}
             >
-              {isListening ? (
+              {isInputBlocked ? (
+                /* Waiting-for-reply state */
+                <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 4 }}>
+                  <Ionicons name="hourglass-outline" size={15} color={colors.textSecondary} />
+                  <Text style={{ fontFamily: 'ProductSans-Medium', fontSize: 13, color: colors.textSecondary }}>
+                    Waiting for {name.split(' ')[0]} to reply…
+                  </Text>
+                </View>
+              ) : isListening ? (
                 <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 2 }}>
                   <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#ef4444' }} />
                   <Text style={{ fontFamily: 'ProductSans-Bold', fontSize: 15, color: '#ef4444' }}>
-                    {(() => { const s = Math.floor(recState.durationMillis / 1000); return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`; })()}
+                    {(() => { const s = Math.floor((recDurMs ?? 0) / 1000); return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`; })()}
                   </Text>
                   <Text style={{ fontFamily: 'ProductSans-Regular', fontSize: 13, color: colors.textSecondary }}>
                     Recording…
@@ -5522,31 +5638,31 @@ export default function ChatConversationPage() {
               )}
             </Squircle>
 
-            {/* Send / mic */}
-            <Pressable
-              onPress={text.trim() ? handleSend : handleMicPress}
-              hitSlop={6}
-              style={({ pressed }) => [pressed && { opacity: 0.6 }]}
-            >
-              <Squircle
-                style={styles.inputSideBtn} cornerRadius={16} cornerSmoothing={1}
-                fillColor={
-                  contentWarning
-                    ? '#ef4444'
-                    : text.trim()
+            {/* Send / mic — hidden when input is blocked */}
+            {!isInputBlocked && (
+              <Pressable
+                onPress={text.trim() ? handleSend : handleMicPress}
+                hitSlop={6}
+                style={({ pressed }) => [pressed && { opacity: 0.6 }]}
+              >
+                <Squircle
+                  style={styles.inputSideBtn} cornerRadius={16} cornerSmoothing={1}
+                  fillColor={
+                    text.trim()
                       ? ((answeringCard || replyingTo) ? '#7c3aed' : colors.text)
                       : isListening
                         ? '#ef4444'
                         : colors.surface2
-                }
-              >
-                <Ionicons
-                  name={contentWarning ? 'ban' : text.trim() ? 'send' : isListening ? 'stop-circle' : 'mic' as any}
-                  size={20}
-                  color={contentWarning ? '#fff' : text.trim() ? ((answeringCard || replyingTo) ? '#fff' : colors.bg) : isListening ? '#fff' : colors.text}
-                />
-              </Squircle>
-            </Pressable>
+                  }
+                >
+                  <Ionicons
+                    name={text.trim() ? 'send' : isListening ? 'stop-circle' : 'mic' as any}
+                    size={20}
+                    color={text.trim() ? ((answeringCard || replyingTo) ? '#fff' : colors.bg) : isListening ? '#fff' : colors.text}
+                  />
+                </Squircle>
+              </Pressable>
+            )}
           </View>
         </View>
       </KeyboardAvoidingView>

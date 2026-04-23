@@ -67,6 +67,7 @@
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
+      "./plugins/withNotificationServiceExtension",
       "expo-router",
       "expo-apple-authentication",
       [
@@ -131,6 +132,6 @@
         "projectId": "fec81194-6a20-43f7-bf00-fb4638346ba2"
       }
     },
-    "owner": "abdulkm1"
+    "owner": "abdulkumshey"
   }
 }

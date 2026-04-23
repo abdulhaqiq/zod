@@ -1,9 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
-import type { ComponentProps } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 type IoniconsName = string;
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
+  Animated,
   Alert,
   Dimensions,
   FlatList,
@@ -11,7 +11,6 @@ import {
   NativeScrollEvent,
   NativeSyntheticEvent,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -25,116 +24,78 @@ import { useAuth } from '@/context/AuthContext';
 
 const { width: W } = Dimensions.get('window');
 
-// ─── Mock extended profiles ───────────────────────────────────────────────────
+// ─── Shimmer helpers ──────────────────────────────────────────────────────────
 
-const EXTENDED_PROFILES: Record<string, ExtendedProfile> = {
-  '1': {
-    id: '1',
-    name: 'Sophia',
-    age: 25,
-    verified: true,
-    premium: false,
-    location: 'Los Angeles, CA',
-    distance: '3.5 km',
-    about: "Hey! I'm Sophia 👋 I love long drives, spontaneous trips, and deep conversations over coffee. If you can make me laugh, we'll get along great 😄",
-    images: [
-      'https://randomuser.me/api/portraits/women/44.jpg',
-      'https://randomuser.me/api/portraits/women/45.jpg',
-      'https://randomuser.me/api/portraits/women/46.jpg',
-    ],
-    details: {
-      height: "5'6\" (168 cm)",
-      drinks: 'Socially',
-      smokes: 'Never',
-      gender: 'Woman',
-      wantsKids: 'Open to it',
-      sign: '♊ Gemini',
-      politics: 'Liberal',
-      religion: 'Spiritual',
-      work: 'UX Designer at Adobe',
-      education: 'UCLA – Design',
-    },
-    lookingFor: 'Something serious',
-    interests: [
-      { emoji: '☕', label: 'Coffee' },
-      { emoji: '✈️', label: 'Travel' },
-      { emoji: '📚', label: 'Books' },
-      { emoji: '🎨', label: 'Art' },
-      { emoji: '🍕', label: 'Food' },
-    ],
-    prompts: [
-      { question: "Don't be mad if I…", answer: "Order dessert before checking the menu properly 🍰" },
-      { question: 'My ideal Sunday looks like…', answer: "Farmers market → coffee → nowhere to be 🌿" },
-    ],
-    languages: ['English', 'Spanish'],
-  },
-  '2': {
-    id: '2',
-    name: 'Elena',
-    age: 22,
-    verified: true,
-    premium: true,
-    location: 'New York, NY',
-    distance: '1.2 km',
-    about: "Artist by day, dreamer by night 🎨 I find magic in small things — a good book, a rainy afternoon, and the perfect playlist.",
-    images: [
-      'https://randomuser.me/api/portraits/women/68.jpg',
-      'https://randomuser.me/api/portraits/women/69.jpg',
-    ],
-    details: {
-      height: "5'4\" (163 cm)",
-      drinks: 'Never',
-      smokes: 'Never',
-      gender: 'Woman',
-      wantsKids: 'Yes, I do',
-      sign: '♓ Pisces',
-      politics: 'Progressive',
-      religion: 'Agnostic',
-      work: 'Fine Art Painter',
-      education: 'NYU – Fine Arts',
-    },
-    lookingFor: 'My forever person',
-    interests: [
-      { emoji: '🎨', label: 'Art' },
-      { emoji: '🎵', label: 'Music' },
-      { emoji: '🧘', label: 'Yoga' },
-      { emoji: '📸', label: 'Photography' },
-      { emoji: '🍷', label: 'Wine' },
-    ],
-    prompts: [
-      { question: 'The way to win me over is…', answer: "Show up with coffee and zero agenda ☕" },
-      { question: 'My most controversial opinion is…', answer: "Pineapple on pizza is actually fine. Come at me 🍍" },
-    ],
-    languages: ['English', 'French'],
-  },
-  '3': { id: '3', name: 'Maya', age: 27, verified: false, premium: false, location: 'Miami, FL', distance: '5.8 km', about: "Beach lover, fitness freak, and foodie 🌊 Living my best life in Miami. Let's explore this city together!", images: ['https://randomuser.me/api/portraits/women/50.jpg'], details: { height: "5'7\" (170 cm)", drinks: 'Socially', smokes: 'Never', gender: 'Woman', wantsKids: 'No', sign: '♌ Leo', politics: 'Moderate', religion: 'Christian', work: 'Personal Trainer', education: 'FIU – Sports Science' }, lookingFor: 'Casual dating', interests: [{ emoji: '🏖️', label: 'Beach' }, { emoji: '🏋️', label: 'Gym' }, { emoji: '🍜', label: 'Food' }, { emoji: '🏄', label: 'Surfing' }, { emoji: '📸', label: 'Photography' }], prompts: [{ question: "Don't be mad if I…", answer: "Drag you to the gym at 6am and actually enjoy it 💪" }], languages: ['English', 'Portuguese'] },
-  '4': { id: '4', name: 'Aria', age: 24, verified: true, premium: false, location: 'Austin, TX', distance: '2.1 km', about: "Engineer who codes by day and dances by night 💃 Looking for someone who challenges me intellectually and can keep up on the dance floor.", images: ['https://randomuser.me/api/portraits/women/79.jpg', 'https://randomuser.me/api/portraits/women/80.jpg'], details: { height: "5'5\" (165 cm)", drinks: 'Regularly', smokes: 'Never', gender: 'Woman', wantsKids: 'Open to it', sign: '♈ Aries', politics: 'Liberal', religion: 'Atheist', work: 'Software Engineer at Apple', education: 'UT Austin – CS' }, lookingFor: 'Something serious', interests: [{ emoji: '💃', label: 'Dancing' }, { emoji: '👗', label: 'Fashion' }, { emoji: '💻', label: 'Tech' }, { emoji: '🎮', label: 'Gaming' }, { emoji: '🌮', label: 'Tacos' }], prompts: [{ question: 'Two truths and a lie…', answer: "I've met Elon Musk. I speak 3 languages. I hate tacos. 👀" }], languages: ['English', 'Korean'] },
-  '5': { id: '5', name: 'Zara', age: 26, verified: true, premium: true, location: 'Chicago, IL', distance: '4.0 km', about: "Adventure seeker with a glass of red 🍷 Happiest on a mountain trail or at a rooftop bar. Let's do both.", images: ['https://randomuser.me/api/portraits/women/32.jpg', 'https://randomuser.me/api/portraits/women/33.jpg', 'https://randomuser.me/api/portraits/women/34.jpg'], details: { height: "5'8\" (173 cm)", drinks: 'Regularly', smokes: 'Socially', gender: 'Woman', wantsKids: 'No', sign: '♏ Scorpio', politics: 'Moderate', religion: 'Buddhist', work: 'Travel Photographer', education: 'Northwestern – Journalism' }, lookingFor: 'Casual dating', interests: [{ emoji: '🥾', label: 'Hiking' }, { emoji: '📸', label: 'Photography' }, { emoji: '🍷', label: 'Wine' }, { emoji: '🏕️', label: 'Camping' }, { emoji: '⛷️', label: 'Skiing' }], prompts: [{ question: 'I know the best spot in town for…', answer: "Rooftop sunsets and cheap cocktails. Proven formula. 🌅" }, { question: 'Catch flights or catch feelings?', answer: "Both. At the same time. It's called efficiency 🛫❤️" }], languages: ['English', 'Swahili'] },
-};
+function ShimmerBlock({ width, height, borderRadius = 10, style }: {
+  width: number | string; height: number; borderRadius?: number; style?: any;
+}) {
+  const anim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(anim, { toValue: 1, duration: 900, useNativeDriver: true }),
+        Animated.timing(anim, { toValue: 0, duration: 900, useNativeDriver: true }),
+      ])
+    ).start();
+  }, [anim]);
+  const opacity = anim.interpolate({ inputRange: [0, 1], outputRange: [0.25, 0.55] });
+  return (
+    <Animated.View style={[{ width, height, borderRadius, backgroundColor: '#777', opacity }, style]} />
+  );
+}
+
+function ProfileViewSkeleton({ colors, insets }: { colors: any; insets: any }) {
+  return (
+    <View style={[styles.container, { backgroundColor: colors.bg }]}>
+      {/* Header */}
+      <View style={[styles.header, { paddingTop: insets.top + 6, backgroundColor: colors.bg, borderBottomColor: colors.border }]}>
+        <ShimmerBlock width={38} height={38} borderRadius={14} />
+        <ShimmerBlock width={120} height={16} />
+        <ShimmerBlock width={38} height={38} borderRadius={14} />
+      </View>
+      {/* Photo */}
+      <ShimmerBlock width={W} height={W * 1.15} borderRadius={0} />
+      {/* Content */}
+      <View style={{ padding: 20, gap: 14 }}>
+        <ShimmerBlock width={200} height={28} borderRadius={8} />
+        <ShimmerBlock width={130} height={16} borderRadius={6} />
+        <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.border }} />
+        <ShimmerBlock width="100%" height={14} />
+        <ShimmerBlock width="85%" height={14} />
+        <ShimmerBlock width="70%" height={14} />
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
+          {[140, 110, 90, 120, 95, 130].map((w, i) => (
+            <ShimmerBlock key={i} width={w} height={36} borderRadius={18} />
+          ))}
+        </View>
+      </View>
+    </View>
+  );
+}
 
 interface ExtendedProfile {
   id: string;
   name: string;
-  age: number;
+  age: number | null;
   verified: boolean;
   premium: boolean;
-  location: string;
-  distance: string;
-  about: string;
+  location: string | null;
+  distance: string | null;
+  about: string | null;
   images: string[];
   details: {
-    height: string;
-    drinks: string;
-    smokes: string;
-    gender: string;
-    wantsKids: string;
-    sign: string;
-    politics: string;
-    religion: string;
-    work: string;
-    education: string;
+    height: string | null;
+    drinks: string | null;
+    smokes: string | null;
+    gender: string | null;
+    wantsKids: string | null;
+    sign: string | null;
+    politics: string | null;
+    religion: string | null;
+    work: string | null;
+    education: string | null;
   };
-  lookingFor: string;
+  lookingFor: string | null;
   interests: { emoji: string; label: string }[];
   prompts: { question: string; answer: string }[];
   languages: string[];
@@ -173,11 +134,53 @@ export default function ProfileView() {
   const { token } = useAuth();
   const { id }   = useLocalSearchParams<{ id: string }>();
 
-  const profile = EXTENDED_PROFILES[id ?? '1'] ?? EXTENDED_PROFILES['1'];
-
+  const [profile,    setProfile]    = useState<ExtendedProfile | null>(null);
+  const [loading,    setLoading]    = useState(true);
+  const [loadError,  setLoadError]  = useState(false);
   const [photoIndex, setPhotoIndex] = useState(0);
   const [superLiked, setSuperLiked] = useState(false);
   const [liked,      setLiked]      = useState(false);
+
+  useEffect(() => {
+    if (!id || !token) { setLoading(false); setLoadError(true); return; }
+    let cancelled = false;
+    setLoading(true);
+    setLoadError(false);
+    apiFetch<any>(`/discover/profile/${id}`, { token, timeoutMs: 12000 })
+      .then(data => {
+        if (cancelled) return;
+        setProfile({
+          id:         data.id,
+          name:       data.name ?? 'Unknown',
+          age:        data.age ?? null,
+          verified:   data.verified ?? false,
+          premium:    data.premium ?? false,
+          location:   data.location ?? null,
+          distance:   data.distance ?? null,
+          about:      data.about ?? null,
+          images:     Array.isArray(data.images) ? data.images : [],
+          details: {
+            height:    data.details?.height    ?? null,
+            drinks:    data.details?.drinks    ?? null,
+            smokes:    data.details?.smokes    ?? null,
+            gender:    data.details?.gender    ?? null,
+            wantsKids: data.details?.wantsKids ?? null,
+            sign:      data.details?.sign      ?? null,
+            politics:  data.details?.politics  ?? null,
+            religion:  data.details?.religion  ?? null,
+            work:      data.details?.work      ?? null,
+            education: data.details?.education ?? null,
+          },
+          lookingFor: data.lookingFor ?? null,
+          interests:  Array.isArray(data.interests) ? data.interests : [],
+          prompts:    Array.isArray(data.prompts)   ? data.prompts   : [],
+          languages:  Array.isArray(data.languages) ? data.languages : [],
+        });
+      })
+      .catch(() => { if (!cancelled) setLoadError(true); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [id, token]);
 
   const handleReport = () => {
     const reasons = [
@@ -191,7 +194,7 @@ export default function ProfileView() {
       { label: 'Other',                key: 'other' },
     ];
     Alert.alert(
-      `Report ${profile.name}`,
+      `Report ${profile?.name ?? ''}`,
       'Why are you reporting this profile?',
       [
         ...reasons.map(r => ({
@@ -211,9 +214,10 @@ export default function ProfileView() {
   };
 
   const handleBlock = () => {
+    const pName = profile?.name ?? '';
     Alert.alert(
-      `Block ${profile.name}`,
-      `${profile.name} will no longer be able to see your profile or contact you. They won't be notified.`,
+      `Block ${pName}`,
+      `${pName} will no longer be able to see your profile or contact you. They won't be notified.`,
       [
         {
           text: 'Block',
@@ -238,6 +242,27 @@ export default function ProfileView() {
     setPhotoIndex(idx);
   };
 
+  if (loading) {
+    return <ProfileViewSkeleton colors={colors} insets={insets} />;
+  }
+
+  if (loadError || !profile) {
+    return (
+      <View style={[styles.container, { backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center', gap: 16 }]}>
+        <Squircle style={{ width: 64, height: 64, alignItems: 'center', justifyContent: 'center' }} cornerRadius={20} cornerSmoothing={1} fillColor={colors.surface}>
+          <Ionicons name="wifi-outline" size={28} color={colors.textSecondary} />
+        </Squircle>
+        <Text style={{ fontSize: 16, fontFamily: 'ProductSans-Bold', color: colors.text }}>Couldn't load profile</Text>
+        <Text style={{ fontSize: 13, fontFamily: 'ProductSans-Regular', color: colors.textSecondary }}>Check your connection and try again</Text>
+        <Pressable onPress={() => router.back()} style={({ pressed }) => [pressed && { opacity: 0.7 }]}>
+          <Squircle style={{ paddingHorizontal: 24, paddingVertical: 12 }} cornerRadius={20} cornerSmoothing={1} fillColor={colors.text}>
+            <Text style={{ fontSize: 14, fontFamily: 'ProductSans-Bold', color: colors.bg }}>Go back</Text>
+          </Squircle>
+        </Pressable>
+      </View>
+    );
+  }
+
   const DETAIL_ROWS = [
     { icon: 'resize-outline'       as const, label: 'Height',      value: profile.details.height     },
     { icon: 'wine-outline'         as const, label: 'Drinks',      value: profile.details.drinks     },
@@ -249,7 +274,7 @@ export default function ProfileView() {
     { icon: 'globe-outline'        as const, label: 'Religion',    value: profile.details.religion   },
     { icon: 'briefcase-outline'    as const, label: 'Works at',    value: profile.details.work       },
     { icon: 'school-outline'       as const, label: 'Studied at',  value: profile.details.education  },
-  ];
+  ].filter(r => r.value); // hide rows with no data
 
   return (
     <View style={[styles.container, { backgroundColor: colors.bg }]}>
@@ -311,7 +336,9 @@ export default function ProfileView() {
           {/* Name + location */}
           <View style={styles.nameBlock}>
             <View style={styles.nameRow}>
-              <Text style={[styles.bigName, { color: colors.text }]}>{profile.name}, {profile.age}</Text>
+              <Text style={[styles.bigName, { color: colors.text }]}>
+                {profile.name}{profile.age != null ? `, ${profile.age}` : ''}
+              </Text>
               {profile.verified && <Ionicons name="checkmark-circle" size={22} color="#4FC3F7" style={{ marginLeft: 6 }} />}
               {profile.premium && (
                 <View style={styles.premiumBadge}>
@@ -320,72 +347,86 @@ export default function ProfileView() {
                 </View>
               )}
             </View>
-            <View style={styles.locationRow}>
-              <Ionicons name="location-outline" size={13} color={colors.textSecondary} />
-              <Text style={[styles.locationText, { color: colors.textSecondary }]}>
-                {profile.location}  ·  {profile.distance} away
-              </Text>
-            </View>
+            {(profile.location || profile.distance) && (
+              <View style={styles.locationRow}>
+                <Ionicons name="location-outline" size={13} color={colors.textSecondary} />
+                <Text style={[styles.locationText, { color: colors.textSecondary }]}>
+                  {[profile.location, profile.distance ? `${profile.distance} away` : null].filter(Boolean).join('  ·  ')}
+                </Text>
+              </View>
+            )}
           </View>
 
           <View style={[styles.divider, { backgroundColor: colors.border }]} />
 
           {/* About */}
-          <View style={styles.section}>
-            <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>ABOUT</Text>
-            <Text style={[styles.aboutText, { color: colors.text }]}>{profile.about}</Text>
-          </View>
-
-          <View style={[styles.divider, { backgroundColor: colors.border }]} />
+          {!!profile.about && (
+            <>
+              <View style={styles.section}>
+                <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>ABOUT</Text>
+                <Text style={[styles.aboutText, { color: colors.text }]}>{profile.about}</Text>
+              </View>
+              <View style={[styles.divider, { backgroundColor: colors.border }]} />
+            </>
+          )}
 
           {/* Details grid */}
-          <View style={styles.section}>
-            <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>DETAILS</Text>
-            <View style={styles.detailGrid}>
-              {DETAIL_ROWS.map((row) => (
-                <DetailChip key={row.label} {...row} colors={colors} />
-              ))}
-            </View>
-          </View>
-
-          <View style={[styles.divider, { backgroundColor: colors.border }]} />
+          {DETAIL_ROWS.length > 0 && (
+            <>
+              <View style={styles.section}>
+                <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>DETAILS</Text>
+                <View style={styles.detailGrid}>
+                  {DETAIL_ROWS.map((row) => (
+                    <DetailChip key={row.label} {...row} value={row.value!} colors={colors} />
+                  ))}
+                </View>
+              </View>
+              <View style={[styles.divider, { backgroundColor: colors.border }]} />
+            </>
+          )}
 
           {/* Interests */}
-          <View style={styles.section}>
-            <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>INTERESTS</Text>
-            <View style={styles.chipRow}>
-              {profile.interests.map((item) => (
-                <Squircle
-                  key={item.label}
-                  style={styles.interestChip}
-                  cornerRadius={20}
-                  cornerSmoothing={0.8}
-                  fillColor={colors.surface}
-                >
-                  <Text style={styles.interestEmoji}>{item.emoji}</Text>
-                  <Text style={[styles.interestLabel, { color: colors.text }]}>{item.label}</Text>
-                </Squircle>
-              ))}
-            </View>
-          </View>
-
-          <View style={[styles.divider, { backgroundColor: colors.border }]} />
+          {profile.interests.length > 0 && (
+            <>
+              <View style={styles.section}>
+                <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>INTERESTS</Text>
+                <View style={styles.chipRow}>
+                  {profile.interests.map((item) => (
+                    <Squircle
+                      key={item.label}
+                      style={styles.interestChip}
+                      cornerRadius={20}
+                      cornerSmoothing={0.8}
+                      fillColor={colors.surface}
+                    >
+                      <Text style={styles.interestEmoji}>{item.emoji}</Text>
+                      <Text style={[styles.interestLabel, { color: colors.text }]}>{item.label}</Text>
+                    </Squircle>
+                  ))}
+                </View>
+              </View>
+              <View style={[styles.divider, { backgroundColor: colors.border }]} />
+            </>
+          )}
 
           {/* Looking for */}
-          <View style={styles.section}>
-            <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>LOOKING FOR</Text>
-            <Squircle
-              style={styles.lookingForCard}
-              cornerRadius={18}
-              cornerSmoothing={1}
-              fillColor={colors.surface}
-            >
-              <Ionicons name="heart" size={18} color={colors.btnPrimaryBg} />
-              <Text style={[styles.lookingForText, { color: colors.text }]}>{profile.lookingFor}</Text>
-            </Squircle>
-          </View>
-
-          <View style={[styles.divider, { backgroundColor: colors.border }]} />
+          {!!profile.lookingFor && (
+            <>
+              <View style={styles.section}>
+                <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>LOOKING FOR</Text>
+                <Squircle
+                  style={styles.lookingForCard}
+                  cornerRadius={18}
+                  cornerSmoothing={1}
+                  fillColor={colors.surface}
+                >
+                  <Ionicons name="heart" size={18} color={colors.btnPrimaryBg} />
+                  <Text style={[styles.lookingForText, { color: colors.text }]}>{profile.lookingFor}</Text>
+                </Squircle>
+              </View>
+              <View style={[styles.divider, { backgroundColor: colors.border }]} />
+            </>
+          )}
 
           {/* Prompts */}
           {profile.prompts.length > 0 && (
@@ -412,43 +453,49 @@ export default function ProfileView() {
           )}
 
           {/* Language */}
-          <View style={styles.section}>
-            <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>LANGUAGES</Text>
-            <View style={styles.chipRow}>
-              {profile.languages.map((lang) => (
+          {profile.languages.length > 0 && (
+            <>
+              <View style={styles.section}>
+                <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>LANGUAGES</Text>
+                <View style={styles.chipRow}>
+                  {profile.languages.map((lang) => (
+                    <Squircle
+                      key={lang}
+                      style={styles.langChip}
+                      cornerRadius={16}
+                      cornerSmoothing={0.8}
+                      fillColor={colors.surface}
+                    >
+                      <Ionicons name="language-outline" size={14} color={colors.textSecondary} />
+                      <Text style={[styles.langText, { color: colors.text }]}>{lang}</Text>
+                    </Squircle>
+                  ))}
+                </View>
+              </View>
+              <View style={[styles.divider, { backgroundColor: colors.border }]} />
+            </>
+          )}
+
+          {/* Location */}
+          {(profile.location || profile.distance) && (
+            <>
+              <View style={styles.section}>
+                <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>LOCATION</Text>
                 <Squircle
-                  key={lang}
-                  style={styles.langChip}
-                  cornerRadius={16}
-                  cornerSmoothing={0.8}
+                  style={[styles.mapCard, { borderColor: colors.border }]}
+                  cornerRadius={18}
+                  cornerSmoothing={1}
                   fillColor={colors.surface}
                 >
-                  <Ionicons name="language-outline" size={14} color={colors.textSecondary} />
-                  <Text style={[styles.langText, { color: colors.text }]}>{lang}</Text>
+                  <Ionicons name="map-outline" size={28} color={colors.textSecondary} />
+                  <Text style={[styles.mapText, { color: colors.textSecondary }]}>
+                    {[profile.location, profile.distance ? `${profile.distance} away` : null].filter(Boolean).join('  ·  ')}
+                  </Text>
                 </Squircle>
-              ))}
-            </View>
-          </View>
-
-          <View style={[styles.divider, { backgroundColor: colors.border }]} />
-
-          {/* Location map placeholder */}
-          <View style={styles.section}>
-            <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>LOCATION</Text>
-            <Squircle
-              style={[styles.mapCard, { borderColor: colors.border }]}
-              cornerRadius={18}
-              cornerSmoothing={1}
-              fillColor={colors.surface}
-            >
-              <Ionicons name="map-outline" size={28} color={colors.textSecondary} />
-              <Text style={[styles.mapText, { color: colors.textSecondary }]}>
-                {profile.location}  ·  {profile.distance} away
-              </Text>
-            </Squircle>
-          </View>
-
-          <View style={[styles.divider, { backgroundColor: colors.border }]} />
+              </View>
+              <View style={[styles.divider, { backgroundColor: colors.border }]} />
+            </>
+          )}
 
           {/* Report / Block */}
           <View style={[styles.section, { gap: 8 }]}>

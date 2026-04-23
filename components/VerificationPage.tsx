@@ -936,6 +936,89 @@ function IDTab({ colors, active = true }: { colors: AppColors; active?: boolean 
   );
 }
 
+// ─── Already Verified banner ──────────────────────────────────────────────────
+
+function AlreadyVerifiedScreen({ colors, onClose }: { colors: AppColors; onClose: () => void }) {
+  return (
+    <View style={[styles.safe, { backgroundColor: colors.bg }]}>
+      <ScreenHeader title="Identity Verification" onClose={onClose} colors={colors} />
+
+      <View style={styles.alreadyOuter}>
+        {/* Main card */}
+        <Squircle
+          style={styles.alreadyCard}
+          cornerRadius={28}
+          cornerSmoothing={1}
+          fillColor="#052010"
+          strokeColor="#22c55e"
+          strokeWidth={1.5}
+        >
+          {/* Icon */}
+          <View style={styles.alreadyIconWrap}>
+            <Ionicons name="checkmark" size={36} color="#fff" />
+          </View>
+
+          <Text style={styles.alreadyTitle}>Already Verified</Text>
+          <Text style={styles.alreadySub}>
+            Your identity has been confirmed and no further action is needed.
+          </Text>
+
+          {/* Divider */}
+          <View style={styles.alreadyDivider} />
+
+          {/* Check rows */}
+          {[
+            { icon: 'scan-outline',            label: 'Face scan passed' },
+            { icon: 'card-outline',             label: 'ID document verified' },
+            { icon: 'shield-checkmark-outline', label: 'Profile is fully verified' },
+          ].map((item, i, arr) => (
+            <View
+              key={item.icon}
+              style={[
+                styles.alreadyCheckRow,
+                i < arr.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: 'rgba(34,197,94,0.15)' },
+              ]}
+            >
+              <View style={styles.alreadyCheckIcon}>
+                <Ionicons name={item.icon as any} size={14} color="#22c55e" />
+              </View>
+              <Text style={styles.alreadyCheckText}>{item.label}</Text>
+              <Ionicons name="checkmark-circle" size={17} color="#22c55e" />
+            </View>
+          ))}
+        </Squircle>
+
+        {/* Badge strip */}
+        <Squircle
+          style={styles.alreadyBadgeCard}
+          cornerRadius={18}
+          cornerSmoothing={1}
+          fillColor="rgba(34,197,94,0.07)"
+          strokeColor="rgba(34,197,94,0.22)"
+          strokeWidth={1}
+        >
+          <View style={styles.alreadyBadgeIcon}>
+            <Ionicons name="ribbon-outline" size={17} color="#22c55e" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.alreadyBadgeTitle}>Verified Member</Text>
+            <Text style={styles.alreadyBadgeSub}>Your profile shows a verified badge</Text>
+          </View>
+          <View style={styles.alreadyBadgeDot} />
+        </Squircle>
+
+        {/* Done button */}
+        <Pressable style={({ pressed }) => [pressed && { opacity: 0.75 }]} onPress={onClose}>
+          <Squircle style={styles.ctaBtn} cornerRadius={28} cornerSmoothing={1} fillColor={colors.text}>
+            <Ionicons name="checkmark-circle-outline" size={18} color={colors.bg} />
+            <Text style={[styles.ctaBtnText, { color: colors.bg }]}>Done</Text>
+          </Squircle>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
 // ─── Verification Page ────────────────────────────────────────────────────────
 
 export default function VerificationPage() {
@@ -944,11 +1027,19 @@ export default function VerificationPage() {
   const { profile } = useAuth();
   const params = useLocalSearchParams<{ tab?: string }>();
 
+  const isFullyVerified =
+    profile?.is_verified === true || profile?.verification_status === 'verified';
+
+  // If fully verified and caller didn't force-open face tab, show the already-verified screen.
+  if (isFullyVerified && params.tab !== 'face') {
+    return <AlreadyVerifiedScreen colors={colors} onClose={() => router.back()} />;
+  }
+
   // Explicit ?tab=face always wins (e.g. from filter — skip ID tab entirely).
   // Otherwise open ID tab if face is already verified or caller requested id.
   const defaultTab: 'face' | 'id' =
     params.tab === 'face' ? 'face' :
-    (params.tab === 'id' || profile?.verification_status === 'verified') ? 'id' : 'face';
+    params.tab === 'id' ? 'id' : 'face';
   const [tab, setTab] = useState<'face' | 'id'>(defaultTab);
 
   // Skip the face status check when the caller explicitly requested face tab
@@ -1095,6 +1186,22 @@ const styles = StyleSheet.create({
   idPendingRowText:   { fontSize: 13, fontFamily: 'ProductSans-Regular', flex: 1 },
   idPendingNote:      { flexDirection: 'row', alignItems: 'flex-start', gap: 10, padding: 14, borderRadius: 16, borderWidth: 1 },
   idPendingNoteText:  { flex: 1, fontSize: 12, fontFamily: 'ProductSans-Regular', lineHeight: 18 },
+
+  // Already verified screen
+  alreadyOuter:       { flex: 1, paddingHorizontal: 20, paddingTop: 24, paddingBottom: 32, gap: 12 },
+  alreadyCard:        { alignItems: 'center', paddingTop: 32, paddingBottom: 20, paddingHorizontal: 20, gap: 0 },
+  alreadyIconWrap:    { width: 72, height: 72, borderRadius: 36, backgroundColor: '#22c55e', alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
+  alreadyTitle:       { fontSize: 22, fontFamily: 'ProductSans-Black', color: '#22c55e', letterSpacing: -0.3, marginBottom: 8 },
+  alreadySub:         { fontSize: 13, fontFamily: 'ProductSans-Regular', color: 'rgba(34,197,94,0.6)', textAlign: 'center', lineHeight: 19, marginBottom: 20 },
+  alreadyDivider:     { width: '100%', height: StyleSheet.hairlineWidth, backgroundColor: 'rgba(34,197,94,0.2)', marginBottom: 4 },
+  alreadyCheckRow:    { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 13, width: '100%' },
+  alreadyCheckIcon:   { width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(34,197,94,0.12)', alignItems: 'center', justifyContent: 'center' },
+  alreadyCheckText:   { flex: 1, fontSize: 14, fontFamily: 'ProductSans-Regular', color: '#22c55e' },
+  alreadyBadgeCard:   { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 14 },
+  alreadyBadgeIcon:   { width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(34,197,94,0.12)', alignItems: 'center', justifyContent: 'center' },
+  alreadyBadgeTitle:  { fontSize: 14, fontFamily: 'ProductSans-Bold', color: '#22c55e' },
+  alreadyBadgeSub:    { fontSize: 12, fontFamily: 'ProductSans-Regular', color: 'rgba(34,197,94,0.55)', marginTop: 2 },
+  alreadyBadgeDot:    { width: 8, height: 8, borderRadius: 4, backgroundColor: '#22c55e' },
 
   // Why card
   whyCard:            { padding: 16, gap: 10 },

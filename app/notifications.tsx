@@ -1,9 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import {
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   Switch,
@@ -11,6 +9,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import ScreenHeader from '@/components/ui/ScreenHeader';
 import Squircle from '@/components/ui/Squircle';
 import { apiFetch } from '@/constants/api';
 import { useAuth } from '@/context/AuthContext';
@@ -106,7 +105,6 @@ const SECTIONS: { title: string; items: NotifItem[] }[] = [
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function NotificationsScreen() {
-  const router   = useRouter();
   const insets   = useSafeAreaInsets();
   const { colors } = useAppTheme();
   const { profile, token, updateProfile } = useAuth();
@@ -142,14 +140,7 @@ export default function NotificationsScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: colors.bg }]}>
-      {/* Header */}
-      <View style={[styles.header, { paddingTop: insets.top + 8, borderBottomColor: colors.border }]}>
-        <Pressable onPress={() => router.back()} hitSlop={10} style={styles.backBtn}>
-          <Ionicons name="chevron-back" size={24} color={colors.text} />
-        </Pressable>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>Notifications</Text>
-        <View style={{ width: 34 }} />
-      </View>
+      <ScreenHeader title="Notifications" />
 
       <ScrollView
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}
@@ -214,23 +205,6 @@ export default function NotificationsScreen() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-  },
-  header: {
-    flexDirection:    'row',
-    alignItems:       'center',
-    justifyContent:   'space-between',
-    paddingHorizontal: 16,
-    paddingBottom:    12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  backBtn: {
-    width: 34,
-    alignItems: 'flex-start',
-  },
-  headerTitle: {
-    fontSize:   17,
-    fontWeight: '600',
-    letterSpacing: 0.2,
   },
   content: {
     padding: 20,

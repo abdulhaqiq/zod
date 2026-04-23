@@ -130,19 +130,25 @@ export default function WorkFilterSheet({ visible, onClose, colors, insets, onAp
   const [wNumFounders,      setWNumFounders]      = useState<string[]>([]);
   const [wPriorityStartup,  setWPriorityStartup]  = useState(false);
 
+  // Derive the user's own profile skills & industries (used as pre-fill suggestions)
+  const myProfileSkills    = ((profile as any)?.work_skills    ?? []).map((x: any) => String(x?.id ?? x)).filter(Boolean) as string[];
+  const myProfileIndustries = ((profile as any)?.work_industries ?? []).map((x: any) => String(x?.id ?? x)).filter(Boolean) as string[];
+
   // Hydrate state from saved profile work_filter_settings when sheet opens
   useEffect(() => {
     if (!visible) return;
     const wf: any = (profile as any)?.work_filter_settings ?? {};
-    if (!wf || Object.keys(wf).length === 0) return;
     const toStrArr = (arr: any): string[] =>
       Array.isArray(arr) ? arr.map(String) : [];
     if (wf.distance_km != null) setDistance(wf.distance_km);
     setVerifiedOnly(!!wf.verified_only);
     setWHiringOnly(!!wf.hiring_only);
     setWPriorityStartup(!!wf.priority_startup);
-    setIndustries(toStrArr(wf.industries));
-    setSkills(toStrArr(wf.skills));
+    // If user has never set a filter, default to their own profile's skills/industries
+    const savedSkills = toStrArr(wf.skills);
+    setSkills(savedSkills.length > 0 ? savedSkills : myProfileSkills);
+    const savedIndustries = toStrArr(wf.industries);
+    setIndustries(savedIndustries.length > 0 ? savedIndustries : myProfileIndustries);
     setCommitment(toStrArr(wf.commitment_levels));
     setWhoToSee(toStrArr(wf.who_to_see));
     setJobSearchStatuses(toStrArr(wf.job_search_statuses));
@@ -359,25 +365,69 @@ export default function WorkFilterSheet({ visible, onClose, colors, insets, onAp
               <Switch value={wHiringOnly} onValueChange={setWHiringOnly} thumbColor={colors.bg} trackColor={{ false: colors.surface2, true: colors.text }} />
             </Squircle>
 
-            {/* Industries — from DB */}
+            {/* Industries — pre-populated from user profile */}
             <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
-              <SecHead title="INDUSTRIES" />
-              <View style={[styles.filterChipRow, { marginTop: 12 }]}>
-                {opts('work_industries').map(o => (
-                  <FilterChip key={o.value} option={o} selected={industries.includes(o.value!)}
-                    onPress={() => toggle(industries, setIndustries, o.value!)} colors={colors} />
-                ))}
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                <SecHead title="INDUSTRIES" />
+                {myProfileIndustries.length > 0 && (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: colors.surface2, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3 }}>
+                    <Ionicons name="person-outline" size={10} color={colors.textSecondary} />
+                    <Text style={{ fontSize: 10, fontFamily: 'ProductSans-Regular', color: colors.textSecondary }}>From profile</Text>
+                  </View>
+                )}
+              </View>
+              <View style={styles.filterChipRow}>
+                {opts('work_industries').map(o => {
+                  const isFromProfile = myProfileIndustries.includes(o.value!);
+                  return (
+                    <Pressable key={o.value} onPress={() => toggle(industries, setIndustries, o.value!)}>
+                      <Squircle
+                        style={[styles.filterChip, isFromProfile && !industries.includes(o.value!) && { borderWidth: 1 }]}
+                        cornerRadius={16} cornerSmoothing={1}
+                        fillColor={industries.includes(o.value!) ? colors.text : colors.surface2}
+                        strokeColor={industries.includes(o.value!) ? colors.text : isFromProfile ? colors.text : colors.border}
+                        strokeWidth={1}
+                      >
+                        {o.emoji ? <Text style={{ fontSize: 13 }}>{o.emoji}</Text> : null}
+                        <Text style={[styles.filterChipText, { color: industries.includes(o.value!) ? colors.bg : colors.text }]}>{o.label}</Text>
+                        {isFromProfile && !industries.includes(o.value!) && <Ionicons name="person" size={9} color={colors.textSecondary} />}
+                      </Squircle>
+                    </Pressable>
+                  );
+                })}
               </View>
             </Squircle>
 
-            {/* Skills — from DB */}
+            {/* Skills — pre-populated from user profile */}
             <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
-              <SecHead title="SKILLS" />
-              <View style={[styles.filterChipRow, { marginTop: 12 }]}>
-                {opts('work_skills').map(o => (
-                  <FilterChip key={o.value} option={o} selected={skills.includes(o.value!)}
-                    onPress={() => toggle(skills, setSkills, o.value!)} colors={colors} />
-                ))}
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                <SecHead title="SKILLS" />
+                {myProfileSkills.length > 0 && (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: colors.surface2, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3 }}>
+                    <Ionicons name="person-outline" size={10} color={colors.textSecondary} />
+                    <Text style={{ fontSize: 10, fontFamily: 'ProductSans-Regular', color: colors.textSecondary }}>From profile</Text>
+                  </View>
+                )}
+              </View>
+              <View style={styles.filterChipRow}>
+                {opts('work_skills').map(o => {
+                  const isFromProfile = myProfileSkills.includes(o.value!);
+                  return (
+                    <Pressable key={o.value} onPress={() => toggle(skills, setSkills, o.value!)}>
+                      <Squircle
+                        style={styles.filterChip}
+                        cornerRadius={16} cornerSmoothing={1}
+                        fillColor={skills.includes(o.value!) ? colors.text : colors.surface2}
+                        strokeColor={skills.includes(o.value!) ? colors.text : isFromProfile ? colors.text : colors.border}
+                        strokeWidth={1}
+                      >
+                        {o.emoji ? <Text style={{ fontSize: 13 }}>{o.emoji}</Text> : null}
+                        <Text style={[styles.filterChipText, { color: skills.includes(o.value!) ? colors.bg : colors.text }]}>{o.label}</Text>
+                        {isFromProfile && !skills.includes(o.value!) && <Ionicons name="person" size={9} color={colors.textSecondary} />}
+                      </Squircle>
+                    </Pressable>
+                  );
+                })}
               </View>
             </Squircle>
 

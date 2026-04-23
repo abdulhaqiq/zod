@@ -83,6 +83,9 @@ export interface UserProfile {
   prayer_frequency_id:  number | null;  // lookup_options id (category=prayer_frequency)
   marriage_timeline_id: number | null;  // lookup_options id (category=marriage_timeline)
   wali_email:           string | null;
+  wali_name:            string | null;
+  wali_age:             number | null;
+  wali_relation:        string | null;
   wali_verified:        boolean;
   blur_photos_halal:    boolean;
   halal_mode_enabled:   boolean;
@@ -187,8 +190,9 @@ interface AuthContextValue {
   isOnboarded: boolean;
   isLoading: boolean;
   isNetworkError: boolean;
+  isSuspended: boolean;
   profile: UserProfile | null;
-  signIn: (accessToken: string, refreshToken: string, isOnboarded: boolean, method?: 'phone' | 'apple' | 'google') => Promise<void>;
+  signIn: (accessToken: string, refreshToken: string, isOnboarded: boolean, method?: 'phone' | 'apple' | 'google', prefetchedProfile?: UserProfile) => Promise<void>;
   signOut: () => Promise<void>;
   setOnboarded: () => Promise<void>;
   updateProfile: (patch: Partial<UserProfile>) => void;
@@ -209,7 +213,7 @@ const AuthContext = createContext<AuthContextValue>({
   isLoading: true,
   isNetworkError: false,
   profile: null,
-  signIn: async (_a: string, _b: string, _c: boolean, _d?: 'phone' | 'apple' | 'google') => {},
+  signIn: async (_a: string, _b: string, _c: boolean, _d?: 'phone' | 'apple' | 'google', _e?: UserProfile) => {},
   signOut: async () => {},
   setOnboarded: async () => {},
   updateProfile: () => {},
@@ -217,6 +221,7 @@ const AuthContext = createContext<AuthContextValue>({
   retryBootstrap: () => {},
   performQuickSignIn: async () => null,
   requestAndRegisterPushToken: async () => {},
+  isSuspended: false,
 });
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -225,6 +230,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isOnboarded, setIsOnboarded]   = useState(false);
   const [isLoading, setIsLoading]       = useState(true);
   const [isNetworkError, setIsNetworkError] = useState(false);
+  const [isSuspended, setIsSuspended]   = useState(false);
   const [profile, setProfile]           = useState<UserProfile | null>(null);
   const [bootstrapTick, setBootstrapTick] = useState(0);
 
@@ -248,6 +254,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (disposed) return;
       const ws = new WebSocket(`${WS_V1}/ws/notify?token=${t}`);
       presenceWsRef.current = ws;
+
+      ws.onmessage = (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          // Reply to server-initiated keep-alive pings so the connection stays alive
+          if (data.type === 'ping' && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'pong' }));
+          }
+        } catch {}
+      };
 
       ws.onclose = () => {
         presenceWsRef.current = null;
@@ -326,11 +342,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [token, profile?.id]);
 
-  async function _fetchProfile(accessToken: string, attempt = 1): Promise<UserProfile | null | 'network_error'> {
+  async function _fetchProfile(
+    accessToken: string,
+    attempt = 1,
+  ): Promise<UserProfile | null | 'network_error' | 'suspended'> {
     try {
       const controller = new AbortController();
-      // 20s on first attempt, 15s on retry — gives server time to warm up after restart
-      const timeoutMs = attempt === 1 ? 20_000 : 15_000;
+      const timeoutMs = 8_000;
       const timeout = setTimeout(() => controller.abort(), timeoutMs);
       const res = await fetch(`${API_V1}/profile/me`, {
         headers: { Authorization: `Bearer ${accessToken}` },
@@ -338,12 +356,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
       clearTimeout(timeout);
       if (res.ok) return res.json() as Promise<UserProfile>;
+      // 403 with suspension detail → dedicated suspended state (not a token error)
+      if (res.status === 403) {
+        try {
+          const body = await res.json();
+          if (
+            typeof body?.detail === 'string' &&
+            body.detail.toLowerCase().includes('suspend')
+          ) {
+            return 'suspended';
+          }
+        } catch {}
+      }
       return null;
     } catch {
-      // First attempt timed out / failed — wait 2s and retry once before giving up
-      if (attempt === 1) {
-        await new Promise(r => setTimeout(r, 2000));
-        return _fetchProfile(accessToken, 2);
+      // Retry up to 4 attempts with increasing backoff before declaring network error.
+      // This covers server restarts which typically take 5-15s.
+      // Delays: 2s → 4s → 6s between attempts
+      if (attempt < 4) {
+        const delay = attempt * 2_000;
+        await new Promise(r => setTimeout(r, delay));
+        return _fetchProfile(accessToken, attempt + 1);
       }
       return 'network_error';
     }
@@ -351,10 +384,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     async function bootstrap() {
-      const [access, refresh] = await Promise.all([
-        SecureStore.getItemAsync(ACCESS_KEY),
-        SecureStore.getItemAsync(REFRESH_KEY),
-      ]);
+      // Read stored tokens first — fast operation (< 100ms normally).
+      let [access, refresh]: [string | null, string | null] = [null, null];
+      try {
+        [access, refresh] = await Promise.all([
+          SecureStore.getItemAsync(ACCESS_KEY),
+          SecureStore.getItemAsync(REFRESH_KEY),
+        ]);
+      } catch {
+        setIsLoading(false);
+        return;
+      }
 
       if (!access) {
         setIsNetworkError(false);
@@ -362,13 +402,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
+      // Set the token immediately from SecureStore so that if the watchdog fires
+      // during network retries, the routing layer still sees the user as logged-in
+      // and shows the "No Connection" overlay instead of redirecting to login.
+      setToken(access);
+      setRefresh(refresh ?? null);
+
+      // Watchdog: prevent the splash hanging forever. Now that token is pre-set
+      // above, firing this will still show the user as logged-in (just loading).
+      const watchdog = setTimeout(() => setIsLoading(false), 8_000);
+
       let activeToken = access;
       let me = await _fetchProfile(access);
 
+      if (me === 'suspended') {
+        clearTimeout(watchdog);
+        setIsSuspended(true);
+        setIsLoading(false);
+        return;
+      }
+
       if (me === 'network_error') {
-        // Network unreachable — keep the session intact, show no-connection screen
-        setToken(access);
-        setRefresh(refresh ?? null);
+        clearTimeout(watchdog);
         setIsNetworkError(true);
         setIsLoading(false);
         return;
@@ -380,19 +435,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         try {
           newAccess = await _doRefresh(refresh);
         } catch {
-          // Network error while refreshing — keep session alive, show no-connection
-          setToken(access);
-          setRefresh(refresh);
+          clearTimeout(watchdog);
           setIsNetworkError(true);
           setIsLoading(false);
           return;
         }
         if (newAccess) {
           activeToken = newAccess;
+          setToken(newAccess);
           const retried = await _fetchProfile(newAccess);
+          if (retried === 'suspended') {
+            clearTimeout(watchdog);
+            setIsSuspended(true);
+            setIsLoading(false);
+            return;
+          }
           if (retried === 'network_error') {
-            setToken(newAccess);
-            setRefresh(refresh);
+            clearTimeout(watchdog);
             setIsNetworkError(true);
             setIsLoading(false);
             return;
@@ -401,8 +460,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       }
 
+      clearTimeout(watchdog);
       setIsNetworkError(false);
-      if (me && me !== 'network_error') {
+      setIsSuspended(false);
+      if (me && me !== 'network_error' && me !== 'suspended') {
         setToken(activeToken);
         setRefresh(refresh ?? null);
         setProfile(me);
@@ -421,6 +482,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   async function _clearSession() {
     await SecureStore.deleteItemAsync(ACCESS_KEY);
     await SecureStore.deleteItemAsync(REFRESH_KEY);
+    await SecureStore.deleteItemAsync(FCM_TOKEN_KEY);
     // Clear quick-sign-in and recent-account data on explicit logout so that
     // a different user opening the app on the same device doesn't see the
     // previous user's "Continue as" card or get silently signed in as them.
@@ -568,40 +630,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   /**
    * Called from the feed page on first mount.
-   * Requests notification permission and registers the push token with the backend.
-   * Uses Expo push tokens (ExponentPushToken[...]) which work on iOS 26.
+   * Skips entirely if a token is already stored — avoids hitting the backend
+   * on every app open. Only runs the full flow the very first time (or after
+   * the stored token is cleared, e.g. on sign-out).
    */
   async function requestAndRegisterPushToken() {
     const accessToken = await SecureStore.getItemAsync(ACCESS_KEY);
     if (!accessToken) return;
     try {
-      console.log('[PUSH] requestAndRegisterPushToken: starting...');
+      // Already registered — nothing to do.
+      const existing = await SecureStore.getItemAsync(FCM_TOKEN_KEY);
+      if (existing) return;
+
       const Notifications = await import('expo-notifications');
 
-      // Request permission
       const { status } = await Notifications.requestPermissionsAsync({
         ios: { allowAlert: true, allowBadge: true, allowSound: true },
       });
-      console.log('[PUSH] permission status:', status);
-      if (status !== 'granted') {
-        console.log('[PUSH] permission not granted — skipping');
-        return;
-      }
+      if (status !== 'granted') return;
 
-      // Get Expo push token (fast, reliable on iOS 26)
       const pushToken = await _getExpoPushToken();
-      if (!pushToken) {
-        console.warn('[PUSH] could not get Expo push token');
-        return;
-      }
+      if (!pushToken) return;
 
-      console.log('[PUSH] token received:', pushToken.slice(0, 30) + '…');
       await SecureStore.setItemAsync(FCM_TOKEN_KEY, pushToken);
       await _sendPushTokenToBackend(pushToken, accessToken);
-      console.log('[PUSH] token sent to backend ✅');
-    } catch (e) {
-      console.warn('[PUSH] requestAndRegisterPushToken error:', e);
-    }
+    } catch { /* non-critical */ }
   }
 
   const signIn = async (
@@ -609,6 +662,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     newRefresh: string,
     onboarded: boolean,
     _method: 'phone' | 'apple' | 'google' = 'phone',
+    prefetchedProfile?: UserProfile,
   ) => {
     await SecureStore.setItemAsync(ACCESS_KEY, accessToken);
     await SecureStore.setItemAsync(REFRESH_KEY, newRefresh);
@@ -617,11 +671,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setToken(accessToken);
     setRefresh(newRefresh);
     setIsOnboarded(onboarded);
-    // Fetch fresh profile immediately after login
-    const me = await _fetchProfile(accessToken);
-    if (me && me !== 'network_error') setProfile(me);
+    // Use pre-fetched profile from caller if provided — avoids a redundant /profile/me round-trip
+    const me = prefetchedProfile ?? await _fetchProfile(accessToken);
+    if (me && me !== 'network_error' && me !== 'suspended') setProfile(me as UserProfile);
     // Register push token in background — skip if backend already has a valid FCM token
-    const hasPushToken = me && me !== 'network_error' ? (me as any).has_push_token === true : false;
+    const hasPushToken = me && me !== 'network_error' && me !== 'suspended' ? (me as any).has_push_token === true : false;
     _registerPushToken(accessToken, hasPushToken);
     // NOTE: saving the recent account is intentionally NOT done here.
     // The caller (OTP screen / Apple sign-in) asks the user first, then
@@ -629,9 +683,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signOut = async () => {
+    // Revoke the refresh token server-side so the session disappears from the
+    // Security → Active Sessions list immediately. Best-effort — local state
+    // is always cleared even if the network call fails.
+    try {
+      const currentRefresh = await SecureStore.getItemAsync(REFRESH_KEY);
+      if (currentRefresh) {
+        await fetch(`${API_V1}/auth/logout`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refresh_token: currentRefresh }),
+        });
+      }
+    } catch { /* best-effort */ }
+
     // Reset RevenueCat to anonymous so the next login gets a fresh customer profile.
-    // This prevents a new account logged in on the same device from inheriting the
-    // previous account's subscription entitlements.
     if (!_IS_EXPO_GO) {
       try {
         const Purchases = require('react-native-purchases').default;
@@ -644,6 +710,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setIsOnboarded(false);
     setProfile(null);
     setIsNetworkError(false);
+    setIsSuspended(false);
   };
 
   const setOnboarded = async () => {
@@ -674,6 +741,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => sub.remove();
   }, [isNetworkError]);
 
+  // Auto-retry every 12s while on "No Connection" (e.g. server restarted in bg)
+  useEffect(() => {
+    if (!isNetworkError) return;
+    const timer = setInterval(() => {
+      retryBootstrap();
+    }, 12_000);
+    return () => clearInterval(timer);
+  }, [isNetworkError]);
+
   useEffect(() => {
     registerAuthHandlers(tryRefresh, signOut);
   }, [refreshToken]);
@@ -681,7 +757,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AuthContext.Provider value={{
-      token, refreshToken, isOnboarded, isLoading, isNetworkError, profile,
+      token, refreshToken, isOnboarded, isLoading, isNetworkError, isSuspended, profile,
       signIn, signOut, setOnboarded, updateProfile, tryRefresh, retryBootstrap,
       performQuickSignIn, requestAndRegisterPushToken,
     }}>

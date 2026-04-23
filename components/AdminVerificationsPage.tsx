@@ -452,6 +452,24 @@ export default function AdminVerificationsPage() {
           />
         }
       >
+        {/* Marketing Notifications shortcut */}
+        <Pressable onPress={() => router.push('/admin-marketing' as any)} style={{ marginBottom: 14 }}>
+          <Squircle
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14 }}
+            cornerRadius={18} cornerSmoothing={1}
+            fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}
+          >
+            <Squircle style={{ width: 38, height: 38, alignItems: 'center', justifyContent: 'center' }} cornerRadius={12} cornerSmoothing={1} fillColor={colors.text}>
+              <Ionicons name="megaphone" size={18} color={colors.bg} />
+            </Squircle>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 14, fontFamily: 'ProductSans-Bold', color: colors.text }}>Marketing Notifications</Text>
+              <Text style={{ fontSize: 12, fontFamily: 'ProductSans-Regular', color: colors.textSecondary }}>Templates · Countries · Scheduler</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />
+          </Squircle>
+        </Pressable>
+
         <SendNotificationPanel token={token} colors={colors} />
 
         {loading ? (

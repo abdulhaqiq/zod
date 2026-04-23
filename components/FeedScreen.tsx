@@ -907,10 +907,10 @@ const ProfileCard = forwardRef<ProfileCardHandle, {
           </> : null}
 
           {profile.prompts[0] && <>
-            <View style={[styles.promptCard, { backgroundColor: colors.surface2 }]}>
+            <Squircle style={styles.promptCard} cornerRadius={20} cornerSmoothing={1} fillColor={colors.surface2} strokeColor={colors.border} strokeWidth={0.5}>
               <Text style={[styles.promptQ, { color: colors.textSecondary }]}>{profile.prompts[0].question}</Text>
               <Text style={[styles.promptA, { color: colors.text }]}>{profile.prompts[0].answer}</Text>
-            </View>
+            </Squircle>
             <View style={[styles.divider, { backgroundColor: colors.border }]} />
           </>}
 
@@ -927,10 +927,10 @@ const ProfileCard = forwardRef<ProfileCardHandle, {
           {profile.lookingFor ? <>
             <View style={styles.sec}>
               <Text style={[styles.secLabel, { color: colors.textSecondary }]}>LOOKING FOR</Text>
-              <View style={[styles.lookingRow, { backgroundColor: colors.surface2 }]}>
+              <Squircle style={styles.lookingRow} cornerRadius={18} cornerSmoothing={1} fillColor={colors.surface2}>
                 <Ionicons name="heart" size={16} color={colors.btnPrimaryBg} />
                 <Text style={[styles.lookingText, { color: colors.text }]}>{profile.lookingFor}</Text>
-              </View>
+              </Squircle>
             </View>
             <View style={[styles.divider, { backgroundColor: colors.border }]} />
           </> : null}
@@ -940,10 +940,10 @@ const ProfileCard = forwardRef<ProfileCardHandle, {
               <Text style={[styles.secLabel, { color: colors.textSecondary }]}>INTERESTS</Text>
               <View style={styles.chipRow}>
                 {profile.interests.map(item => (
-                  <View key={item.label} style={[styles.chip, { backgroundColor: colors.surface2 }]}>
+                  <Squircle key={item.label} style={styles.chip} cornerRadius={14} cornerSmoothing={1} fillColor={colors.surface2}>
                     <Text style={styles.chipEmoji}>{item.emoji}</Text>
                     <Text style={[styles.chipLabel, { color: colors.text }]}>{item.label}</Text>
-                  </View>
+                  </Squircle>
                 ))}
               </View>
             </View>
@@ -951,10 +951,10 @@ const ProfileCard = forwardRef<ProfileCardHandle, {
           </> : null}
 
           {profile.prompts[1] && <>
-            <View style={[styles.promptCard, { backgroundColor: colors.surface2 }]}>
+            <Squircle style={styles.promptCard} cornerRadius={20} cornerSmoothing={1} fillColor={colors.surface2} strokeColor={colors.border} strokeWidth={0.5}>
               <Text style={[styles.promptQ, { color: colors.textSecondary }]}>{profile.prompts[1].question}</Text>
               <Text style={[styles.promptA, { color: colors.text }]}>{profile.prompts[1].answer}</Text>
-            </View>
+            </Squircle>
             <View style={[styles.divider, { backgroundColor: colors.border }]} />
           </>}
 
@@ -973,22 +973,22 @@ const ProfileCard = forwardRef<ProfileCardHandle, {
               <Text style={[styles.secLabel, { color: colors.textSecondary }]}>WORK & STUDIES</Text>
               <View style={styles.workRow}>
                 {profile.details.work ? (
-                  <View style={[styles.workCard, { backgroundColor: colors.surface2 }]}>
+                  <Squircle style={styles.workCard} cornerRadius={18} cornerSmoothing={1} fillColor={colors.surface2}>
                     <Ionicons name="briefcase-outline" size={18} color={colors.text} />
                     <View style={{ flex: 1, marginLeft: 10 }}>
                       <Text style={[styles.workLabel, { color: colors.textSecondary }]}>Works at</Text>
                       <Text style={[styles.workValue, { color: colors.text }]} numberOfLines={2}>{profile.details.work}</Text>
                     </View>
-                  </View>
+                  </Squircle>
                 ) : null}
                 {profile.details.education ? (
-                  <View style={[styles.workCard, { backgroundColor: colors.surface2 }]}>
+                  <Squircle style={styles.workCard} cornerRadius={18} cornerSmoothing={1} fillColor={colors.surface2}>
                     <Ionicons name="school-outline" size={18} color={colors.text} />
                     <View style={{ flex: 1, marginLeft: 10 }}>
                       <Text style={[styles.workLabel, { color: colors.textSecondary }]}>Studied at</Text>
                       <Text style={[styles.workValue, { color: colors.text }]} numberOfLines={2}>{profile.details.education}</Text>
                     </View>
-                  </View>
+                  </Squircle>
                 ) : null}
               </View>
             </View>
@@ -1000,13 +1000,13 @@ const ProfileCard = forwardRef<ProfileCardHandle, {
               <Text style={[styles.secLabel, { color: colors.textSecondary }]}>DETAILS</Text>
               <View style={styles.detailGrid}>
                 {DETAILS.filter(d => d.value).map(d => (
-                  <View key={d.label} style={[styles.detailChip, { backgroundColor: colors.surface2 }]}>
+                  <Squircle key={d.label} style={styles.detailChip} cornerRadius={14} cornerSmoothing={1} fillColor={colors.surface2}>
                     <Ionicons name={d.icon as any} size={13} color={colors.btnPrimaryBg} />
                     <View>
                       <Text style={[styles.detailLabel, { color: colors.textSecondary }]}>{d.label}</Text>
                       <Text style={[styles.detailValue, { color: colors.text }]}>{d.value}</Text>
                     </View>
-                  </View>
+                  </Squircle>
                 ))}
               </View>
             </View>
@@ -1018,10 +1018,10 @@ const ProfileCard = forwardRef<ProfileCardHandle, {
               <Text style={[styles.secLabel, { color: colors.textSecondary }]}>LANGUAGES</Text>
               <View style={styles.chipRow}>
                 {profile.languages.map(lang => (
-                  <View key={lang} style={[styles.chip, { backgroundColor: colors.surface2 }]}>
+                  <Squircle key={lang} style={styles.chip} cornerRadius={14} cornerSmoothing={1} fillColor={colors.surface2}>
                     <Ionicons name="language-outline" size={13} color={colors.textSecondary} />
                     <Text style={[styles.chipLabel, { color: colors.text }]}>{lang}</Text>
-                  </View>
+                  </Squircle>
                 ))}
               </View>
             </View>
@@ -1534,6 +1534,11 @@ export default function FeedScreen() {
   const [likedYouCount,  setLikedYouCount] = useState(0);
   const [unreadChats,    setUnreadChats]   = useState(0);
   const [matchedProfile, setMatchedProfile] = useState<MatchedProfile | null>(null);
+  // Passed to LikedYouPage so super_like matches appear in the golden circle row
+  const [feedExternalMatch, setFeedExternalMatch] = useState<import('@/components/LikedYouPage').RecentMatch | null>(null);
+  // Passed to LikedYouPage so a left-swipe on the feed instantly removes the
+  // person from the liked-you list without waiting for the DB round-trip.
+  const [feedDislikedId, setFeedDislikedId] = useState<string | null>(null);
 
   // ── Halal mode state ──────────────────────────────────────────────────────
   // Only users whose religion is specifically Islam/Muslim can use halal mode.
@@ -1615,12 +1620,17 @@ export default function FeedScreen() {
         if (msg.type === 'match' && msg.profile) {
           const p = msg.profile;
           setMatchedProfile({
-            id: p.id,
-            name: p.name,
-            age: p.age,
+            id: p.id, name: p.name, age: p.age,
             image: p.images?.[0] ?? '',
-            interests: p.interests ?? [],
-            prompts: p.prompts ?? [],
+            interests: p.interests ?? [], prompts: p.prompts ?? [],
+            isSuperLike: !!msg.is_super,
+          });
+          // Push into LikedYouPage circle row — golden if the other person super-liked us
+          setFeedExternalMatch({
+            id: p.id, name: p.name, age: p.age,
+            image: p.images?.[0] ?? '',
+            matchedAt: Date.now(),
+            isSuperLike: !!msg.is_super,
           });
         } else if (msg.type === 'liked_you') {
           setLikedYouCount(n => n + 1);
@@ -1731,12 +1741,19 @@ export default function FeedScreen() {
         getLocalSwipedIds(),
       ]);
 
-      // Auto-reconcile: if the backend returns a profile that's in our local cache,
-      // the cache is stale (no backend swipe record exists for it). Remove those
-      // entries so the profile can appear correctly.
-      const stale = res.profiles.map(p => p.id).filter(id => localSwiped.has(id));
+      // Auto-reconcile: if the backend returns a profile that's in our local
+      // swipe cache OR in the session set, it means the backend no longer
+      // considers them swiped (e.g. swipe didn't persist, or they were reset).
+      // Remove from both so they can appear correctly.
+      const sessionSwiped = swipedThisSessionRef.current;
+      const stale = res.profiles.map(p => p.id).filter(
+        id => localSwiped.has(id) || sessionSwiped.has(id),
+      );
       if (stale.length > 0) {
-        stale.forEach(id => localSwiped.delete(id));
+        stale.forEach(id => {
+          localSwiped.delete(id);
+          sessionSwiped.delete(id);
+        });
         try {
           await AsyncStorage.setItem(
             swipeCacheKeyRef.current,
@@ -1745,8 +1762,7 @@ export default function FeedScreen() {
         } catch { /* ignore */ }
       }
 
-      // Filter: remove profiles swiped in this session (instant) OR persisted in AsyncStorage
-      const sessionSwiped = swipedThisSessionRef.current;
+      // Filter: remove profiles still in session or local cache after reconcile
       const fresh = res.profiles.filter(
         p => !sessionSwiped.has(p.id) && !localSwiped.has(p.id),
       );
@@ -1918,7 +1934,7 @@ export default function FeedScreen() {
   }, [halalMode, isMuslim, profile?.verification_status, profile?.is_verified, profile?.halal_mode_enabled, _applyHalalMode]);
 
   // Show the match celebration for a profile that was on the deck
-  const _showMatchIfNeeded = (res: { match: boolean }, p: Profile) => {
+  const _showMatchIfNeeded = (res: { match: boolean }, p: Profile, isSuperLike = false) => {
     if (res.match) {
       setMatchedProfile({
         id: p.id,
@@ -1927,13 +1943,26 @@ export default function FeedScreen() {
         image: p.images?.[0] ?? '',
         interests: p.interests ?? [],
         prompts: p.prompts ?? [],
+        isSuperLike,
       });
+      // For super_like matches, push a golden circle to LikedYouPage
+      if (isSuperLike) {
+        setFeedExternalMatch({
+          id: p.id,
+          name: p.name,
+          age: p.age,
+          image: p.images?.[0] ?? '',
+          matchedAt: Date.now(),
+          isSuperLike: true,
+        });
+      }
     }
   };
 
   const handleSwipeLeft = (profileId: string) => {
     const dislikedProfile = profiles[0];          // capture before removeTop
     swipedThisSessionRef.current.add(profileId);  // in-memory dedup for this session
+    setFeedDislikedId(profileId);                 // instantly remove from liked-you list
     removeTop();
     // Store for potential revert — only in date/halal mode
     if (appMode !== 'work' && dislikedProfile) {
@@ -2070,7 +2099,7 @@ export default function FeedScreen() {
       if (res.super_likes_remaining !== undefined && res.super_likes_remaining !== null) {
         setSuperLikesRemaining(res.super_likes_remaining);
       }
-      if (swiped) _showMatchIfNeeded(res, swiped);
+      if (swiped) _showMatchIfNeeded(res, swiped, true);
     }).catch(() => {
       setSuperLikesRemaining(r => r + 1);
     });
@@ -2477,9 +2506,17 @@ export default function FeedScreen() {
                   <Pressable
                     onPressIn={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)}
                     onPress={() => cardRef.current?.dismiss('pass')}
-                    style={({ pressed }) => [decisionStyles.btn, decisionStyles.passBtn, pressed && { transform: [{ scale: 0.88 }] }]}
+                    style={({ pressed }) => [{ transform: pressed ? [{ scale: 0.88 }] : [] }]}
                   >
-                    <Ionicons name="close" size={26} color="#FF3B30" />
+                    <Squircle
+                      style={[decisionStyles.btn, { alignItems: 'center', justifyContent: 'center' }]}
+                      cornerRadius={22} cornerSmoothing={1}
+                      fillColor="rgba(255,255,255,0.96)"
+                      strokeColor="#FF3B30"
+                      strokeWidth={2}
+                    >
+                      <Ionicons name="close" size={26} color="#FF3B30" />
+                    </Squircle>
                   </Pressable>
                   <Text style={[decisionStyles.btnLabel, { color: colors.textSecondary }]}>Pass</Text>
                 </View>
@@ -2495,9 +2532,17 @@ export default function FeedScreen() {
                   <Pressable
                     onPressIn={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)}
                     onPress={() => cardRef.current?.dismiss('connect')}
-                    style={({ pressed }) => [decisionStyles.btn, decisionStyles.connectBtn, pressed && { transform: [{ scale: 0.88 }] }]}
+                    style={({ pressed }) => [{ transform: pressed ? [{ scale: 0.88 }] : [] }]}
                   >
-                    <Ionicons name="heart" size={24} color="#fff" />
+                    <Squircle
+                      style={[decisionStyles.btn, { alignItems: 'center', justifyContent: 'center' }]}
+                      cornerRadius={22} cornerSmoothing={1}
+                      fillColor="#FF2D55"
+                      strokeColor="#FF2D55"
+                      strokeWidth={2}
+                    >
+                      <Ionicons name="heart" size={24} color="#fff" />
+                    </Squircle>
                   </Pressable>
                   <Text style={[decisionStyles.btnLabel, { color: colors.textSecondary }]}>Connect</Text>
                 </View>
@@ -2509,7 +2554,7 @@ export default function FeedScreen() {
 
 
       {/* Date mode tabs */}
-      {appMode === 'date' && activeTab === 'likeyou'  && <View style={{ flex: 1 }}><LikedYouPage insets={insets} token={token} /></View>}
+      {appMode === 'date' && activeTab === 'likeyou'  && <View style={{ flex: 1 }}><LikedYouPage insets={insets} token={token} externalMatch={feedExternalMatch} feedDislikedId={feedDislikedId} onCountChange={setLikedYouCount} /></View>}
       {appMode === 'date' && activeTab === 'ai'       && <View style={{ flex: 1 }}><AiMatchPage  insets={insets} /></View>}
       {/* Work mode — dedicated WorkFeedScreen handles all work tabs */}
       {appMode === 'work' && (activeTab === 'matched' || activeTab === 'insights') && (
@@ -2692,7 +2737,7 @@ const styles = StyleSheet.create({
   logoMode:      { fontFamily: 'PageSerif', fontSize: 20, letterSpacing: -0.3 },
 
   cardStack: { flex: 1, width: '100%', alignItems: 'center', justifyContent: 'center', minHeight: 0 },
-  card:      { width: CARD_W, height: CARD_H, borderRadius: 24, overflow: 'hidden', backgroundColor: '#111' },
+  card:      { width: CARD_W, height: CARD_H, borderRadius: 30, overflow: 'hidden', backgroundColor: '#111' },
 
   // Photo section
   photoContainer: { width: CARD_W, height: PHOTO_H },
@@ -2716,7 +2761,7 @@ const styles = StyleSheet.create({
   overlayLookingRow:    { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 5 },
   overlayLookingText:   { fontSize: 12, fontFamily: 'ProductSans-Medium', color: 'rgba(255,255,255,0.85)' },
   overlayInterestRow:   { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 },
-  overlayInterestChip:  { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(255,255,255,0.18)', paddingHorizontal: 9, paddingVertical: 4, borderRadius: 20 },
+  overlayInterestChip:  { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(255,255,255,0.18)', paddingHorizontal: 9, paddingVertical: 4, borderRadius: 12 },
   overlayInterestEmoji: { fontSize: 12 },
   overlayInterestLabel: { fontSize: 11, fontFamily: 'ProductSans-Medium', color: '#fff' },
 
@@ -2779,7 +2824,7 @@ const styles = StyleSheet.create({
   workValue:      { fontSize: 13, fontFamily: 'ProductSans-Bold', lineHeight: 18 },
   locationCardCity: { fontSize: 14, fontFamily: 'ProductSans-Bold' },
   locationCardDist: { fontSize: 13, fontFamily: 'ProductSans-Regular' },
-  inlinePhoto:      { width: '100%', height: 260, borderRadius: 16 },
+  inlinePhoto:      { width: '100%', height: 260, borderRadius: 22 },
 
   // Sticky bottom tab bar
   bottomNav:   { flexDirection: 'row', alignItems: 'center', borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 10 },
@@ -2910,13 +2955,12 @@ const decisionStyles = StyleSheet.create({
   btn: {
     width: BTN_SIZE,
     height: BTN_SIZE,
-    borderRadius: BTN_SIZE / 2,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#000',
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
     elevation: 6,
   },
   btnLabel: {

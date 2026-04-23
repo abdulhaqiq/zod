@@ -1,10 +1,12 @@
 import { navPush, navReplace } from '@/utils/nav';
+import { getStoredLanguage, type Language } from '@/components/LanguagePage';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import * as WebBrowser from 'expo-web-browser';
 import { useRouter } from 'expo-router';
 import { Linking } from 'react-native';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
+import { useFocusEffect } from 'expo-router';
 import {
   ActivityIndicator,
   Alert,
@@ -432,6 +434,7 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
   // ── Live profile stats ────────────────────────────────────────────────────
   const [statsMatches, setStatsMatches] = useState<number | null>(null);
   const [statsViews,   setStatsViews]   = useState<number | null>(null);
+  const [appLanguage,  setAppLanguage]  = useState<Language | null>(null);
 
   useEffect(() => {
     if (!token) return;
@@ -442,6 +445,12 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
       setStatsViews(res.views);
     }).catch(() => {});
   }, [token]);
+
+  // Reload language preference every time the profile tab is focused
+  // (handles returning from the Language selection screen)
+  useFocusEffect(useCallback(() => {
+    getStoredLanguage().then(setAppLanguage);
+  }, []));
 
   // ── Lookup options from backend ───────────────────────────────────────────
   // Seed from the shared module-level cache if already populated (e.g. if
@@ -524,19 +533,14 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
   const [sectId,             setSectId]             = useState(profile?.sect_id             ? String(profile.sect_id)             : '');
   const [prayerFrequencyId,  setPrayerFrequencyId]  = useState(profile?.prayer_frequency_id ? String(profile.prayer_frequency_id) : '');
   const [marriageTimelineId, setMarriageTimelineId] = useState(profile?.marriage_timeline_id ? String(profile.marriage_timeline_id) : '');
-  const [waliVerified,       setWaliVerified]       = useState(profile?.wali_verified ?? false);
-  const [waliEmail,          setWaliEmail]          = useState(profile?.wali_email ?? '');
-  const [waliEmailSaving,    setWaliEmailSaving]    = useState(false);
 
   useEffect(() => {
     setHalalMode(profile?.halal_mode_enabled    ?? false);
     setSectId(profile?.sect_id                  ? String(profile.sect_id) : '');
     setPrayerFrequencyId(profile?.prayer_frequency_id ? String(profile.prayer_frequency_id) : '');
     setMarriageTimelineId(profile?.marriage_timeline_id ? String(profile.marriage_timeline_id) : '');
-    setWaliVerified(profile?.wali_verified      ?? false);
-    setWaliEmail(profile?.wali_email            ?? '');
   }, [profile?.halal_mode_enabled, profile?.sect_id, profile?.prayer_frequency_id,
-      profile?.marriage_timeline_id, profile?.wali_verified, profile?.wali_email]);
+      profile?.marriage_timeline_id]);
 
   // Determine if the user is Muslim based on their religion selection
   const religionLabel = getLookupLabel('religion', religionId ? Number(religionId) : null)?.toLowerCase() ?? '';
@@ -802,29 +806,39 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
       <View style={{ paddingHorizontal: 16, marginTop: 16 }}>
         <Pressable
           onPress={() => navPush('/subscription')}
-          style={({ pressed }) => [
-            styles.subBanner,
-            { backgroundColor: colors.surface },
-            pressed && { opacity: 0.65 },
-          ]}
+          style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}
         >
-          <Ionicons name="star" size={14} color="#FFD60A" />
-          {isPro ? (
-            <>
-              <Text style={[styles.subBannerPlan, { color: colors.text }]}>Zod Pro</Text>
-              <Text style={[styles.subBannerSub, { color: colors.textSecondary }]}>· Active</Text>
-              <View style={{ flex: 1 }} />
-              <Text style={[styles.subBannerCta, { color: colors.textSecondary }]}>Manage</Text>
-            </>
-          ) : (
-            <>
-              <Text style={[styles.subBannerPlan, { color: colors.text }]}>Zod Free</Text>
-              <Text style={[styles.subBannerSub, { color: colors.textSecondary }]}>· Unlock all features</Text>
-              <View style={{ flex: 1 }} />
-              <Text style={[styles.subBannerCta, { color: colors.text }]}>Upgrade now</Text>
-            </>
-          )}
-          <Ionicons name="chevron-forward" size={13} color={colors.textSecondary} />
+          <Squircle
+            cornerRadius={18} cornerSmoothing={1}
+            fillColor={isPro ? colors.text : colors.surface}
+            strokeColor={isPro ? colors.text : colors.border}
+            strokeWidth={isPro ? 0 : 1}
+            style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 15, gap: 10 }}
+          >
+            <Ionicons
+              name={isPro ? 'star' : 'star-outline'}
+              size={16}
+              color={isPro ? colors.bg : colors.textSecondary}
+            />
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 14, fontFamily: 'ProductSans-Bold', color: isPro ? colors.bg : colors.text }}>
+                {isPro ? 'Zod Pro' : 'Zod Free'}
+              </Text>
+              <Text style={{ fontSize: 12, fontFamily: 'ProductSans-Regular', color: isPro ? colors.surface3 : colors.textSecondary, marginTop: 1 }}>
+                {isPro ? 'All premium features unlocked' : 'Upgrade to unlock all features'}
+              </Text>
+            </View>
+            {!isPro && (
+              <View style={{ backgroundColor: colors.text, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6 }}>
+                <Text style={{ fontSize: 12, fontFamily: 'ProductSans-Bold', color: colors.bg }}>Upgrade</Text>
+              </View>
+            )}
+            <Ionicons
+              name="chevron-forward"
+              size={13}
+              color={isPro ? colors.surface3 : colors.textSecondary}
+            />
+          </Squircle>
         </Pressable>
       </View>
 
@@ -970,13 +984,11 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
       </View>
 
 
-      {/* ── ABOUT YOU ───────────────────────────────────────────────────── */}
+      {/* ── ABOUT YOU — Mood Status ──────────────────────────────────────── */}
       <View style={styles.section}>
         <SectionLabel title="ABOUT YOU" colors={colors} />
         <Group colors={colors}>
-
-          {/* ── Mood Status ── */}
-          <View style={[styles.moodRow, { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border }]}>
+          <View style={styles.moodRow}>
             <Pressable onPress={() => setMoodModalOpen(true)} style={[styles.moodBadge, { backgroundColor: colors.bg, borderColor: colors.border }]}>
               {moodEmoji ? (
                 <Text style={styles.moodBadgeEmoji}>{moodEmoji}</Text>
@@ -984,48 +996,36 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
                 <Ionicons name="happy-outline" size={22} color={colors.textTertiary} />
               )}
             </Pressable>
-
             <Pressable onPress={() => setMoodModalOpen(true)} style={{ flex: 1 }}>
               {moodText ? (
-                <Text style={[styles.moodStatusText, { color: colors.text }]} numberOfLines={1}>
-                  {moodText}
-                </Text>
+                <Text style={[styles.moodStatusText, { color: colors.text }]} numberOfLines={1}>{moodText}</Text>
               ) : (
-                <Text style={[styles.moodStatusText, { color: colors.textTertiary }]}>
-                  Set a status…
-                </Text>
+                <Text style={[styles.moodStatusText, { color: colors.textTertiary }]}>Set a status…</Text>
               )}
               <Text style={[styles.moodStatusSub, { color: colors.textTertiary }]}>Mood Status</Text>
             </Pressable>
-
             {(moodEmoji || moodText) ? (
-              <Pressable
-                hitSlop={10}
-                onPress={() => {
-                  setMoodEmoji('');
-                  setMoodText('');
-                  saveField({ mood_emoji: null, mood_text: null });
-                }}
-              >
+              <Pressable hitSlop={10} onPress={() => { setMoodEmoji(''); setMoodText(''); saveField({ mood_emoji: null, mood_text: null }); }}>
                 <Ionicons name="close-circle" size={18} color={colors.textTertiary} />
               </Pressable>
             ) : null}
           </View>
+        </Group>
 
-          <MoodPickerModal
-            visible={moodModalOpen}
-            initialEmoji={moodEmoji}
-            initialText={moodText}
-            colors={colors}
-            onSave={(e, t) => {
-              setMoodEmoji(e);
-              setMoodText(t);
-              setMoodModalOpen(false);
-              saveField({ mood_emoji: e || null, mood_text: t || null });
-            }}
-            onClose={() => setMoodModalOpen(false)}
-          />
+        <MoodPickerModal
+          visible={moodModalOpen}
+          initialEmoji={moodEmoji}
+          initialText={moodText}
+          colors={colors}
+          onSave={(e, t) => { setMoodEmoji(e); setMoodText(t); setMoodModalOpen(false); saveField({ mood_emoji: e || null, mood_text: t || null }); }}
+          onClose={() => setMoodModalOpen(false)}
+        />
+      </View>
 
+      {/* ── LIFESTYLE ───────────────────────────────────────────────────── */}
+      <View style={styles.section}>
+        <SectionLabel title="LIFESTYLE" colors={colors} />
+        <Group colors={colors}>
           <EditRow icon="resize-outline" label="Height" value={height || '—'}
             onPress={() => openWheel({
               title: 'Height', options: HEIGHT_LABELS.map(h => h.label), selected: height,
@@ -1038,33 +1038,6 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
               selected: exerciseId ? [exerciseId] : [],
               onDone: ([v]) => { setExerciseId(v); saveField({ lifestyle: { ...lf, exercise: Number(v) } }); },
             })} colors={colors} />
-
-          <EditRow icon="ribbon-outline" label="Education Level" value={getLookupLabel('education_level', educationLevelId ? Number(educationLevelId) : null) || '—'}
-            onPress={() => setChipPicker({
-              title: 'Education Level', category: 'education_level', single: true,
-              selected: educationLevelId ? [educationLevelId] : [],
-              onDone: ([v]) => { setEducationLevelId(v); saveField({ education_level_id: Number(v) }); },
-            })} colors={colors} />
-
-          <EditRow
-            icon="school-outline"
-            label="University Email"
-            value={
-              uniEmailVerified && uniEmail
-                ? uniEmail
-                : uniEmail
-                  ? `${uniEmail} · Unverified`
-                  : '—'
-            }
-            onPress={() => {
-              setUniEmailDraft(uniEmail);
-              setUniOtpStep(uniEmailVerified ? 'verified' : 'idle');
-              setUniOtpCode('');
-              setUniEmailError('');
-              setUniversityModalOpen(true);
-            }}
-            colors={colors}
-          />
 
           <EditRow icon="wine-outline" label="Drinking" value={getLookupLabel('drinking', drinkingId ? Number(drinkingId) : null) || '—'}
             onPress={() => setChipPicker({
@@ -1080,6 +1053,19 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
               onDone: ([v]) => { setSmokingId(v); saveField({ lifestyle: { ...lf, smoking: Number(v) } }); },
             })} colors={colors} />
 
+          <EditRow icon="nutrition-outline" label="Diet" value={getLookupLabel('diet', dietId ? Number(dietId) : null) || '—'}
+            onPress={() => setChipPicker({
+              title: 'Diet', category: 'diet', single: true,
+              selected: dietId ? [dietId] : [],
+              onDone: ([v]) => { setDietId(v); saveField({ lifestyle: { ...lf, diet: Number(v) } }); },
+            })} colors={colors} last />
+        </Group>
+      </View>
+
+      {/* ── RELATIONSHIPS ────────────────────────────────────────────────── */}
+      <View style={styles.section}>
+        <SectionLabel title="RELATIONSHIPS" colors={colors} />
+        <Group colors={colors}>
           <EditRow icon="heart-outline" label="Looking For" value={getLookupLabel('looking_for', lookingForId ? Number(lookingForId) : null) || '—'}
             onPress={() => setChipPicker({
               title: 'Looking For', category: 'looking_for', single: true,
@@ -1099,129 +1085,14 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
               title: 'Have Kids', category: 'have_kids', single: true,
               selected: haveKidsId ? [haveKidsId] : [],
               onDone: ([v]) => { setHaveKidsId(v); saveField({ have_kids_id: Number(v) }); },
-            })} colors={colors} />
+            })} colors={colors} last />
+        </Group>
+      </View>
 
-          <EditRow icon="star-outline" label="Star Sign" value={getLookupLabel('star_sign', starSignId ? Number(starSignId) : null) || '—'}
-            onPress={() => setChipPicker({
-              title: 'Star Sign', category: 'star_sign', single: true,
-              selected: starSignId ? [starSignId] : [],
-              onDone: ([v]) => { setStarSignId(v); saveField({ star_sign_id: Number(v) }); },
-            })} colors={colors} />
-
-          <EditRow icon="book-outline" label="Religion" value={getLookupLabel('religion', religionId ? Number(religionId) : null) || '—'}
-            onPress={() => setChipPicker({
-              title: 'Religion', category: 'religion', single: true,
-              selected: religionId ? [religionId] : [],
-              onDone: ([v]) => { setReligionId(v); saveField({ religion_id: Number(v) }); },
-            })} colors={colors} />
-
-          {/* Halal mode toggle — only shown to Muslim users */}
-          {isMuslim && (
-            <>
-              <View style={[
-                styles.settingRow,
-                halalMode && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
-              ]}>
-                <Squircle style={styles.settingIconWrap} cornerRadius={10} cornerSmoothing={1} fillColor={colors.surface2}>
-                  <Ionicons name="moon-outline" size={16} color={colors.text} />
-                </Squircle>
-                <View style={{ flex: 1, gap: 1 }}>
-                  <Text style={[styles.settingLabel, { color: colors.text }]}>Halal Mode</Text>
-                  <Text style={[styles.settingSubtitle, { color: colors.textSecondary }]}>
-                    {halalMode ? 'Showing Muslim-only feed · Halal settings active' : 'Switch to a Halal-only matching experience'}
-                  </Text>
-                </View>
-                <Switch
-                  value={halalMode}
-                  onValueChange={(val) => {
-                    setHalalMode(val);
-                    apiFetch('/profile/me', { method: 'PATCH', token: token!, body: JSON.stringify({ halal_mode_enabled: val }) }).catch(() => {});
-                    updateProfile({ halal_mode_enabled: val } as any);
-                  }}
-                  trackColor={{ false: colors.border, true: colors.text }}
-                  thumbColor={colors.bg}
-                />
-              </View>
-
-              {/* Faith detail rows — visible when Halal mode is on */}
-              {halalMode && (
-                <>
-                  <EditRow icon="library-outline" label="Sect"
-                    value={getLookupLabel('sect', sectId ? Number(sectId) : null) || '—'}
-                    onPress={() => setChipPicker({
-                      title: 'Sect', category: 'sect', single: true,
-                      selected: sectId ? [sectId] : [],
-                      onDone: ([v]) => { setSectId(v); saveField({ sect_id: Number(v) }); },
-                    })} colors={colors} />
-
-                  <EditRow icon="time-outline" label="Prayer Frequency"
-                    value={getLookupLabel('prayer_frequency', prayerFrequencyId ? Number(prayerFrequencyId) : null) || '—'}
-                    onPress={() => setChipPicker({
-                      title: 'Prayer Frequency', category: 'prayer_frequency', single: true,
-                      selected: prayerFrequencyId ? [prayerFrequencyId] : [],
-                      onDone: ([v]) => { setPrayerFrequencyId(v); saveField({ prayer_frequency_id: Number(v) }); },
-                    })} colors={colors} />
-
-                  <EditRow icon="calendar-outline" label="Marriage Timeline"
-                    value={getLookupLabel('marriage_timeline', marriageTimelineId ? Number(marriageTimelineId) : null) || '—'}
-                    onPress={() => setChipPicker({
-                      title: 'Marriage Timeline', category: 'marriage_timeline', single: true,
-                      selected: marriageTimelineId ? [marriageTimelineId] : [],
-                      onDone: ([v]) => { setMarriageTimelineId(v); saveField({ marriage_timeline_id: Number(v) }); },
-                    })} colors={colors} />
-
-                  <SettingRow
-                    icon="image-outline" label="Blur Photos"
-                    subtitle="Blur your photos for users in Halal mode"
-                    colors={colors} toggle toggleVal={profile?.blur_photos_halal ?? false}
-                    onToggle={(val) => {
-                      saveField({ blur_photos_halal: val });
-                      updateProfile({ blur_photos_halal: val } as any);
-                    }}
-                  />
-
-                  {/* Wali section — females only */}
-                  {isFemale && (
-                    <>
-                      <SettingRow
-                        icon="shield-checkmark-outline" label="Wali Verified"
-                        subtitle={waliVerified ? 'Your guardian has been verified' : 'Indicate that a guardian is involved'}
-                        colors={colors} toggle toggleVal={waliVerified}
-                        onToggle={(val) => {
-                          setWaliVerified(val);
-                          saveField({ wali_verified: val });
-                          updateProfile({ wali_verified: val } as any);
-                        }}
-                      />
-                      <View style={[styles.inputRow, { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border }]}>
-                        <Ionicons name="mail-outline" size={18} color={colors.textSecondary} style={{ marginRight: 10 }} />
-                        <TextInput
-                          style={[styles.inputRowField, { color: colors.text }]}
-                          placeholder="Wali email address"
-                          placeholderTextColor={colors.textTertiary}
-                          value={waliEmail}
-                          onChangeText={setWaliEmail}
-                          keyboardType="email-address"
-                          autoCapitalize="none"
-                          returnKeyType="done"
-                          onEndEditing={() => {
-                            if (!waliEmailSaving) {
-                              setWaliEmailSaving(true);
-                              saveField({ wali_email: waliEmail || null });
-                              updateProfile({ wali_email: waliEmail || null } as any);
-                              setWaliEmailSaving(false);
-                            }
-                          }}
-                        />
-                        {waliEmailSaving && <ActivityIndicator size="small" color={colors.textSecondary} />}
-                      </View>
-                    </>
-                  )}
-                </>
-              )}
-            </>
-          )}
-
+      {/* ── IDENTITY ─────────────────────────────────────────────────────── */}
+      <View style={styles.section}>
+        <SectionLabel title="IDENTITY" colors={colors} />
+        <Group colors={colors}>
           <EditRow icon="people-outline" label="Ethnicity" value={getLookupLabel('ethnicity', ethnicityId ? Number(ethnicityId) : null) || '—'}
             onPress={() => setChipPicker({
               title: 'Ethnicity', category: 'ethnicity', single: true,
@@ -1237,14 +1108,47 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
               onDone: (vals) => { setLanguageIds(vals); saveField({ languages: vals.map(Number) }); },
             })} colors={colors} />
 
-          <EditRow icon="nutrition-outline" label="Diet"
-            value={getLookupLabel('diet', dietId ? Number(dietId) : null) || '—'}
+          <EditRow icon="book-outline" label="Religion" value={getLookupLabel('religion', religionId ? Number(religionId) : null) || '—'}
             onPress={() => setChipPicker({
-              title: 'Diet', category: 'diet', single: true,
-              selected: dietId ? [dietId] : [],
-              onDone: ([v]) => { setDietId(v); saveField({ lifestyle: { ...lf, diet: Number(v) } }); },
+              title: 'Religion', category: 'religion', single: true,
+              selected: religionId ? [religionId] : [],
+              onDone: ([v]) => { setReligionId(v); saveField({ religion_id: Number(v) }); },
             })} colors={colors} />
 
+          <EditRow icon="star-outline" label="Star Sign" value={getLookupLabel('star_sign', starSignId ? Number(starSignId) : null) || '—'}
+            onPress={() => setChipPicker({
+              title: 'Star Sign', category: 'star_sign', single: true,
+              selected: starSignId ? [starSignId] : [],
+              onDone: ([v]) => { setStarSignId(v); saveField({ star_sign_id: Number(v) }); },
+            })} colors={colors} />
+
+          <EditRow icon="ribbon-outline" label="Education Level" value={getLookupLabel('education_level', educationLevelId ? Number(educationLevelId) : null) || '—'}
+            onPress={() => setChipPicker({
+              title: 'Education Level', category: 'education_level', single: true,
+              selected: educationLevelId ? [educationLevelId] : [],
+              onDone: ([v]) => { setEducationLevelId(v); saveField({ education_level_id: Number(v) }); },
+            })} colors={colors} />
+
+          <EditRow
+            icon="school-outline"
+            label="University Email"
+            value={uniEmailVerified && uniEmail ? uniEmail : uniEmail ? `${uniEmail} · Unverified` : '—'}
+            onPress={() => {
+              setUniEmailDraft(uniEmail);
+              setUniOtpStep(uniEmailVerified ? 'verified' : 'idle');
+              setUniOtpCode('');
+              setUniEmailError('');
+              setUniversityModalOpen(true);
+            }}
+            colors={colors} last
+          />
+        </Group>
+      </View>
+
+      {/* ── INTERESTS & VALUES ───────────────────────────────────────────── */}
+      <View style={styles.section}>
+        <SectionLabel title="INTERESTS & VALUES" colors={colors} />
+        <Group colors={colors}>
           <EditRow icon="heart-circle-outline" label="Interests"
             value={getLookupLabels('interests', interestIds.map(Number)).join(', ') || '—'}
             onPress={() => setChipPicker({
@@ -1271,6 +1175,90 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
         </Group>
       </View>
 
+      {/* ── FAITH (Muslim users only) ────────────────────────────────────── */}
+      {isMuslim && (
+        <View style={styles.section}>
+          <SectionLabel title="FAITH" colors={colors} />
+          <Group colors={colors}>
+            <View style={[styles.settingRow, halalMode && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border }]}>
+              <Squircle style={styles.settingIconWrap} cornerRadius={10} cornerSmoothing={1} fillColor={colors.surface2}>
+                <Ionicons name="moon-outline" size={16} color={colors.text} />
+              </Squircle>
+              <View style={{ flex: 1, gap: 1 }}>
+                <Text style={[styles.settingLabel, { color: colors.text }]}>Halal Mode</Text>
+                <Text style={[styles.settingSubtitle, { color: colors.textSecondary }]}>
+                  {halalMode ? 'Showing Muslim-only feed · Halal settings active' : 'Switch to a Halal-only matching experience'}
+                </Text>
+              </View>
+              <Switch
+                value={halalMode}
+                onValueChange={(val) => {
+                  setHalalMode(val);
+                  apiFetch('/profile/me', { method: 'PATCH', token: token!, body: JSON.stringify({ halal_mode_enabled: val }) }).catch(() => {});
+                  updateProfile({ halal_mode_enabled: val } as any);
+                }}
+                trackColor={{ false: colors.border, true: colors.text }}
+                thumbColor={colors.bg}
+              />
+            </View>
+
+            {halalMode && (
+              <>
+                <EditRow icon="library-outline" label="Sect"
+                  value={getLookupLabel('sect', sectId ? Number(sectId) : null) || '—'}
+                  onPress={() => setChipPicker({
+                    title: 'Sect', category: 'sect', single: true,
+                    selected: sectId ? [sectId] : [],
+                    onDone: ([v]) => { setSectId(v); saveField({ sect_id: Number(v) }); },
+                  })} colors={colors} />
+
+                <EditRow icon="time-outline" label="Prayer Frequency"
+                  value={getLookupLabel('prayer_frequency', prayerFrequencyId ? Number(prayerFrequencyId) : null) || '—'}
+                  onPress={() => setChipPicker({
+                    title: 'Prayer Frequency', category: 'prayer_frequency', single: true,
+                    selected: prayerFrequencyId ? [prayerFrequencyId] : [],
+                    onDone: ([v]) => { setPrayerFrequencyId(v); saveField({ prayer_frequency_id: Number(v) }); },
+                  })} colors={colors} />
+
+                <EditRow icon="calendar-outline" label="Marriage Timeline"
+                  value={getLookupLabel('marriage_timeline', marriageTimelineId ? Number(marriageTimelineId) : null) || '—'}
+                  onPress={() => setChipPicker({
+                    title: 'Marriage Timeline', category: 'marriage_timeline', single: true,
+                    selected: marriageTimelineId ? [marriageTimelineId] : [],
+                    onDone: ([v]) => { setMarriageTimelineId(v); saveField({ marriage_timeline_id: Number(v) }); },
+                  })} colors={colors} />
+
+                <SettingRow
+                  icon="image-outline" label="Blur Photos"
+                  subtitle="Blur your photos for users in Halal mode"
+                  colors={colors} toggle toggleVal={profile?.blur_photos_halal ?? false}
+                  onToggle={(val) => { saveField({ blur_photos_halal: val }); updateProfile({ blur_photos_halal: val } as any); }}
+                />
+
+                {isFemale && (
+                  <EditRow
+                    icon="shield-checkmark-outline"
+                    label="Wali Information"
+                    value={
+                      profile?.wali_verified
+                        ? 'Confirmed ✓'
+                        : profile?.wali_name
+                          ? profile.wali_name
+                          : profile?.verification_status === 'verified'
+                            ? 'Add details'
+                            : 'Verify ID first'
+                    }
+                    onPress={() => navPush('/wali-settings')}
+                    colors={colors}
+                    last
+                  />
+                )}
+              </>
+            )}
+          </Group>
+        </View>
+      )}
+
       {/* ── VOICE PROMPTS ───────────────────────────────────────────────── */}
       <View style={styles.section}>
         <SectionLabel title="VOICE PROMPTS" colors={colors} />
@@ -1292,16 +1280,6 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
             toggle
             toggleVal={isDark}
             onToggle={toggle}
-          />
-          <SettingRow
-            icon="briefcase-outline" label="Zod Work Mode"
-            subtitle={workMode ? 'Showing co-founder & professional feed' : 'Switch to co-founder & professional matching'}
-            colors={colors} toggle toggleVal={workMode}
-            onToggle={(val) => {
-              setWorkMode(val);
-              apiFetch('/profile/me', { method: 'PATCH', token: token!, body: JSON.stringify({ work_mode_enabled: val }) }).catch(() => {});
-              updateProfile({ work_mode_enabled: val } as any);
-            }}
           />
           <SettingRow
             icon="eye-off-outline" label="Hide My Age"
@@ -1389,6 +1367,13 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
         <Group colors={colors}>
           <SettingRow icon="notifications-outline" label="Notifications"     colors={colors} onPress={() => navPush('/notifications')} />
           <SettingRow icon="shield-outline"        label="Security"          colors={colors} onPress={() => navPush('/security')} />
+          <SettingRow
+            icon="language-outline"
+            label="Language"
+            value={appLanguage ? `${appLanguage.flag}  ${appLanguage.name}` : '🇬🇧  English'}
+            colors={colors}
+            onPress={() => navPush('/language')}
+          />
           <SettingRow icon="document-text-outline" label="Legal Information" colors={colors} onPress={() => navPush('/legal')} />
           <SettingRow icon="help-circle-outline"   label="Get Help"          colors={colors} onPress={() => navPush('/get-help')} />
           <SettingRow icon="card-outline"          label="Purchases"         colors={colors} onPress={() => navPush('/purchases')} />

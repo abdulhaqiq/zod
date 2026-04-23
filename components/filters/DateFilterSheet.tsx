@@ -141,6 +141,21 @@ function FilterChip({ label, selected, onPress, colors }: {
   );
 }
 
+// ─── Check Row (checkbox / radio) ─────────────────────────────────────────────
+
+function CheckRow({ label, selected, onPress, radio = false, colors }: {
+  label: string; selected: boolean; onPress: () => void; radio?: boolean; colors: any;
+}) {
+  return (
+    <Pressable onPress={onPress} style={styles.checkRow}>
+      <View style={[styles.checkBox, { borderRadius: radio ? 11 : 6, borderColor: selected ? colors.text : colors.border, backgroundColor: selected ? colors.text : 'transparent' }]}>
+        {selected && <Ionicons name={radio ? 'ellipse' : 'checkmark'} size={radio ? 8 : 13} color={colors.bg} />}
+      </View>
+      <Text style={[styles.checkLabel, { color: colors.text }]}>{label}</Text>
+    </Pressable>
+  );
+}
+
 // ─── DateFilterSheet ──────────────────────────────────────────────────────────
 
 interface Props {
@@ -190,6 +205,12 @@ export default function DateFilterSheet({ visible, onClose, onApply, onNavigateT
     : '';
   const isMuslim = religionLabel.includes('muslim') || religionLabel.includes('islam');
 
+  // Determine the user's own gender for gender-specific filter visibility.
+  const myGenderLabel = profile?.gender_id
+    ? (lookups['gender']?.find(g => g.id === profile.gender_id)?.label ?? '').toLowerCase()
+    : '';
+  const isMale = myGenderLabel.includes('man') || myGenderLabel.includes('male');
+
   // When halal mode is on, default to pro tab (halal filters live there)
   const [activeTab, setActiveTab] = useState<'basic' | 'pro'>(halalMode ? 'pro' : 'basic');
 
@@ -219,6 +240,9 @@ export default function DateFilterSheet({ visible, onClose, onApply, onNavigateT
   const [education,    setEducation]    = useState<number[]>([]);
   const [familyPlans,  setFamilyPlans]  = useState<number[]>([]);
   const [havingKids,   setHavingKids]   = useState<number[]>([]);
+  const [aiScoreMin,   setAiScoreMin]   = useState(0);    // 0 = Any
+  const [lastActiveDays, setLastActiveDays] = useState(0); // 0 = Any
+  const [diet,         setDiet]         = useState<number[]>([]);
   // Halal filter state
   const [religions,         setReligions]         = useState<number[]>([]);
   const [sectIds,           setSectIds]           = useState<number[]>([]);
@@ -238,7 +262,7 @@ export default function DateFilterSheet({ visible, onClose, onApply, onNavigateT
     setVerifiedOnly(profile.filter_verified_only ?? false);
     setAgeMin(profile.filter_age_min ?? 18);
     setAgeMax(profile.filter_age_max ?? 80);
-    setDistance(profile.filter_max_distance_km != null ? Math.min(profile.filter_max_distance_km, 80) : 80);
+    setDistance(profile.filter_max_distance_km != null ? Math.min(profile.filter_max_distance_km, 80) : 20);
     setSigns(profile.filter_star_signs ?? []);
     setInterests(profile.filter_interests ?? []);
     setLangs(profile.filter_languages ?? []);
@@ -251,24 +275,28 @@ export default function DateFilterSheet({ visible, onClose, onApply, onNavigateT
     setEducation(profile.filter_education_level ?? []);
     setFamilyPlans(profile.filter_family_plans ?? []);
     setHavingKids(profile.filter_have_kids ?? []);
+    setAiScoreMin((profile as any).filter_ai_score_min ?? 0);
+    setLastActiveDays((profile as any).filter_last_active_days ?? 0);
     setReligions(profile.filter_religions ?? []);
     setSectIds(profile.filter_sect ?? []);
     setPrayerFreqIds(profile.filter_prayer_frequency ?? []);
     setMarriageTimeIds(profile.filter_marriage_timeline ?? []);
     setWaliVerifiedOnly(profile.filter_wali_verified_only ?? false);
     setWantsToWork(profile.filter_wants_to_work ?? null);
+    setDiet(profile.filter_diet ?? []);
   }, [visible]);
 
   const toggle = (arr: number[], setArr: (v: number[]) => void, val: number) =>
     setArr(arr.includes(val) ? arr.filter(x => x !== val) : [...arr, val]);
 
   const reset = () => {
-    setVerifiedOnly(false); setAgeMin(18); setAgeMax(80); setDistance(80);
+    setVerifiedOnly(false); setAgeMin(18); setAgeMax(80); setDistance(20);
     setSigns([]); setInterests([]); setLangs([]); setEthnicities([]);
     setExercise([]); setDrinking([]); setSmoking([]); setHeightMin(140);
     setLookingFor([]); setEducation([]); setFamilyPlans([]); setHavingKids([]);
     setReligions([]); setSectIds([]); setPrayerFreqIds([]); setMarriageTimeIds([]);
     setWaliVerifiedOnly(false); setWantsToWork(null);
+    setAiScoreMin(0); setLastActiveDays(0); setDiet([]);
   };
 
   const handleApply = async () => {
@@ -278,8 +306,8 @@ export default function DateFilterSheet({ visible, onClose, onApply, onNavigateT
       // Build patch — always include every basic filter so the backend
       // overwrites any stale values.  null = "clear / any".
       const patch: Record<string, any> = {
-        filter_age_min:         ageMin <= 18 ? null : ageMin,
-        filter_age_max:         ageMax >= 80 ? null : ageMax,
+        filter_age_min:         ageMin,
+        filter_age_max:         ageMax,
         filter_max_distance_km: distance,
         filter_verified_only:   verifiedOnly,
         filter_star_signs:      signs.length     ? signs     : null,
@@ -297,10 +325,13 @@ export default function DateFilterSheet({ visible, onClose, onApply, onNavigateT
       // Only send Pro-only filters when the user has Pro — avoids sending
       // useless nulls that the backend would silently strip anyway.
       if (isPro) {
-        patch.filter_looking_for     = lookingFor.length  ? lookingFor  : null;
-        patch.filter_education_level = education.length   ? education   : null;
-        patch.filter_family_plans    = familyPlans.length ? familyPlans : null;
-        patch.filter_have_kids       = havingKids.length  ? havingKids  : null;
+        patch.filter_looking_for      = lookingFor.length  ? lookingFor  : null;
+        patch.filter_education_level  = education.length   ? education   : null;
+        patch.filter_family_plans     = familyPlans.length ? familyPlans : null;
+        patch.filter_have_kids        = havingKids.length  ? havingKids  : null;
+        patch.filter_diet             = diet.length        ? diet        : null;
+        patch.filter_ai_score_min     = aiScoreMin > 0     ? aiScoreMin  : null;
+        patch.filter_last_active_days = lastActiveDays > 0 ? lastActiveDays : null;
       }
 
       // Halal filters — only sent when user is Muslim AND Pro
@@ -380,7 +411,7 @@ export default function DateFilterSheet({ visible, onClose, onApply, onNavigateT
               <View style={styles.sliderLabelRow}>
                 <SecHead title="AGE RANGE" />
                 <Text style={[styles.sliderValue, { color: colors.text }]}>
-                  {ageMin <= 18 && ageMax >= 80 ? 'Any' : `${ageMin} – ${ageMax}`}
+                  {`${ageMin} – ${ageMax}`}
                 </Text>
               </View>
               <View style={[styles.sliderEdgeRow, { marginTop: 10 }]}>
@@ -503,13 +534,16 @@ export default function DateFilterSheet({ visible, onClose, onApply, onNavigateT
               </View>
             </Squircle>
 
-            {/* Religion — hidden in Halal mode (feed is already Muslim-only) */}
+            {/* Religion — multi-select chips, hidden in Halal mode */}
             {!halalMode && (
               <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
                 <SecHead title="RELIGION" />
                 <View style={[styles.filterChipRow, { marginTop: 12 }]}>
                   {lo('religion').map(v => (
-                    <FilterChip key={v.id} label={v.label} selected={religions.includes(v.id)} onPress={() => toggle(religions, setReligions, v.id)} colors={colors} />
+                    <FilterChip key={v.id} label={v.label}
+                      selected={religions.includes(v.id)}
+                      onPress={() => toggle(religions, setReligions, v.id)}
+                      colors={colors} />
                   ))}
                 </View>
               </Squircle>
@@ -647,29 +681,72 @@ export default function DateFilterSheet({ visible, onClose, onApply, onNavigateT
               </View>
             </Squircle>
 
+            {/* Looking For — multi-select chips */}
             <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
               <SecHead title="LOOKING FOR" />
               <View style={[styles.filterChipRow, { marginTop: 12 }]}>
                 {lo('looking_for').map(v => (
-                  <FilterChip key={v.id} label={v.label} selected={lookingFor.includes(v.id)} onPress={() => toggle(lookingFor, setLookingFor, v.id)} colors={colors} />
+                  <FilterChip key={v.id} label={v.label}
+                    selected={lookingFor.includes(v.id)}
+                    onPress={() => toggle(lookingFor, setLookingFor, v.id)}
+                    colors={colors} />
                 ))}
               </View>
             </Squircle>
 
+            {/* Family Plans — multi-select chips */}
             <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
               <SecHead title="FAMILY PLANS" />
               <View style={[styles.filterChipRow, { marginTop: 12 }]}>
                 {lo('family_plans').map(v => (
-                  <FilterChip key={v.id} label={v.label} selected={familyPlans.includes(v.id)} onPress={() => toggle(familyPlans, setFamilyPlans, v.id)} colors={colors} />
+                  <FilterChip key={v.id} label={v.label}
+                    selected={familyPlans.includes(v.id)}
+                    onPress={() => toggle(familyPlans, setFamilyPlans, v.id)}
+                    colors={colors} />
                 ))}
               </View>
             </Squircle>
 
+            {/* Have Kids — radio single-select chips */}
             <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
               <SecHead title="HAVE KIDS" />
               <View style={[styles.filterChipRow, { marginTop: 12 }]}>
                 {lo('have_kids').map(v => (
-                  <FilterChip key={v.id} label={v.label} selected={havingKids.includes(v.id)} onPress={() => toggle(havingKids, setHavingKids, v.id)} colors={colors} />
+                  <FilterChip key={v.id} label={v.label}
+                    selected={havingKids.includes(v.id)}
+                    onPress={() => setHavingKids(havingKids.includes(v.id) ? [] : [v.id])}
+                    colors={colors} />
+                ))}
+              </View>
+            </Squircle>
+
+            {/* Diet */}
+            <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
+              <SecHead title="DIET" />
+              <View style={[styles.filterChipRow, { marginTop: 12 }]}>
+                {lo('diet').map(v => (
+                  <FilterChip key={v.id} label={v.label}
+                    selected={diet.includes(v.id)}
+                    onPress={() => toggle(diet, setDiet, v.id)}
+                    colors={colors} />
+                ))}
+              </View>
+            </Squircle>
+
+            {/* Last Active — radio single-select chips */}
+            <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
+              <SecHead title="LAST ACTIVE" />
+              <View style={[styles.filterChipRow, { marginTop: 12 }]}>
+                {[
+                  { label: 'Any time',   val: 0 },
+                  { label: 'Today',      val: 1 },
+                  { label: 'This week',  val: 7 },
+                  { label: 'This month', val: 30 },
+                ].map(opt => (
+                  <FilterChip key={opt.val} label={opt.label}
+                    selected={lastActiveDays === opt.val}
+                    onPress={() => setLastActiveDays(opt.val)}
+                    colors={colors} />
                 ))}
               </View>
             </Squircle>
@@ -706,18 +783,21 @@ export default function DateFilterSheet({ visible, onClose, onApply, onNavigateT
                   </View>
                 </Squircle>
 
-                <Squircle style={[styles.filterCard, { gap: 0 }]} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                    <Squircle style={styles.filterRowIcon} cornerRadius={12} cornerSmoothing={1} fillColor={colors.surface2}>
-                      <Ionicons name="shield-checkmark-outline" size={18} color={colors.textSecondary} />
-                    </Squircle>
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.filterRowTitle, { color: colors.text }]}>Wali Verified Only</Text>
-                      <Text style={[styles.filterRowSub, { color: colors.textSecondary }]}>Only show profiles with a confirmed guardian</Text>
+                {/* Wali Verified Only — only relevant for men seeking wali-supervised women */}
+                {isMale && (
+                  <Squircle style={[styles.filterCard, { gap: 0 }]} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                      <Squircle style={styles.filterRowIcon} cornerRadius={12} cornerSmoothing={1} fillColor={colors.surface2}>
+                        <Ionicons name="shield-checkmark-outline" size={18} color={colors.textSecondary} />
+                      </Squircle>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.filterRowTitle, { color: colors.text }]}>Wali Verified Only</Text>
+                        <Text style={[styles.filterRowSub, { color: colors.textSecondary }]}>Only show women with a confirmed guardian (wali)</Text>
+                      </View>
+                      <Switch value={waliVerifiedOnly} onValueChange={setWaliVerifiedOnly} thumbColor={colors.bg} trackColor={{ false: colors.surface2, true: colors.text }} />
                     </View>
-                    <Switch value={waliVerifiedOnly} onValueChange={setWaliVerifiedOnly} thumbColor={colors.bg} trackColor={{ false: colors.surface2, true: colors.text }} />
-                  </View>
-                </Squircle>
+                  </Squircle>
+                )}
 
                 <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
                   <SecHead title="PARTNER CAREER" />
@@ -734,26 +814,50 @@ export default function DateFilterSheet({ visible, onClose, onApply, onNavigateT
               </>
             )}
 
-            <Text style={[styles.filterSecHead, { color: colors.textSecondary, marginLeft: 2, marginTop: 6 }]}>AI FEATURES</Text>
+            <Text style={[styles.filterSecHead, { color: colors.textSecondary, marginLeft: 2, marginTop: 6 }]}>AI MATCH SCORE</Text>
 
-            {[
-              { icon: 'analytics-outline',        title: 'Match Score',            sub: 'Every profile shows a % of how well you match — before you swipe' },
-              { icon: 'shield-checkmark-outline',  title: 'Must-Haves Filter',      sub: "Set things you can't compromise on and we hide everyone who doesn't fit" },
-              { icon: 'pulse-outline',             title: 'Vibe Check',             sub: 'We tell you if your energy naturally clicks before you match' },
-              { icon: 'heart-circle-outline',      title: 'Personality Match',      sub: 'Filter by love language, attachment style or personality type' },
-              { icon: 'time-outline',              title: 'Best Time to Be Active', sub: 'We show the exact times to go online for the most views and likes' },
-            ].map(f => (
-              <Squircle key={f.title} style={[styles.filterCard, { flexDirection: 'row', alignItems: 'center', gap: 14 }]} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
-                <Squircle style={styles.proAiIcon} cornerRadius={14} cornerSmoothing={1} fillColor={colors.surface2}>
-                  <Ionicons name={f.icon as any} size={20} color={colors.text} />
-                </Squircle>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.proAiTitle, { color: colors.text }]}>{f.title}</Text>
-                  <Text style={[styles.proAiSub, { color: colors.textSecondary }]}>{f.sub}</Text>
-                </View>
-                <Ionicons name="checkmark-circle" size={16} color={colors.text} />
-              </Squircle>
-            ))}
+            {/* AI Score slider */}
+            <Squircle style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
+              <View style={styles.sliderLabelRow}>
+                <SecHead title="MIN SCORE" />
+                <Text style={[styles.sliderValue, { color: colors.text }]}>
+                  {aiScoreMin === 0 ? 'Any' : `≥ ${aiScoreMin}%`}
+                </Text>
+              </View>
+              <View style={[styles.sliderRow, { marginTop: 10 }]}>
+                <Text style={[styles.sliderSub, { color: colors.textSecondary }]}>Any</Text>
+                <SliderRN
+                  style={{ flex: 1 }}
+                  minimumValue={0} maximumValue={99} step={1}
+                  value={aiScoreMin}
+                  onValueChange={v => setAiScoreMin(Math.round(v))}
+                  minimumTrackTintColor={colors.text}
+                  maximumTrackTintColor={colors.surface2}
+                  thumbTintColor={colors.text}
+                />
+                <Text style={[styles.sliderSub, { color: colors.textSecondary }]}>99%</Text>
+              </View>
+
+              {/* Score breakdown */}
+              <View style={{ marginTop: 16, gap: 10 }}>
+                <Text style={[styles.sliderSub, { color: colors.textSecondary, marginBottom: 2 }]}>HOW IT'S CALCULATED</Text>
+                {[
+                  { label: 'Interests & Lifestyle',  pct: 35, icon: 'heart-outline' },
+                  { label: 'Relationship Goals',      pct: 25, icon: 'flag-outline' },
+                  { label: 'Values & Beliefs',        pct: 25, icon: 'star-outline' },
+                  { label: 'Location & Activity',     pct: 15, icon: 'location-outline' },
+                ].map(item => (
+                  <View key={item.label} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <Ionicons name={item.icon as any} size={13} color={colors.textSecondary} />
+                    <Text style={{ flex: 1, fontSize: 12, fontFamily: 'ProductSans-Regular', color: colors.textSecondary }}>{item.label}</Text>
+                    <View style={{ width: 72, height: 4, borderRadius: 2, backgroundColor: colors.surface2 }}>
+                      <View style={{ width: `${item.pct}%` as any, height: 4, borderRadius: 2, backgroundColor: colors.text }} />
+                    </View>
+                    <Text style={{ fontSize: 11, fontFamily: 'ProductSans-Bold', color: colors.textSecondary, width: 28, textAlign: 'right' }}>{item.pct}%</Text>
+                  </View>
+                ))}
+              </View>
+            </Squircle>
           </ScrollView>
         ) : (
           /* ── Pro tab — locked (non-pro user) ── */
@@ -779,17 +883,36 @@ export default function DateFilterSheet({ visible, onClose, onApply, onNavigateT
             <Text style={[styles.filterSecHead, { color: colors.textSecondary, marginLeft: 2 }]}>ADVANCED FILTERS</Text>
 
             {[
-              { title: 'MIN HEIGHT',          items: ['Any', '≥ 155 cm', '≥ 160 cm', '≥ 165 cm', '≥ 170 cm', '≥ 175 cm'] },
-              { title: 'ETHNICITY',           items: lo('ethnicity').map(v => v.label) },
-              { title: 'EXERCISE',            items: lo('exercise').map(v => v.label) },
-              { title: 'DRINKING',            items: lo('drinking').map(v => v.label) },
-              { title: 'SMOKING',             items: lo('smoking').map(v => v.label) },
-              // Star sign is hidden in Halal mode (astrology not permitted in Islam)
+              { title: 'MIN HEIGHT',      items: ['Any', '≥ 155 cm', '≥ 160 cm', '≥ 165 cm', '≥ 170 cm', '≥ 175 cm'] },
+              { title: 'ETHNICITY',       items: lo('ethnicity').map(v => v.label) },
+              { title: 'EXERCISE',        items: lo('exercise').map(v => v.label) },
+              { title: 'DRINKING',        items: lo('drinking').map(v => v.label) },
+              { title: 'SMOKING',         items: lo('smoking').map(v => v.label) },
               ...(!halalMode ? [{ title: 'STAR SIGN', items: lo('star_sign').map(v => v.label) }] : []),
-              { title: 'EDUCATION LEVEL',     items: lo('education_level').map(v => v.label) },
-              { title: 'LOOKING FOR',         items: lo('looking_for').map(v => v.label) },
-              { title: 'FAMILY PLANS',        items: lo('family_plans').map(v => v.label) },
-              { title: 'HAVE KIDS',           items: lo('have_kids').map(v => v.label) },
+              { title: 'EDUCATION LEVEL', items: lo('education_level').map(v => v.label) },
+            ].map(sec => (
+              <Squircle key={sec.title} style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
+                <View style={styles.proFeatureRow}>
+                  <Text style={[styles.filterSecHead, { color: colors.textSecondary }]}>{sec.title}</Text>
+                  <Ionicons name="lock-closed" size={11} color={colors.textSecondary} />
+                </View>
+                <View style={[styles.filterChipRow, { marginTop: 12 }]}>
+                  {sec.items.map(v => (
+                    <Squircle key={v} style={styles.filterChip} cornerRadius={16} cornerSmoothing={1} fillColor={colors.surface2} strokeColor={colors.border} strokeWidth={1}>
+                      <Text style={[styles.filterChipText, { color: colors.textSecondary }]}>{v}</Text>
+                    </Squircle>
+                  ))}
+                </View>
+              </Squircle>
+            ))}
+
+            {/* Locked chip-style previews for remaining Pro filters */}
+            {[
+              { title: 'LOOKING FOR',  items: lo('looking_for').map(v => v.label) },
+              { title: 'FAMILY PLANS', items: lo('family_plans').map(v => v.label) },
+              { title: 'HAVE KIDS',    items: lo('have_kids').map(v => v.label) },
+              { title: 'DIET',         items: lo('diet').map(v => v.label) },
+              { title: 'LAST ACTIVE',  items: ['Any time', 'Today', 'This week', 'This month'] },
             ].map(sec => (
               <Squircle key={sec.title} style={styles.filterCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
                 <View style={styles.proFeatureRow}>
@@ -830,29 +953,51 @@ export default function DateFilterSheet({ visible, onClose, onApply, onNavigateT
                     </View>
                   </Squircle>
                 ))}
+                {/* Wali Verified preview — men only */}
+                {isMale && (
+                  <Squircle style={[styles.filterCard, { flexDirection: 'row', alignItems: 'center', gap: 12, opacity: 0.45 }]} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
+                    <Squircle style={styles.filterRowIcon} cornerRadius={12} cornerSmoothing={1} fillColor={colors.surface2}>
+                      <Ionicons name="shield-checkmark-outline" size={18} color={colors.textSecondary} />
+                    </Squircle>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.filterRowTitle, { color: colors.textSecondary }]}>Wali Verified Only</Text>
+                      <Text style={[styles.filterRowSub, { color: colors.textSecondary }]}>Only show women with a confirmed guardian</Text>
+                    </View>
+                    <Ionicons name="lock-closed" size={13} color={colors.textSecondary} />
+                  </Squircle>
+                )}
               </>
             )}
 
-            <Text style={[styles.filterSecHead, { color: colors.textSecondary, marginLeft: 2, marginTop: 6 }]}>AI FEATURES</Text>
+            <Text style={[styles.filterSecHead, { color: colors.textSecondary, marginLeft: 2, marginTop: 6 }]}>AI MATCH SCORE</Text>
 
-            {[
-              { icon: 'analytics-outline',        title: 'Match Score',            sub: 'Every profile shows a % of how well you match — before you swipe' },
-              { icon: 'shield-checkmark-outline',  title: 'Must-Haves Filter',      sub: "Set things you can't compromise on and we hide everyone who doesn't fit" },
-              { icon: 'pulse-outline',             title: 'Vibe Check',             sub: 'We tell you if your energy naturally clicks before you match' },
-              { icon: 'heart-circle-outline',      title: 'Personality Match',      sub: 'Filter by love language, attachment style or personality type' },
-              { icon: 'time-outline',              title: 'Best Time to Be Active', sub: 'We show the exact times to go online for the most views and likes' },
-            ].map(f => (
-              <Squircle key={f.title} style={[styles.filterCard, { flexDirection: 'row', alignItems: 'center', gap: 14 }]} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
-                <Squircle style={styles.proAiIcon} cornerRadius={14} cornerSmoothing={1} fillColor={colors.surface2}>
-                  <Ionicons name={f.icon as any} size={20} color={colors.text} />
-                </Squircle>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.proAiTitle, { color: colors.text }]}>{f.title}</Text>
-                  <Text style={[styles.proAiSub, { color: colors.textSecondary }]}>{f.sub}</Text>
-                </View>
-                <Ionicons name="lock-closed" size={13} color={colors.textSecondary} />
-              </Squircle>
-            ))}
+            {/* Greyed-out AI score slider preview */}
+            <Squircle style={[styles.filterCard, { opacity: 0.45 }]} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={1}>
+              <View style={[styles.proFeatureRow, { marginBottom: 8 }]}>
+                <SecHead title="MIN SCORE" />
+                <Ionicons name="lock-closed" size={11} color={colors.textSecondary} />
+              </View>
+              <View style={[styles.sliderRow]}>
+                <Text style={[styles.sliderSub, { color: colors.textSecondary }]}>Any</Text>
+                <View style={{ flex: 1, height: 4, borderRadius: 2, backgroundColor: colors.surface2, marginHorizontal: 8 }} />
+                <Text style={[styles.sliderSub, { color: colors.textSecondary }]}>99%</Text>
+              </View>
+              <View style={{ marginTop: 14, gap: 8 }}>
+                <Text style={[styles.sliderSub, { color: colors.textSecondary, marginBottom: 2 }]}>HOW IT'S CALCULATED</Text>
+                {[
+                  { label: 'Interests & Lifestyle',  pct: 35 },
+                  { label: 'Relationship Goals',      pct: 25 },
+                  { label: 'Values & Beliefs',        pct: 25 },
+                  { label: 'Location & Activity',     pct: 15 },
+                ].map(item => (
+                  <View key={item.label} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <Text style={{ flex: 1, fontSize: 12, fontFamily: 'ProductSans-Regular', color: colors.textSecondary }}>{item.label}</Text>
+                    <View style={{ width: 72, height: 4, borderRadius: 2, backgroundColor: colors.surface2 }} />
+                    <Text style={{ fontSize: 11, fontFamily: 'ProductSans-Bold', color: colors.textSecondary, width: 28, textAlign: 'right' }}>{item.pct}%</Text>
+                  </View>
+                ))}
+              </View>
+            </Squircle>
           </ScrollView>
         ))}
 
@@ -921,6 +1066,9 @@ const styles = StyleSheet.create({
   filterChipRow:  { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   filterChip:     { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 7 },
   filterChipText: { fontSize: 12, fontFamily: 'ProductSans-Regular' },
+  checkRow:       { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 9 },
+  checkBox:       { width: 22, height: 22, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
+  checkLabel:     { flex: 1, fontSize: 14, fontFamily: 'ProductSans-Regular' },
   filterRowIcon:  { width: 38, height: 38, alignItems: 'center', justifyContent: 'center' },
   filterRowTitle: { fontSize: 14, fontFamily: 'ProductSans-Bold' },
   filterRowSub:   { fontSize: 12, fontFamily: 'ProductSans-Regular', marginTop: 1 },

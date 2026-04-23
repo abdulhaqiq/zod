@@ -26,6 +26,7 @@ import {
   loadRecentAccount,
   saveRecentAccount,
   type RecentAccount,
+  type UserProfile,
 } from '@/context/AuthContext';
 
 WebBrowser.maybeCompleteAuthSession();
@@ -114,14 +115,10 @@ export default function WelcomeScreen() {
         body: JSON.stringify({ access_token: googleAccessToken }),
       });
 
-      const me = await authedFetch<{
-        is_onboarded: boolean;
-        full_name?: string | null;
-        phone?: string | null;
-        photos?: string[] | null;
-      }>('/profile/me', data.access_token);
+      const me = await authedFetch<UserProfile>('/profile/me', data.access_token);
 
-      await signIn(data.access_token, data.refresh_token, me.is_onboarded, 'google');
+      // Pass pre-fetched profile to avoid a redundant /profile/me call inside signIn()
+      await signIn(data.access_token, data.refresh_token, me.is_onboarded, 'google', me);
 
       const dest = me.is_onboarded ? '/(tabs)' : '/gender';
 
@@ -213,14 +210,10 @@ export default function WelcomeScreen() {
         body: JSON.stringify({ identity_token: identityToken, full_name: appleFullName }),
       });
 
-      const me = await authedFetch<{
-        is_onboarded: boolean;
-        full_name?: string | null;
-        phone?: string | null;
-        photos?: string[] | null;
-      }>('/profile/me', data.access_token);
+      const me = await authedFetch<UserProfile>('/profile/me', data.access_token);
 
-      await signIn(data.access_token, data.refresh_token, me.is_onboarded, 'apple');
+      // Pass pre-fetched profile to avoid a redundant /profile/me call inside signIn()
+      await signIn(data.access_token, data.refresh_token, me.is_onboarded, 'apple', me);
 
       // After signing in, offer to save to Keychain only if this was a fresh sign-in
       if (!fromQuickSignIn) {

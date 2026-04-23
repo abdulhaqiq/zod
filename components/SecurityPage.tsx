@@ -8,7 +8,6 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Switch,
   Text,
   View,
 } from 'react-native';
@@ -83,32 +82,6 @@ function ActionRow({
       {value ? <Text style={[styles.rowValue, { color: colors.textSecondary }]}>{value}</Text> : null}
       {onPress && !danger && <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />}
     </Pressable>
-  );
-}
-
-function ToggleRow({
-  icon, label, sub, value, onChange, last, colors,
-}: {
-  icon: string;
-  label: string; sub?: string;
-  value: boolean; onChange: (v: boolean) => void;
-  last?: boolean; colors: any;
-}) {
-  const handleChange = (v: boolean) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    onChange(v);
-  };
-  return (
-    <View style={[styles.row, !last && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border }]}>
-      <Squircle style={styles.iconWrap} cornerRadius={10} cornerSmoothing={1} fillColor={colors.bg}>
-        <Ionicons name={icon as any} size={18} color={colors.text} />
-      </Squircle>
-      <View style={styles.rowText}>
-        <Text style={[styles.rowLabel, { color: colors.text }]}>{label}</Text>
-        {sub ? <Text style={[styles.rowSub, { color: colors.textSecondary }]}>{sub}</Text> : null}
-      </View>
-      <Switch value={value} onValueChange={handleChange} trackColor={{ false: colors.border, true: colors.text }} thumbColor="#fff" />
-    </View>
   );
 }
 
@@ -198,8 +171,6 @@ function MaxSessionsModal({ visible, sessions, onRevoke, onClose, colors }: {
 export default function SecurityPage() {
   const { colors } = useAppTheme();
   const { profile, token } = useAuth();
-  const [faceId, setFaceId] = useState(true);
-
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loadingSessions, setLoadingSessions] = useState(true);
   const [revokingId, setRevokingId] = useState<string | null>(null);
@@ -286,12 +257,6 @@ export default function SecurityPage() {
               sub="Change your login phone number"
               value={maskedPhone}
               onPress={() => Alert.alert('Coming soon', 'Phone number change will be available in a future update.')}
-              colors={colors}
-            />
-            <ToggleRow
-              icon="finger-print-outline" label="Face ID / Biometrics"
-              sub="Use Face ID to unlock the app"
-              value={faceId} onChange={setFaceId}
               last colors={colors}
             />
           </Squircle>

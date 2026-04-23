@@ -834,6 +834,13 @@ export function CallProvider({ token, children }: CallProviderProps) {
         try {
           const p = JSON.parse(e.data as string);
 
+          // ── Keep-alive: reply to server-initiated pings immediately ───────
+          if (p.type === 'ping') {
+            if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'pong' }));
+            return;
+          }
+          if (p.type === 'pong') return; // our own ping echoed back — ignore
+
           // Broadcast to all registered screen-level listeners first
           notifyListeners.current.forEach(h => h(p));
 

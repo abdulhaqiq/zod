@@ -3,9 +3,10 @@
  *
  * Called once on app open (after the user is authenticated).
  * - Requests foreground location permission (asks once, remembers)
- * - Gets current GPS coordinates
- * - Sends them to POST /location/update (backend does Google Maps reverse geocode)
- * - Updates AuthContext profile with returned city / address / country
+ * - Gets current GPS via Apple CoreLocation (expo-location)
+ * - Reverse-geocodes on-device via Apple's CLGeocoder (expo-location.reverseGeocodeAsync)
+ * - Sends coords + Apple-resolved city/address/country to POST /location/update
+ * - Backend stores whatever the client sends — no server-side geocoding
  *
  * Skipped when travel_mode_enabled — the manually set city persists until
  * the user explicitly changes or disables it.

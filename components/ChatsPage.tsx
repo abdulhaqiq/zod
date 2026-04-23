@@ -2,9 +2,14 @@ import { navPush, navReplace } from '@/utils/nav';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Animated,
+  FlatList,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -17,16 +22,28 @@ import { apiFetch, WS_V1 } from '@/constants/api';
 import { useAuth } from '@/context/AuthContext';
 import { useAppTheme } from '@/context/ThemeContext';
 
-// ─── Session-level conversation cache ────────────────────────────────────────
-// Persists across tab navigation so the list re-renders instantly on revisit.
-// Cleared by bustConvsCache() whenever a fresh pull is needed.
-let _convsCache: Conversation[] | null = null;
+// ─── Session-level caches ─────────────────────────────────────────────────────
+let _convsCache: Conversation[]  = [];
+let _newMatchesCache: NewMatch[] = [];
+let _convsHasMore                = false;
 
 export function bustConvsCache() {
-  _convsCache = null;
+  _convsCache      = [];
+  _newMatchesCache = [];
+  _convsHasMore    = false;
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
+
+interface NewMatch {
+  partner_id:    string;
+  partner_name:  string;
+  partner_image: string | null;
+  is_super:      boolean;
+  matched_at:    string;
+  expires_at:    string | null;
+  is_online:     boolean;
+}
 
 interface Conversation {
   partner_id: string;
@@ -36,6 +53,9 @@ interface Conversation {
   last_message: { content: string; sender_id: string; created_at: string; msg_type?: string } | null;
   unread_count: number;
   is_online: boolean;
+  matched_at?: string;
+  is_super_match?: boolean;
+  expires_at?: string | null;
 }
 
 /** Formats a raw message content + msg_type into a human-readable preview. */
@@ -88,6 +108,23 @@ function _relativeTime(isoStr: string): string {
   const hrs = Math.floor(mins / 60);
   if (hrs < 24) return `${hrs}h`;
   return `${Math.floor(hrs / 24)}d`;
+}
+
+function _formatExpiry(expiresAt: string): string {
+  const ms = new Date(expiresAt).getTime() - Date.now();
+  if (ms <= 0) return 'Expired';
+  const totalMins = Math.floor(ms / 60000);
+  const h = Math.floor(totalMins / 60);
+  const m = totalMins % 60;
+  if (h >= 24) return `${Math.floor(h / 24)}d ${h % 24}h`;
+  if (h >= 1) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
+/** Returns true if the match timer has been extended (conversation started). */
+function _isPermanent(expiresAt?: string | null): boolean {
+  if (!expiresAt) return true;
+  return new Date(expiresAt).getTime() - Date.now() > 7 * 24 * 3600 * 1000;
 }
 
 // ─── Animated conversation row ────────────────────────────────────────────────
@@ -182,37 +219,119 @@ export default function ChatsPage({ insets, token }: { insets: any; token: strin
   const { colors } = useAppTheme();
   const { profile } = useAuth();
 
-  const [search, setSearch]   = useState('');
-  // Seed state from cache so the list appears instantly on revisit
-  const [convs,  setConvs]    = useState<Conversation[]>(_convsCache ?? []);
-  const [loading, setLoading] = useState(_convsCache === null);
+  const [search,           setSearch]         = useState('');
+  // convs holds ALL non-expired matches (with + without messages) — paginated
+  const [convs,            setConvs]          = useState<Conversation[]>(_convsCache);
+  const [convPage,         setConvPage]       = useState(0);
+  const [convHasMore,      setConvHasMore]    = useState(_convsHasMore);
+  const [convLoadingMore,  setConvLoadingMore]= useState(false);
+  const [loading,          setLoading]        = useState(_convsCache.length === 0);
+  const [, setTick]                           = useState(0);
+  const convLoadingRef = useRef(false);
+
+  // New matches (no messages) — from dedicated endpoint for horizontal strip pagination
+  const [newMatches,    setNewMatches]    = useState<NewMatch[]>(_newMatchesCache);
+  const [nmPage,        setNmPage]        = useState(0);
+  const [nmHasMore,     setNmHasMore]     = useState(false);
+  const [nmLoadingMore, setNmLoadingMore] = useState(false);
+  const nmLoadingRef = useRef(false);
+
   const wsRef = useRef<WebSocket | null>(null);
+
+  // Tick every 30s to refresh countdown timers
+  useEffect(() => {
+    const id = setInterval(() => setTick(t => t + 1), 30_000);
+    return () => clearInterval(id);
+  }, []);
+
+  // ── Paginated fetch for new matches horizontal strip ──────────────────────
+  // Uses the dedicated /chat/matches/new endpoint (separate pagination from convs)
+  const fetchNewMatchPage = useCallback(async (page: number, append: boolean) => {
+    if (!token || nmLoadingRef.current) return;
+    nmLoadingRef.current = true;
+    if (append) setNmLoadingMore(true);
+    try {
+      const res = await apiFetch<{ matches: NewMatch[]; total: number; has_more: boolean }>(
+        `/chat/matches/new?page=${page}&limit=10`, { token }
+      );
+      setNewMatches(prev => {
+        const next = append ? [...prev, ...res.matches] : res.matches;
+        _newMatchesCache = next;
+        return next;
+      });
+      setNmPage(page);
+      setNmHasMore(res.has_more);
+    } catch { /* ignore */ }
+    finally {
+      nmLoadingRef.current = false;
+      if (append) setNmLoadingMore(false);
+    }
+  }, [token]);
+
+  // ── Paginated fetch for all conversations (includes new matches too) ───────
+  const fetchConvPage = useCallback(async (page: number, append: boolean) => {
+    if (!token || convLoadingRef.current) return;
+    convLoadingRef.current = true;
+    if (append) setConvLoadingMore(true);
+    else if (page === 0) setLoading(true);
+    try {
+      const res = await apiFetch<{ conversations: Conversation[]; total: number; has_more: boolean }>(
+        `/chat/conversations?page=${page}&limit=10`, { token }
+      );
+      setConvs(prev => {
+        const next = append ? [...prev, ...res.conversations] : res.conversations;
+        _convsCache   = next;
+        _convsHasMore = res.has_more;
+        return next;
+      });
+      setConvPage(page);
+      setConvHasMore(res.has_more);
+    } catch { /* ignore */ }
+    finally {
+      convLoadingRef.current = false;
+      if (append) setConvLoadingMore(false);
+      else if (page === 0) setLoading(false);
+    }
+  }, [token]);
 
   function fetchConvs() {
     if (!token) return;
-    apiFetch<{ conversations: Conversation[] }>('/chat/conversations', { token })
-      .then(r => { _convsCache = r.conversations; setConvs(r.conversations); })
-      .catch(() => {});
+    fetchConvPage(0, false);
   }
 
   useEffect(() => {
     if (!token) return;
-    // If we already have cached data show it immediately, then refresh silently
-    if (_convsCache) {
+    // Load new matches strip
+    if (_newMatchesCache.length > 0) setNewMatches(_newMatchesCache);
+    fetchNewMatchPage(0, false);
+    // Load all conversations (includes new matches without messages)
+    if (_convsCache.length > 0) {
       setConvs(_convsCache);
       setLoading(false);
-      // Background refresh to pick up new conversations / message previews
-      apiFetch<{ conversations: Conversation[] }>('/chat/conversations', { token })
-        .then(r => { _convsCache = r.conversations; setConvs(r.conversations); })
-        .catch(() => {});
-      return;
+      fetchConvPage(0, false);
+    } else {
+      fetchConvPage(0, false);
     }
-    setLoading(true);
-    apiFetch<{ conversations: Conversation[] }>('/chat/conversations', { token })
-      .then(r => { _convsCache = r.conversations; setConvs(r.conversations); })
-      .catch(() => {})
-      .finally(() => setLoading(false));
   }, [token]);
+
+  // Re-fetch when screen comes back into focus (e.g. returning from chat)
+  useFocusEffect(
+    useCallback(() => {
+      if (!token) return;
+      fetchNewMatchPage(0, false);
+      fetchConvPage(0, false);
+    }, [token, fetchNewMatchPage, fetchConvPage])
+  );
+
+  // Detect scroll near bottom → load next conversations page
+  const handleScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    if (!convHasMore || convLoadingMore || convLoadingRef.current) return;
+    const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent;
+    const distanceFromBottom = contentSize.height - contentOffset.y - layoutMeasurement.height;
+    if (distanceFromBottom < 200) {
+      fetchConvPage(convPage + 1, true);
+    }
+  }, [convHasMore, convLoadingMore, convPage, fetchConvPage]);
 
   // ── notify WebSocket: update list on new_message or presence ──────────────
   useEffect(() => {
@@ -229,15 +348,29 @@ export default function ChatsPage({ insets, token }: { insets: any; token: strin
         try {
           const payload = JSON.parse(e.data);
           if (payload.type === 'new_message') {
+            const myId = profile?.id ?? '';
+
+            // Work out which side is the partner in this conversation
+            const partnerId = payload.sender_id === myId
+              ? payload.receiver_id
+              : payload.sender_id;
+
+            // ── Remove partner from new matches (they now have a message) ──
+            setNewMatches(prev => {
+              const next = prev.filter(m => m.partner_id !== partnerId);
+              _newMatchesCache = next;
+              return next;
+            });
+
+            // ── Update conversations list ──────────────────────────────────
             setConvs(prev => {
-              const myId = profile?.id ?? '';
-              // Match by room_id first; fall back to sender_id or receiver_id
               const idx = prev.findIndex(c =>
-                c.room_id === payload.room_id ||
+                c.room_id    === payload.room_id ||
                 c.partner_id === payload.sender_id ||
                 c.partner_id === payload.receiver_id
               );
               if (idx === -1) {
+                // Brand new conversation not yet in list — refresh
                 fetchConvs();
                 return prev;
               }
@@ -249,10 +382,10 @@ export default function ChatsPage({ insets, token }: { insets: any; token: strin
                 created_at: payload.created_at ?? new Date().toISOString(),
                 msg_type:   payload.msg_type,
               };
-              // Only increment unread for messages the PARTNER sent (not my own)
               if (payload.sender_id !== myId) {
                 conv.unread_count = (conv.unread_count ?? 0) + 1;
               }
+              // Bubble to top
               updated.splice(idx, 1);
               const next = [conv, ...updated];
               _convsCache = next;
@@ -297,10 +430,10 @@ export default function ChatsPage({ insets, token }: { insets: any; token: strin
 
   const searchQ = search.trim().toLowerCase();
 
-  // New matches: matched but no messages sent yet → circles
-  const newMatches = !searchQ
-    ? convs.filter(c => !c.last_message)
-    : [];
+  // Filtered new matches (for search)
+  const filteredNewMatches = searchQ
+    ? newMatches.filter(m => m.partner_name.toLowerCase().includes(searchQ))
+    : newMatches;
 
   // Active conversations: at least one message exchanged → list
   const activeConvs = convs.filter(c => {
@@ -309,16 +442,33 @@ export default function ChatsPage({ insets, token }: { insets: any; token: strin
     return true;
   });
 
-  // When searching, also include new matches in the flat list
-  const searchMatches = searchQ
+  // When searching, include new matches in flat list too
+  const searchConvMatches = searchQ
     ? convs.filter(c => !c.last_message && c.partner_name.toLowerCase().includes(searchQ))
     : [];
 
-  const hasNoMatches   = !loading && convs.length === 0;
-  const hasNoActive    = !loading && activeConvs.length === 0 && searchMatches.length === 0;
+  const hasNoContent = !loading && newMatches.length === 0 && convs.length === 0;
+  const hasNoActive  = !loading && activeConvs.length === 0 && searchConvMatches.length === 0;
+
+  const openChatFromMatch = (m: NewMatch) =>
+    navPush({ pathname: '/chat', params: {
+      partnerId: m.partner_id,
+      name:      m.partner_name,
+      image:     m.partner_image ?? '',
+      online:    m.is_online ? 'true' : 'false',
+      expiresAt: m.expires_at ?? '',
+      isSuper:   m.is_super ? 'true' : 'false',
+    } });
 
   const openChat = (c: Conversation) =>
-    navPush({ pathname: '/chat', params: { partnerId: c.partner_id, name: c.partner_name, image: c.partner_image ?? '', online: c.is_online ? 'true' : 'false' } });
+    navPush({ pathname: '/chat', params: {
+      partnerId: c.partner_id,
+      name: c.partner_name,
+      image: c.partner_image ?? '',
+      online: c.is_online ? 'true' : 'false',
+      expiresAt: c.expires_at ?? '',
+      isSuper: c.is_super_match ? 'true' : 'false',
+    } });
 
   return (
     <ScrollView
@@ -326,6 +476,8 @@ export default function ChatsPage({ insets, token }: { insets: any; token: strin
       contentContainerStyle={{ paddingBottom: insets.bottom + 90 }}
       showsVerticalScrollIndicator={false}
       keyboardShouldPersistTaps="handled"
+      onScroll={handleScroll}
+      scrollEventThrottle={200}
     >
       {/* Header */}
       <View style={styles.header}>
@@ -359,42 +511,78 @@ export default function ChatsPage({ insets, token }: { insets: any; token: strin
         </Squircle>
       </View>
 
-      {/* ── New Matches circles (no messages exchanged yet) ──────────────────── */}
+      {/* ── New Matches circles (paginated horizontal FlatList) ────────────── */}
       {!searchQ && newMatches.length > 0 && (
         <View style={{ marginBottom: 28 }}>
-          <Text style={[styles.sectionLabel, { color: colors.textSecondary, paddingHorizontal: 16, marginBottom: 14 }]}>
-            NEW MATCHES
-          </Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 14, paddingHorizontal: 16 }}>
-            {newMatches.map(m => (
-              <Pressable
-                key={m.partner_id}
-                onPress={() => openChat(m)}
-                style={({ pressed }) => [{ alignItems: 'center', gap: 7, maxWidth: 72 }, pressed && { opacity: 0.75 }]}
-              >
-                <View style={styles.matchRingWrap}>
-                  <View style={[styles.matchRing, { borderColor: '#6366f1' }]}>
-                    {m.partner_image
-                      ? <Image source={{ uri: m.partner_image }} style={styles.matchAvatar} contentFit="cover" cachePolicy="memory-disk" transition={150} recyclingKey={m.partner_image} />
-                      : <View style={[styles.matchAvatar, { backgroundColor: colors.surface2 }]} />
-                    }
-                  </View>
-                  {/* "NEW" pulse dot */}
-                  <View style={{ position: 'absolute', top: 0, right: 0, backgroundColor: '#6366f1', borderRadius: 10, minWidth: 18, height: 18, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4, borderWidth: 2, borderColor: colors.bg }}>
-                    <Text style={{ color: '#fff', fontSize: 9, fontFamily: 'ProductSans-Bold' }}>NEW</Text>
-                  </View>
-                  {m.is_online && (
-                    <View style={[styles.matchDot, { backgroundColor: colors.bg, bottom: 0, right: 0, top: undefined }]}>
-                      <View style={styles.matchDotInner} />
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, marginBottom: 14 }}>
+            <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>
+              NEW MATCHES
+            </Text>
+            <Text style={[styles.sectionLabel, { color: colors.textTertiary }]}>
+              {newMatches.length}{nmHasMore ? '+' : ''}
+            </Text>
+          </View>
+          <FlatList
+            horizontal
+            data={filteredNewMatches}
+            keyExtractor={m => m.partner_id}
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ gap: 14, paddingHorizontal: 16 }}
+            onEndReachedThreshold={0.4}
+            onEndReached={() => {
+              if (nmHasMore && !nmLoadingMore) {
+                fetchNewMatchPage(nmPage + 1, true);
+              }
+            }}
+            ListFooterComponent={nmLoadingMore ? (
+              <View style={{ justifyContent: 'center', alignItems: 'center', width: 50, paddingBottom: 8 }}>
+                <ActivityIndicator size="small" color={colors.textSecondary} />
+              </View>
+            ) : null}
+            renderItem={({ item: m }) => {
+              const isSuper   = m.is_super;
+              const permanent = _isPermanent(m.expires_at);
+              const timerStr  = (!permanent && m.expires_at) ? _formatExpiry(m.expires_at) : null;
+              const ringColor = isSuper ? '#F59E0B' : '#6366f1';
+              return (
+                <Pressable
+                  onPress={() => openChatFromMatch(m)}
+                  style={({ pressed }) => [{ alignItems: 'center', gap: 5, maxWidth: 72 }, pressed && { opacity: 0.75 }]}
+                >
+                  <View style={styles.matchRingWrap}>
+                    <View style={[styles.matchRing, { borderColor: ringColor }]}>
+                      {m.partner_image
+                        ? <Image source={{ uri: m.partner_image }} style={styles.matchAvatar} contentFit="cover" cachePolicy="memory-disk" transition={150} recyclingKey={m.partner_image} />
+                        : <View style={[styles.matchAvatar, { backgroundColor: colors.surface2 }]} />
+                      }
                     </View>
+                    {isSuper ? (
+                      <View style={{ position: 'absolute', top: 0, right: 0, backgroundColor: '#F59E0B', borderRadius: 10, minWidth: 18, height: 18, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4, borderWidth: 2, borderColor: colors.bg }}>
+                        <Ionicons name="star" size={9} color="#fff" />
+                      </View>
+                    ) : (
+                      <View style={{ position: 'absolute', top: 0, right: 0, backgroundColor: '#6366f1', borderRadius: 10, minWidth: 18, height: 18, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4, borderWidth: 2, borderColor: colors.bg }}>
+                        <Text style={{ color: '#fff', fontSize: 9, fontFamily: 'ProductSans-Bold' }}>NEW</Text>
+                      </View>
+                    )}
+                    {m.is_online && (
+                      <View style={[styles.matchDot, { backgroundColor: colors.bg, bottom: 0, right: 0, top: undefined }]}>
+                        <View style={styles.matchDotInner} />
+                      </View>
+                    )}
+                  </View>
+                  <Text style={[styles.matchName, { color: isSuper ? '#F59E0B' : colors.text }]} numberOfLines={1}>
+                    {m.partner_name.split(' ')[0]}
+                  </Text>
+                  {timerStr && (
+                    <Text style={{ fontSize: 10, fontFamily: 'ProductSans-Medium', color: isSuper ? '#F59E0B' : '#6366f1', textAlign: 'center' }}>
+                      {timerStr}
+                    </Text>
                   )}
-                </View>
-                <Text style={[styles.matchName, { color: colors.text }]} numberOfLines={1}>
-                  {m.partner_name.split(' ')[0]}
-                </Text>
-              </Pressable>
-            ))}
-          </ScrollView>
+                </Pressable>
+              );
+            }}
+          />
         </View>
       )}
 
@@ -409,12 +597,12 @@ export default function ChatsPage({ insets, token }: { insets: any; token: strin
       {!loading && (
         <View style={{ paddingHorizontal: 16 }}>
           {/* Only show the MESSAGES label when there are active convs */}
-          {(activeConvs.length > 0 || searchMatches.length > 0) && (
+          {(activeConvs.length > 0 || searchConvMatches.length > 0) && (
             <Text style={[styles.sectionLabel, { color: colors.textSecondary, marginBottom: 12 }]}>MESSAGES</Text>
           )}
 
           {/* Completely empty — no matches at all */}
-          {hasNoMatches && (
+          {hasNoContent && (
             <Squircle style={styles.convGroup} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={StyleSheet.hairlineWidth}>
               <View style={{ alignItems: 'center', padding: 32, gap: 8 }}>
                 <Ionicons name="chatbubble-outline" size={28} color={colors.textTertiary} />
@@ -425,11 +613,8 @@ export default function ChatsPage({ insets, token }: { insets: any; token: strin
             </Squircle>
           )}
 
-          {/* Has matches but none have messages yet (all are in circles above) — no list needed */}
-          {!hasNoMatches && hasNoActive && !searchQ && newMatches.length > 0 && null}
-
           {/* Search returned nothing */}
-          {searchQ && activeConvs.length === 0 && searchMatches.length === 0 && (
+          {searchQ && activeConvs.length === 0 && searchConvMatches.length === 0 && filteredNewMatches.length === 0 && (
             <Squircle style={styles.convGroup} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={StyleSheet.hairlineWidth}>
               <View style={{ alignItems: 'center', padding: 32, gap: 8 }}>
                 <Ionicons name="search-outline" size={28} color={colors.textTertiary} />
@@ -442,7 +627,7 @@ export default function ChatsPage({ insets, token }: { insets: any; token: strin
 
           {/* New matches that match the search query (flat, no circles while searching) */}
           <View style={{ gap: 10 }}>
-            {searchMatches.map((c) => (
+            {searchConvMatches.map((c) => (
               <Squircle
                 key={c.partner_id}
                 cornerRadius={22} cornerSmoothing={1}
@@ -465,21 +650,26 @@ export default function ChatsPage({ insets, token }: { insets: any; token: strin
           </View>
 
           {/* Active conversations (have messages) */}
-          <View style={{ gap: 10, marginTop: searchMatches.length > 0 ? 10 : 0 }}>
+          <View style={{ gap: 10, marginTop: searchConvMatches.length > 0 ? 10 : 0, marginBottom: convLoadingMore ? 0 : 4 }}>
             {activeConvs.map((c) => {
-              const rawContent = c.last_message?.content ?? '';
-              const msgType    = c.last_message?.msg_type;
-              const preview    = _previewText(rawContent, msgType);
-              const isMyMsg    = c.last_message?.sender_id === myId;
-              const timeStr    = _relativeTime(c.last_message!.created_at);
-              const hasUnread  = c.unread_count > 0;
+              const rawContent  = c.last_message?.content ?? '';
+              const msgType     = c.last_message?.msg_type;
+              const preview     = _previewText(rawContent, msgType);
+              const isMyMsg     = c.last_message?.sender_id === myId;
+              const permanent   = _isPermanent(c.expires_at);
+              const timerStr    = (!permanent && c.expires_at) ? _formatExpiry(c.expires_at) : null;
+              const timeStr     = timerStr ? `⏱ ${timerStr}` : _relativeTime(c.last_message!.created_at);
+              const hasUnread   = c.unread_count > 0;
+              const isSuper     = !!c.is_super_match;
+              const borderColor = isSuper ? '#F59E0B' : timerStr ? '#6366f1' : colors.border;
+              const borderW     = isSuper || timerStr ? 1.5 : StyleSheet.hairlineWidth;
               return (
                 <Squircle
                   key={c.partner_id}
                   cornerRadius={22} cornerSmoothing={1}
                   fillColor={colors.surface}
-                  strokeColor={colors.border}
-                  strokeWidth={StyleSheet.hairlineWidth}
+                  strokeColor={borderColor}
+                  strokeWidth={borderW}
                   style={{ overflow: 'hidden' }}
                 >
                   <ConvRow
@@ -495,6 +685,13 @@ export default function ChatsPage({ insets, token }: { insets: any; token: strin
               );
             })}
           </View>
+
+          {/* Load-more spinner */}
+          {convLoadingMore && (
+            <View style={{ alignItems: 'center', paddingVertical: 16 }}>
+              <ActivityIndicator size="small" color={colors.textSecondary} />
+            </View>
+          )}
         </View>
       )}
     </ScrollView>

@@ -1,24 +1,38 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
+import { getSvgPath } from 'figma-squircle';
 import { useEffect, useRef, useState } from 'react';
 import {
   Animated,
   Dimensions,
-  Image,
   Modal,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import {
+  ClipPath,
+  Defs,
+  G,
+  Image as SvgImage,
+  LinearGradient as SvgLinearGradient,
+  Path,
+  Rect,
+  Stop,
+  Svg,
+} from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
+import Squircle from '@/components/ui/Squircle';
 
 const { width: W } = Dimensions.get('window');
 
 const CARD_W = W * 0.46;
 const CARD_H = CARD_W * 1.42;
+
+const CARD_PATH = getSvgPath({ width: CARD_W, height: CARD_H, cornerRadius: 30, cornerSmoothing: 1, preserveSmoothing: true });
 
 const FALLBACK_AVATAR = 'https://randomuser.me/api/portraits/lego/1.jpg';
 
@@ -30,6 +44,7 @@ export interface MatchedProfile {
   image: string;
   interests?: { emoji: string; label: string }[];
   prompts?: { question: string; answer: string }[];
+  isSuperLike?: boolean;
 }
 
 interface Props {
@@ -39,6 +54,7 @@ interface Props {
 }
 
 export default function MatchScreen({ profile, onChat, onDismiss }: Props) {
+  const isSuper = !!profile.isSuperLike;
   const insets = useSafeAreaInsets();
   const { profile: me } = useAuth();
   const myPhoto = me?.photos?.[0] ?? FALLBACK_AVATAR;
@@ -63,13 +79,19 @@ export default function MatchScreen({ profile, onChat, onDismiss }: Props) {
     }
     starters.push(`Hey ${profile.name}! What's been making you smile lately? 😊`);
     starters.push(`If we could only do one thing together this weekend, what would you pick?`);
-    // Keep only 3
-    starters.splice(3);
+    // Keep only 2
+    starters.splice(2);
   }
 
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
 
   useEffect(() => {
+    // Haptic: success pulse then heavy thud — notification is sent server-side to both parties
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    setTimeout(() => {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
+    }, 300);
+
     Animated.parallel([
       Animated.timing(opacity, { toValue: 1, duration: 450, useNativeDriver: true }),
       Animated.spring(scaleMe,   { toValue: 1, friction: 7, tension: 60, useNativeDriver: true }),
@@ -90,19 +112,23 @@ export default function MatchScreen({ profile, onChat, onDismiss }: Props) {
       onRequestClose={() => dismiss(onDismiss)}
     >
     <Animated.View style={[styles.fill, { opacity }]}>
-      {/* Warm dark gradient — same as reference */}
+      {/* Background — gold for super like, warm dark for regular */}
       <LinearGradient
-        colors={['#3B1205', '#1E0A02', '#0A0302']}
+        colors={isSuper
+          ? ['#3D2000', '#1F1000', '#0A0500']
+          : ['#3B1205', '#1E0A02', '#0A0302']}
         locations={[0, 0.55, 1]}
         style={StyleSheet.absoluteFillObject}
       />
 
       {/* Top label */}
-      <Text style={[styles.topLabel, { marginTop: insets.top + 22 }]}>
-        It's a Match! 🎉
+      <Text style={[styles.topLabel, { marginTop: insets.top + 22, color: isSuper ? '#F59E0B' : '#fff' }]}>
+        {isSuper ? '⭐ Super Match!' : "It's a Match! 🎉"}
       </Text>
       <Text style={styles.topSub}>
-        You and {profile.name} liked each other
+        {isSuper
+          ? `You super liked each other — 48 hours to connect`
+          : `You and ${profile.name} liked each other`}
       </Text>
 
       {/* ── Overlapping profile cards ── */}
@@ -110,18 +136,49 @@ export default function MatchScreen({ profile, onChat, onDismiss }: Props) {
 
         {/* My card — back left */}
         <Animated.View style={[styles.cardBack, { transform: [{ scale: scaleMe }, { translateX: -CARD_W * 0.28 }, { translateY: -CARD_H * 0.06 }, { rotate: '-9deg' }] }]}>
-          <Image source={{ uri: myPhoto }} style={styles.cardPhoto} resizeMode="cover" />
-          <LinearGradient colors={['transparent', 'rgba(0,0,0,0.72)']} style={styles.cardGrad}>
-            <Text style={styles.cardName}>You</Text>
-          </LinearGradient>
+          <Svg width={CARD_W} height={CARD_H}>
+            <Defs>
+              <ClipPath id="clipMe">
+                <Path d={CARD_PATH} />
+              </ClipPath>
+              <SvgLinearGradient id="gradMe" x1="0" y1="0" x2="0" y2="1">
+                <Stop offset="0.5" stopColor="transparent" stopOpacity={0} />
+                <Stop offset="1" stopColor="#000" stopOpacity={0.75} />
+              </SvgLinearGradient>
+            </Defs>
+            <G clipPath="url(#clipMe)">
+              <SvgImage href={myPhoto} width={CARD_W} height={CARD_H} preserveAspectRatio="xMidYMid slice" />
+              <Rect width={CARD_W} height={CARD_H} fill="url(#gradMe)" />
+            </G>
+          </Svg>
+          <Text style={styles.cardName}>You</Text>
         </Animated.View>
 
         {/* Their card — front right */}
         <Animated.View style={[styles.cardFront, { transform: [{ scale: scaleThem }, { translateX: CARD_W * 0.22 }, { translateY: CARD_H * 0.04 }, { rotate: '4deg' }] }]}>
-          <Image source={{ uri: profile.image }} style={styles.cardPhoto} resizeMode="cover" />
-          <LinearGradient colors={['transparent', 'rgba(0,0,0,0.72)']} style={styles.cardGrad}>
-            <Text style={styles.cardName}>{profile.name}{profile.age ? `, ${profile.age}` : ''}</Text>
-          </LinearGradient>
+          <Svg width={CARD_W} height={CARD_H}>
+            <Defs>
+              <ClipPath id="clipThem">
+                <Path d={CARD_PATH} />
+              </ClipPath>
+              <SvgLinearGradient id="gradThem" x1="0" y1="0" x2="0" y2="1">
+                <Stop offset="0.5" stopColor="transparent" stopOpacity={0} />
+                <Stop offset="1" stopColor="#000" stopOpacity={0.75} />
+              </SvgLinearGradient>
+            </Defs>
+            <G clipPath="url(#clipThem)">
+              <SvgImage href={profile.image} width={CARD_W} height={CARD_H} preserveAspectRatio="xMidYMid slice" />
+              <Rect width={CARD_W} height={CARD_H} fill="url(#gradThem)" />
+              {/* Gold border overlay for super like */}
+              {isSuper && <Path d={CARD_PATH} fill="none" stroke="#F59E0B" strokeWidth={4} />}
+            </G>
+          </Svg>
+          {isSuper && (
+            <View style={styles.superStarBadge}>
+              <Ionicons name="star" size={12} color="#fff" />
+            </View>
+          )}
+          <Text style={styles.cardName}>{profile.name}{profile.age ? `, ${profile.age}` : ''}</Text>
         </Animated.View>
 
         {/* Floating bubbles */}
@@ -139,30 +196,48 @@ export default function MatchScreen({ profile, onChat, onDismiss }: Props) {
       {/* ── Bottom actions ── */}
       <View style={[styles.bottom, { paddingBottom: insets.bottom + 24 }]}>
 
-        {/* Conversation starters */}
+        {/* Conversation starters — Squircle card */}
         <Text style={styles.starterLabel}>Break the ice ✨</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.starterRow} contentContainerStyle={{ paddingHorizontal: 4 }}>
-          {starters.map((s, i) => (
-            <Pressable
-              key={i}
-              onPress={() => { setCopiedIdx(i); onChat(); }}
-              style={({ pressed }) => [styles.starterChip, pressed && { opacity: 0.78 }, copiedIdx === i && styles.starterChipActive]}
-            >
-              <Text style={styles.starterText} numberOfLines={2}>{s}</Text>
-            </Pressable>
-          ))}
-        </ScrollView>
-
-        {/* Start chatting */}
-        <Pressable
-          onPress={() => dismiss(onChat)}
-          style={({ pressed }) => [styles.ctaBtn, pressed && { opacity: 0.85 }]}
+        <Squircle
+          cornerRadius={22}
+          cornerSmoothing={1}
+          fillColor="rgba(255,255,255,0.08)"
+          style={styles.starterCard}
         >
-          <View style={styles.ctaIcon}>
-            <Ionicons name="chatbubble-ellipses" size={20} color="#fff" />
-          </View>
-          <Text style={styles.ctaText}>Start Chatting</Text>
-          <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.45)" />
+          {starters.map((s, i) => {
+            const isLast = i === starters.length - 1;
+            return (
+              <Pressable
+                key={i}
+                onPress={() => { setCopiedIdx(i); onChat(); }}
+                style={({ pressed }) => [
+                  styles.starterRow,
+                  !isLast && styles.starterDivider,
+                  pressed && { opacity: 0.6 },
+                  copiedIdx === i && styles.starterRowActive,
+                ]}
+              >
+                <Text style={styles.starterText}>{s}</Text>
+                <Ionicons name="arrow-forward-circle-outline" size={18} color="rgba(255,255,255,0.4)" />
+              </Pressable>
+            );
+          })}
+        </Squircle>
+
+        {/* Start chatting — Squircle */}
+        <Pressable onPress={() => dismiss(onChat)} style={({ pressed }) => [pressed && { opacity: 0.85 }]}>
+          <Squircle
+            cornerRadius={26}
+            cornerSmoothing={1}
+            fillColor="rgba(255,255,255,0.12)"
+            style={styles.ctaBtn}
+          >
+            <View style={styles.ctaIcon}>
+              <Ionicons name="chatbubble-ellipses" size={20} color="#fff" />
+            </View>
+            <Text style={styles.ctaText}>Start Chatting</Text>
+            <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.45)" />
+          </Squircle>
         </Pressable>
 
         {/* Keep browsing */}
@@ -209,9 +284,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     width: CARD_W,
     height: CARD_H,
-    borderRadius: 26,
-    overflow: 'hidden',
-    backgroundColor: '#222',
     shadowColor: '#000',
     shadowOpacity: 0.55,
     shadowRadius: 18,
@@ -223,9 +295,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     width: CARD_W,
     height: CARD_H,
-    borderRadius: 26,
-    overflow: 'hidden',
-    backgroundColor: '#222',
     shadowColor: '#000',
     shadowOpacity: 0.7,
     shadowRadius: 22,
@@ -234,26 +303,29 @@ const styles = StyleSheet.create({
     zIndex: 2,
   },
 
-  cardPhoto: {
-    width: '100%',
-    height: '100%',
-    position: 'absolute',
-  },
-
-  cardGrad: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    paddingHorizontal: 14,
-    paddingBottom: 14,
-    paddingTop: 48,
-  },
-
   cardName: {
+    position: 'absolute',
+    bottom: 14,
+    left: 14,
     color: '#fff',
     fontSize: 15,
     fontFamily: 'ProductSans-Bold',
+  },
+
+  superStarBadge: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#F59E0B',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#F59E0B',
+    shadowOpacity: 0.7,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 0 },
   },
 
   /* Floating bubbles */
@@ -289,18 +361,16 @@ const styles = StyleSheet.create({
   ctaBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    borderRadius: 50,
     paddingVertical: 10,
     paddingRight: 20,
     paddingLeft: 10,
   },
 
   ctaIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#E85D04',
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255,255,255,0.15)',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 14,
@@ -332,24 +402,26 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     paddingHorizontal: 4,
   },
+  starterCard: {
+    overflow: 'hidden',
+    marginBottom: 4,
+  },
   starterRow: {
-    marginBottom: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 13,
+    gap: 10,
   },
-  starterChip: {
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    borderRadius: 16,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    marginRight: 10,
-    maxWidth: 220,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.15)',
+  starterDivider: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(255,255,255,0.12)',
   },
-  starterChipActive: {
-    backgroundColor: 'rgba(255,100,100,0.3)',
-    borderColor: 'rgba(255,100,100,0.5)',
+  starterRowActive: {
+    backgroundColor: 'rgba(255,255,255,0.08)',
   },
   starterText: {
+    flex: 1,
     fontSize: 13,
     fontFamily: 'ProductSans-Regular',
     color: '#fff',

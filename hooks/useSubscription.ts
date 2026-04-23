@@ -133,7 +133,7 @@ export function useSubscription() {
       // Skip native RC SDK entirely in Expo Go — no native store available
       if (!IS_EXPO_GO) {
         try {
-          Purchases.setLogLevel(LOG_LEVEL.WARN);
+          Purchases.setLogLevel(LOG_LEVEL.ERROR);
           Purchases.configure({ apiKey: RC_IOS_PUBLIC_KEY });
           // Load store offerings for purchase UI (only available in native builds)
           loadOffering();

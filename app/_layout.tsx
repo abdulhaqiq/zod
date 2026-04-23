@@ -37,6 +37,7 @@ const SplashCtx = createContext<{
 }>({ signalReady: () => {}, splashDone: false });
 
 import { AuthProvider, useAuth, UserProfile } from '@/context/AuthContext';
+import SuspendedScreen from '@/components/SuspendedScreen';
 import { CallProvider, useCall } from '@/context/CallContext';
 import { AppThemeProvider, useAppTheme } from '@/context/ThemeContext';
 import { API_V1 } from '@/constants/api';
@@ -146,14 +147,13 @@ function _handleNotificationTap(
   }
   if (data.type === 'active_call') return;
   if (data.type === 'match' || data.type === 'chat') {
-    const otherId = data.other_user_id as string | undefined;
-    const name    = data.other_name   as string | undefined;
-    const image   = data.other_image  as string | undefined;
-    const roomId  = data.room_id      as string | undefined;
+    const otherId = (data.other_user_id ?? data.sender_id) as string | undefined;
+    const name    = (data.other_name   ?? data.sender_name ?? '') as string;
+    const image   = (data.other_image  ?? data.sender_image ?? '') as string;
     if (otherId) {
       router.push({
         pathname: '/chat',
-        params: { matchId: roomId ?? otherId, name: name ?? '', image: image ?? '', online: 'false' },
+        params: { partnerId: otherId, name, image, online: 'false' },
       } as any);
     }
   }
@@ -161,7 +161,7 @@ function _handleNotificationTap(
 
 function RootLayoutInner() {
   const { isDark, syncFromBackend, setApiFetch } = useAppTheme();
-  const { token, isLoading, isOnboarded, profile, isNetworkError } = useAuth();
+  const { token, isLoading, isOnboarded, profile, isNetworkError, isSuspended } = useAuth();
   const { setIncomingCall } = useCall();
   const { signalReady, splashDone } = useContext(SplashCtx);
   const router = useRouter();
@@ -169,6 +169,10 @@ function RootLayoutInner() {
 
   // Track whether we've already signalled the splash — avoids double-firing.
   const routingSignalledRef = useRef(false);
+  // Keep a stable ref to signalReady so the routing effect never holds a stale closure.
+  const signalReadyRef = useRef(signalReady);
+  useEffect(() => { signalReadyRef.current = signalReady; }, [signalReady]);
+  const signalTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // covering: instant opaque black overlay shown during post-splash
   // auth redirects (e.g. logout while on the feed screen).
   const [covering, setCovering] = useState(false);
@@ -252,9 +256,24 @@ function RootLayoutInner() {
   // ── expo-notifications — foreground receive + tap handlers ─────────────────
   // Handles Expo push tokens (ExponentPushToken[...]). Works alongside the
   // Firebase handlers above so both token types are covered.
+  const _notifTapHandledRef = useRef(false);
   useEffect(() => {
+    if (!splashDone) return;
     (async () => {
       const Notifications = await import('expo-notifications');
+
+      // Cold-start: app was killed, user tapped notification — response won't
+      // come through the listener, must be fetched once on mount.
+      if (!_notifTapHandledRef.current) {
+        _notifTapHandledRef.current = true;
+        try {
+          const initial = await Notifications.getLastNotificationResponseAsync();
+          if (initial) {
+            const data = (initial.notification.request.content.data ?? {}) as Record<string, any>;
+            _handleNotificationTap(data, router, setIncomingCall);
+          }
+        } catch {}
+      }
 
       // Foreground notification received (show as alert on iOS)
       const receivedSub = Notifications.addNotificationReceivedListener(_notif => {
@@ -269,7 +288,7 @@ function RootLayoutInner() {
         }
       });
 
-      // Notification tapped (background / killed)
+      // Notification tapped while app is in background
       const responseSub = Notifications.addNotificationResponseReceivedListener(response => {
         const data = (response.notification.request.content.data ?? {}) as Record<string, any>;
         _handleNotificationTap(data, router, setIncomingCall);
@@ -280,7 +299,7 @@ function RootLayoutInner() {
         responseSub.remove();
       };
     })();
-  }, [router, setIncomingCall]);
+  }, [splashDone, router, setIncomingCall]);
 
   // Sync theme from backend profile whenever profile changes
   useEffect(() => {
@@ -309,12 +328,12 @@ function RootLayoutInner() {
     // This means routing fires while the splash is still covering the screen,
     // so when the splash fades out the correct screen is already showing.
     if (!authReady) return;
-    // If there's a network error, routing is handled by the NoConnectionScreen —
+    // If there's a network error or suspension, routing is handled by overlays —
     // don't redirect the user anywhere.
-    if (isNetworkError) {
+    if (isNetworkError || isSuspended) {
       if (!routingSignalledRef.current) {
         routingSignalledRef.current = true;
-        signalReady();
+        signalReadyRef.current();
       }
       return;
     }
@@ -379,14 +398,26 @@ function RootLayoutInner() {
     }
 
     // Signal splash it may begin fading out — routing has been decided.
-    // We use a short timeout so router.replace() has one JS tick to register
-    // the new route before the splash starts revealing the screen.
+    // IMPORTANT: routingSignalledRef is set INSIDE the timer callback, not before.
+    // This prevents a race where segments updates within the delay window: cleanup
+    // cancels the timer but the ref is already true, so the signal is never sent.
     if (!routingSignalledRef.current) {
-      routingSignalledRef.current = true;
-      setTimeout(signalReady, didNavigate ? 100 : 0);
+      if (signalTimerRef.current) clearTimeout(signalTimerRef.current);
+      signalTimerRef.current = setTimeout(() => {
+        routingSignalledRef.current = true;
+        signalReadyRef.current();
+      }, didNavigate ? 120 : 0);
     }
 
-  }, [authReady, isLoggedIn, isOnboarded, isNetworkError, profile?.is_verified, profile?.face_scan_required, profile?.id_scan_required, segments]);
+    return () => {
+      // Only cancel pending timer if signal hasn't fired yet.
+      // Once routingSignalledRef is true the timer has already fired — nothing to clear.
+      if (!routingSignalledRef.current && signalTimerRef.current) {
+        clearTimeout(signalTimerRef.current);
+        signalTimerRef.current = null;
+      }
+    };
+  }, [authReady, isLoggedIn, isOnboarded, isNetworkError, isSuspended, profile?.is_verified, profile?.face_scan_required, profile?.id_scan_required, segments]);
 
   const bgColor = isDark ? darkColors.bg : lightColors.bg;
 
@@ -394,8 +425,8 @@ function RootLayoutInner() {
     <ThemeProvider value={isDark ? DarkTheme : DefaultTheme}>
       <View style={{ flex: 1, backgroundColor: bgColor }}>
 
-        {/* Only render the Stack when there's no network error */}
-        {!isNetworkError && (
+        {/* Only render the Stack when there's no network error or suspension */}
+        {!isNetworkError && !isSuspended && (
           <Stack>
             <Stack.Screen name="welcome"         options={{ headerShown: false }} />
             <Stack.Screen name="(tabs)"          options={{ headerShown: false, gestureEnabled: false }} />
@@ -424,16 +455,19 @@ function RootLayoutInner() {
             <Stack.Screen name="mini-games"     options={{ headerShown: false }} />
             <Stack.Screen name="notifications"   options={{ headerShown: false }} />
             <Stack.Screen name="security"        options={{ headerShown: false }} />
+            <Stack.Screen name="language"        options={{ headerShown: false }} />
             <Stack.Screen name="legal"           options={{ headerShown: false }} />
             <Stack.Screen name="get-help"        options={{ headerShown: false }} />
             <Stack.Screen name="purchases"              options={{ headerShown: false }} />
             <Stack.Screen name="ai-credits"             options={{ headerShown: false }} />
             <Stack.Screen name="admin-verifications"  options={{ headerShown: false }} />
+            <Stack.Screen name="admin-marketing"      options={{ headerShown: false }} />
             <Stack.Screen name="zod-work"             options={{ headerShown: false }} />
             <Stack.Screen name="work-edit-profile"    options={{ headerShown: false }} />
             <Stack.Screen name="religion"             options={{ headerShown: false }} />
             <Stack.Screen name="faith"               options={{ headerShown: false }} />
             <Stack.Screen name="face-scan-required"   options={{ headerShown: false, gestureEnabled: false }} />
+            <Stack.Screen name="wali-settings"        options={{ headerShown: false }} />
             <Stack.Screen name="modal"                options={{ presentation: 'modal', title: 'Modal' }} />
           </Stack>
         )}
@@ -444,6 +478,13 @@ function RootLayoutInner() {
         {isNetworkError && splashDone && (
           <View style={StyleSheet.absoluteFill}>
             <NoConnectionScreen />
+          </View>
+        )}
+
+        {/* Suspended account screen — shown instead of the app when banned. */}
+        {isSuspended && splashDone && (
+          <View style={StyleSheet.absoluteFill}>
+            <SuspendedScreen />
           </View>
         )}
 
@@ -503,7 +544,7 @@ const splashStyles = StyleSheet.create({
 });
 
 export default function RootLayout() {
-  const [fontsLoaded] = useFonts({
+  const [fontsLoaded, fontError] = useFonts({
     'ProductSans-Regular': require('@/assets/product sans full/ProductSans-Regular.ttf'),
     'ProductSans-Medium':  require('@/assets/product sans full/ProductSans-Medium.ttf'),
     'ProductSans-Bold':    require('@/assets/product sans full/ProductSans-Bold.ttf'),
@@ -511,6 +552,8 @@ export default function RootLayout() {
     'ProductSans-Light':   require('@/assets/product sans full/ProductSans-Light.ttf'),
     'PageSerif':           require('../PAGE SERIF (Demo_Font).otf'),
   });
+  // Treat a font error the same as "fonts loaded" — don't block the splash forever.
+  const fontsReady = fontsLoaded || !!fontError;
 
   const [splashReady, setSplashReady] = useState(false);
   const [splashDone,  setSplashDone]  = useState(false);
@@ -520,12 +563,31 @@ export default function RootLayout() {
     [splashDone],
   );
 
+  // Hard safety net: force splashReady after 6s in case the routing signal
+  // is never sent (e.g. due to an unhandled edge case in the auth/routing flow).
   useEffect(() => {
-    if (!fontsLoaded || !splashReady) return;
-    SplashScreen.hideAsync()
-      .catch(() => {})
-      .finally(() => setSplashDone(true));
-  }, [fontsLoaded, splashReady]);
+    const failsafe = setTimeout(() => setSplashReady(true), 6000);
+    return () => clearTimeout(failsafe);
+  }, []);
+
+  useEffect(() => {
+    if (!fontsReady || !splashReady) return;
+
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      setSplashDone(true);
+    };
+
+    // Hide the native splash — finish() is the fallback in case hideAsync hangs
+    SplashScreen.hideAsync().catch(() => {}).finally(finish);
+
+    // Safety net: if hideAsync never resolves (known iOS dev-build edge case),
+    // force the splash away after 2 seconds so the app is never stuck.
+    const guard = setTimeout(finish, 2000);
+    return () => clearTimeout(guard);
+  }, [fontsReady, splashReady]);
 
   return (
     <View style={{ flex: 1, backgroundColor: '#000000' }}>
