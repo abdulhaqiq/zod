@@ -1,33 +1,35 @@
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-type IoniconsName = string;
 import { useEffect, useRef, useState } from 'react';
 import {
-  Animated,
   Alert,
+  Animated,
   Dimensions,
   FlatList,
-  Image,
   NativeScrollEvent,
   NativeSyntheticEvent,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Squircle from '@/components/ui/Squircle';
 import { useAppTheme } from '@/context/ThemeContext';
 import { apiFetch } from '@/constants/api';
 import { useAuth } from '@/context/AuthContext';
 
-const { width: W } = Dimensions.get('window');
+const { width: W, height: H } = Dimensions.get('window');
+const PHOTO_HEIGHT = H * 0.62;
 
-// ─── Shimmer helpers ──────────────────────────────────────────────────────────
+// ─── Shimmer ──────────────────────────────────────────────────────────────────
 
-function ShimmerBlock({ width, height, borderRadius = 10, style }: {
-  width: number | string; height: number; borderRadius?: number; style?: any;
+function Shimmer({ width, height, radius = 10, style }: {
+  width: number | string; height: number; radius?: number; style?: any;
 }) {
   const anim = useRef(new Animated.Value(0)).current;
   useEffect(() => {
@@ -38,40 +40,33 @@ function ShimmerBlock({ width, height, borderRadius = 10, style }: {
       ])
     ).start();
   }, [anim]);
-  const opacity = anim.interpolate({ inputRange: [0, 1], outputRange: [0.25, 0.55] });
   return (
-    <Animated.View style={[{ width, height, borderRadius, backgroundColor: '#777', opacity }, style]} />
+    <Animated.View style={[{
+      width, height,
+      borderRadius: radius,
+      backgroundColor: '#444',
+      opacity: anim.interpolate({ inputRange: [0, 1], outputRange: [0.18, 0.45] }),
+    }, style]} />
   );
 }
 
-function ProfileViewSkeleton({ colors, insets }: { colors: any; insets: any }) {
+function SkeletonScreen({ insets }: { insets: any }) {
   return (
-    <View style={[styles.container, { backgroundColor: colors.bg }]}>
-      {/* Header */}
-      <View style={[styles.header, { paddingTop: insets.top + 6, backgroundColor: colors.bg, borderBottomColor: colors.border }]}>
-        <ShimmerBlock width={38} height={38} borderRadius={14} />
-        <ShimmerBlock width={120} height={16} />
-        <ShimmerBlock width={38} height={38} borderRadius={14} />
-      </View>
-      {/* Photo */}
-      <ShimmerBlock width={W} height={W * 1.15} borderRadius={0} />
-      {/* Content */}
+    <View style={{ flex: 1, backgroundColor: '#000' }}>
+      <Shimmer width={W} height={PHOTO_HEIGHT} radius={0} />
       <View style={{ padding: 20, gap: 14 }}>
-        <ShimmerBlock width={200} height={28} borderRadius={8} />
-        <ShimmerBlock width={130} height={16} borderRadius={6} />
-        <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.border }} />
-        <ShimmerBlock width="100%" height={14} />
-        <ShimmerBlock width="85%" height={14} />
-        <ShimmerBlock width="70%" height={14} />
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
-          {[140, 110, 90, 120, 95, 130].map((w, i) => (
-            <ShimmerBlock key={i} width={w} height={36} borderRadius={18} />
-          ))}
-        </View>
+        <Shimmer width={220} height={34} radius={8} />
+        <Shimmer width={140} height={16} radius={6} />
+        <View style={{ height: 1, backgroundColor: '#222', marginVertical: 4 }} />
+        {[1, 0.85, 0.7].map((w, i) => (
+          <Shimmer key={i} width={`${w * 100}%`} height={14} radius={6} />
+        ))}
       </View>
     </View>
   );
 }
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface ExtendedProfile {
   id: string;
@@ -79,6 +74,7 @@ interface ExtendedProfile {
   age: number | null;
   verified: boolean;
   premium: boolean;
+  isOnline: boolean;
   location: string | null;
   distance: string | null;
   about: string | null;
@@ -101,28 +97,107 @@ interface ExtendedProfile {
   languages: string[];
 }
 
-// ─── Detail chip ──────────────────────────────────────────────────────────────
+// ─── Sub-components ───────────────────────────────────────────────────────────
 
-function DetailChip({ icon, label, value, colors }: {
-  icon: IoniconsName;
-  label: string;
-  value: string;
-  colors: any;
-}) {
+function SectionCard({ children, colors }: { children: React.ReactNode; colors: any }) {
   return (
     <Squircle
-      style={styles.detailChip}
-      cornerRadius={16}
-      cornerSmoothing={0.8}
-      fillColor={colors.surface}
+      style={sectionCard.wrap}
+      cornerRadius={22}
+      cornerSmoothing={1}
+      fillColor={colors.surface2}
+      strokeColor={'rgba(255,255,255,0.11)'}
+      strokeWidth={1}
     >
-      <Ionicons name={icon as any} size={14} color={colors.btnPrimaryBg} />
-      <View>
-        <Text style={[styles.detailLabel, { color: colors.textSecondary }]}>{label}</Text>
-        <Text style={[styles.detailValue, { color: colors.text }]}>{value}</Text>
-      </View>
+      {children}
     </Squircle>
   );
+}
+const sectionCard = StyleSheet.create({
+  wrap: { padding: 18, marginBottom: 12 },
+});
+
+function SectionTitle({ label, colors }: { label: string; colors: any }) {
+  return (
+    <Text style={[st.label, { color: colors.textSecondary }]}>{label}</Text>
+  );
+}
+const st = StyleSheet.create({
+  label: { fontSize: 11, fontFamily: 'ProductSans-Bold', letterSpacing: 1.4, marginBottom: 12 },
+});
+
+function DetailItem({ icon, label, value, colors }: {
+  icon: string; label: string; value: string; colors: any;
+}) {
+  return (
+    <View style={di.row}>
+      <View style={[di.iconWrap, { backgroundColor: `${colors.btnPrimaryBg}12` }]}>
+        <Ionicons name={icon as any} size={15} color={colors.btnPrimaryBg} />
+      </View>
+      <View style={di.texts}>
+        <Text style={[di.lbl, { color: colors.textSecondary }]}>{label}</Text>
+        <Text style={[di.val, { color: colors.text }]}>{value}</Text>
+      </View>
+    </View>
+  );
+}
+const di = StyleSheet.create({
+  row:     { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8 },
+  iconWrap:{ width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  texts:   { flex: 1 },
+  lbl:     { fontSize: 11, fontFamily: 'ProductSans-Regular' },
+  val:     { fontSize: 14, fontFamily: 'ProductSans-Bold', marginTop: 1 },
+});
+
+// ─── Pre-fill cache (populated by callers before navigating) ─────────────────
+// Callers like LikedYouPage can drop profile data here so ProfileView shows
+// instantly without a loading skeleton, then refreshes in the background.
+
+const _prefillCache = new Map<string, ExtendedProfile>();
+
+export function preFillProfile(p: {
+  id: string; name: string; age: number | null; verified: boolean; premium: boolean;
+  location: string | null; distance: string | null; about: string | null;
+  images: string[];
+  details: {
+    height?: string | null; drinks?: string | null; smokes?: string | null;
+    gender?: string | null; wantsKids?: string | null; sign?: string | null;
+    politics?: string | null; religion?: string | null; work?: string | null;
+    education?: string | null;
+  };
+  lookingFor?: string | null;
+  interests: { emoji: string; label: string }[];
+  prompts: { question: string; answer: string }[];
+  languages: string[];
+}): void {
+  _prefillCache.set(p.id, {
+    id:       p.id,
+    name:     p.name,
+    age:      p.age,
+    verified: p.verified,
+    premium:  p.premium,
+    isOnline: false,
+    location: p.location,
+    distance: p.distance,
+    about:    p.about,
+    images:   p.images,
+    details: {
+      height:    p.details.height    ?? null,
+      drinks:    p.details.drinks    ?? null,
+      smokes:    p.details.smokes    ?? null,
+      gender:    p.details.gender    ?? null,
+      wantsKids: p.details.wantsKids ?? null,
+      sign:      p.details.sign      ?? null,
+      politics:  p.details.politics  ?? null,
+      religion:  p.details.religion  ?? null,
+      work:      p.details.work      ?? null,
+      education: p.details.education ?? null,
+    },
+    lookingFor: p.lookingFor ?? null,
+    interests:  p.interests,
+    prompts:    p.prompts,
+    languages:  p.languages,
+  });
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
@@ -130,31 +205,37 @@ function DetailChip({ icon, label, value, colors }: {
 export default function ProfileView() {
   const router   = useRouter();
   const insets   = useSafeAreaInsets();
-  const { colors } = useAppTheme();
+  const { colors, isDark } = useAppTheme();
   const { token } = useAuth();
   const { id }   = useLocalSearchParams<{ id: string }>();
 
-  const [profile,    setProfile]    = useState<ExtendedProfile | null>(null);
-  const [loading,    setLoading]    = useState(true);
+  const cached = id ? _prefillCache.get(id) ?? null : null;
+
+  const [profile,    setProfile]    = useState<ExtendedProfile | null>(cached);
+  const [loading,    setLoading]    = useState(!cached);
   const [loadError,  setLoadError]  = useState(false);
   const [photoIndex, setPhotoIndex] = useState(0);
   const [superLiked, setSuperLiked] = useState(false);
   const [liked,      setLiked]      = useState(false);
+  const scrollY = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     if (!id || !token) { setLoading(false); setLoadError(true); return; }
     let cancelled = false;
-    setLoading(true);
+    // Only show skeleton when there's no cached data to display immediately
+    if (!cached) setLoading(true);
     setLoadError(false);
     apiFetch<any>(`/discover/profile/${id}`, { token, timeoutMs: 12000 })
       .then(data => {
         if (cancelled) return;
+        _prefillCache.delete(id);
         setProfile({
           id:         data.id,
           name:       data.name ?? 'Unknown',
           age:        data.age ?? null,
           verified:   data.verified ?? false,
           premium:    data.premium ?? false,
+          isOnline:   data.is_online ?? false,
           location:   data.location ?? null,
           distance:   data.distance ?? null,
           about:      data.about ?? null,
@@ -205,7 +286,7 @@ export default function ProfileView() {
               token, method: 'POST',
               body: JSON.stringify({ reported_id: id, reason: r.key }),
             }).catch(() => {});
-            Alert.alert('Report submitted', 'Thank you for helping keep our community safe. Your report is anonymous and will be reviewed within 24 hours.');
+            Alert.alert('Reported', 'Thank you. Your report is anonymous and will be reviewed within 24 hours.');
           },
         })),
         { text: 'Cancel', style: 'cancel' },
@@ -217,7 +298,7 @@ export default function ProfileView() {
     const pName = profile?.name ?? '';
     Alert.alert(
       `Block ${pName}`,
-      `${pName} will no longer be able to see your profile or contact you. They won't be notified.`,
+      `${pName} won't be able to see your profile or contact you. They won't be notified.`,
       [
         {
           text: 'Block',
@@ -238,25 +319,22 @@ export default function ProfileView() {
   };
 
   const onPhotoScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const idx = Math.round(e.nativeEvent.contentOffset.x / W);
-    setPhotoIndex(idx);
+    setPhotoIndex(Math.round(e.nativeEvent.contentOffset.x / W));
   };
 
-  if (loading) {
-    return <ProfileViewSkeleton colors={colors} insets={insets} />;
-  }
+  if (loading) return <SkeletonScreen insets={insets} />;
 
   if (loadError || !profile) {
     return (
-      <View style={[styles.container, { backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center', gap: 16 }]}>
-        <Squircle style={{ width: 64, height: 64, alignItems: 'center', justifyContent: 'center' }} cornerRadius={20} cornerSmoothing={1} fillColor={colors.surface}>
-          <Ionicons name="wifi-outline" size={28} color={colors.textSecondary} />
+      <View style={[{ flex: 1, backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center', gap: 16 }]}>
+        <Squircle style={{ width: 72, height: 72, alignItems: 'center', justifyContent: 'center' }} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface}>
+          <Ionicons name="wifi-outline" size={30} color={colors.textSecondary} />
         </Squircle>
-        <Text style={{ fontSize: 16, fontFamily: 'ProductSans-Bold', color: colors.text }}>Couldn't load profile</Text>
-        <Text style={{ fontSize: 13, fontFamily: 'ProductSans-Regular', color: colors.textSecondary }}>Check your connection and try again</Text>
+        <Text style={{ fontSize: 17, fontFamily: 'ProductSans-Bold', color: colors.text }}>Couldn't load profile</Text>
+        <Text style={{ fontSize: 14, fontFamily: 'ProductSans-Regular', color: colors.textSecondary, textAlign: 'center', paddingHorizontal: 40 }}>Check your connection and try again</Text>
         <Pressable onPress={() => router.back()} style={({ pressed }) => [pressed && { opacity: 0.7 }]}>
-          <Squircle style={{ paddingHorizontal: 24, paddingVertical: 12 }} cornerRadius={20} cornerSmoothing={1} fillColor={colors.text}>
-            <Text style={{ fontSize: 14, fontFamily: 'ProductSans-Bold', color: colors.bg }}>Go back</Text>
+          <Squircle style={{ paddingHorizontal: 28, paddingVertical: 14 }} cornerRadius={22} cornerSmoothing={1} fillColor={colors.text}>
+            <Text style={{ fontSize: 15, fontFamily: 'ProductSans-Bold', color: colors.bg }}>Go back</Text>
           </Squircle>
         </Pressable>
       </View>
@@ -264,44 +342,89 @@ export default function ProfileView() {
   }
 
   const DETAIL_ROWS = [
-    { icon: 'resize-outline'       as const, label: 'Height',      value: profile.details.height     },
-    { icon: 'wine-outline'         as const, label: 'Drinks',      value: profile.details.drinks     },
-    { icon: 'flame-outline'        as const, label: 'Smokes',      value: profile.details.smokes     },
-    { icon: 'transgender-outline'  as const, label: 'Gender',      value: profile.details.gender     },
-    { icon: 'people-outline'       as const, label: 'Wants kids',  value: profile.details.wantsKids  },
-    { icon: 'star-outline'         as const, label: 'Star sign',   value: profile.details.sign       },
-    { icon: 'flag-outline'         as const, label: 'Politics',    value: profile.details.politics   },
-    { icon: 'globe-outline'        as const, label: 'Religion',    value: profile.details.religion   },
-    { icon: 'briefcase-outline'    as const, label: 'Works at',    value: profile.details.work       },
-    { icon: 'school-outline'       as const, label: 'Studied at',  value: profile.details.education  },
-  ].filter(r => r.value); // hide rows with no data
+    { icon: 'resize-outline',       label: 'Height',     value: profile.details.height    },
+    { icon: 'wine-outline',         label: 'Drinks',     value: profile.details.drinks    },
+    { icon: 'flame-outline',        label: 'Smokes',     value: profile.details.smokes    },
+    { icon: 'transgender-outline',  label: 'Gender',     value: profile.details.gender    },
+    { icon: 'people-outline',       label: 'Wants kids', value: profile.details.wantsKids },
+    { icon: 'star-outline',         label: 'Star sign',  value: profile.details.sign      },
+    { icon: 'flag-outline',         label: 'Politics',   value: profile.details.politics  },
+    { icon: 'globe-outline',        label: 'Religion',   value: profile.details.religion  },
+    { icon: 'briefcase-outline',    label: 'Works at',   value: profile.details.work      },
+    { icon: 'school-outline',       label: 'Studied at', value: profile.details.education },
+  ].filter(r => r.value);
+
+  const photoCount = profile.images.length;
+
+  // Parallax: photo scrolls at 0.4× speed
+  const photoTranslate = scrollY.interpolate({
+    inputRange: [-200, 0, PHOTO_HEIGHT],
+    outputRange: [0, 0, -PHOTO_HEIGHT * 0.3],
+    extrapolate: 'clamp',
+  });
+  const headerOpacity = scrollY.interpolate({
+    inputRange: [PHOTO_HEIGHT - 120, PHOTO_HEIGHT - 40],
+    outputRange: [0, 1],
+    extrapolate: 'clamp',
+  });
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.bg }]}>
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
 
-      {/* ── Header (fixed) ── */}
-      <View style={[styles.header, { paddingTop: insets.top + 6, backgroundColor: colors.bg, borderBottomColor: colors.border }]}>
+      {/* ── Floating back + options buttons ── */}
+      <View style={[s.floatRow, { top: insets.top + 10 }]} pointerEvents="box-none">
         <Pressable onPress={() => router.back()} hitSlop={12}>
-          <Squircle style={styles.headerBtn} cornerRadius={14} cornerSmoothing={1} fillColor={colors.surface2}>
-            <Ionicons name="arrow-back" size={20} color={colors.text} />
-          </Squircle>
+          <View style={s.floatBtn}>
+            <Ionicons name="arrow-back" size={20} color="#fff" />
+          </View>
         </Pressable>
-        <View style={styles.headerCenter}>
-          <Text style={[styles.headerName, { color: colors.text }]}>{profile.name}, {profile.age}</Text>
-          {profile.verified && <Ionicons name="checkmark-circle" size={18} color="#4FC3F7" style={{ marginLeft: 4 }} />}
-        </View>
-        <Pressable hitSlop={12}>
-          <Squircle style={styles.headerBtn} cornerRadius={14} cornerSmoothing={1} fillColor={colors.surface2}>
-            <Ionicons name="ellipsis-horizontal" size={20} color={colors.text} />
-          </Squircle>
+        <View style={{ flex: 1 }} />
+        <Pressable
+          hitSlop={12}
+          onPress={() =>
+            Alert.alert(profile.name, 'What would you like to do?', [
+              { text: `Report ${profile.name}`, style: 'destructive', onPress: handleReport },
+              { text: `Block ${profile.name}`,  style: 'destructive', onPress: handleBlock  },
+              { text: 'Cancel', style: 'cancel' },
+            ])
+          }
+        >
+          <View style={s.floatBtn}>
+            <Ionicons name="ellipsis-horizontal" size={20} color="#fff" />
+          </View>
         </Pressable>
       </View>
 
-      {/* ── Scrollable content ── */}
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
+      {/* ── Sticky header (appears when scrolled past photo) ── */}
+      <Animated.View
+        style={[s.stickyHeader, {
+          opacity: headerOpacity,
+          top: 0,
+          paddingTop: insets.top,
+          backgroundColor: colors.bg,
+          borderBottomColor: colors.border,
+        }]}
+        pointerEvents="none"
+      >
+        <Text style={[s.stickyName, { color: colors.text }]}>
+          {profile.name}{profile.age != null ? `, ${profile.age}` : ''}
+        </Text>
+      </Animated.View>
 
-        {/* Photos carousel */}
-        <View style={styles.photosWrap}>
+      {/* ── Scrollable content ── */}
+      <Animated.ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 110 }}
+        onScroll={Animated.event(
+          [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+          { useNativeDriver: true }
+        )}
+        scrollEventThrottle={16}
+      >
+
+        {/* ── Photo hero ── */}
+        <Animated.View style={[{ width: W, height: PHOTO_HEIGHT, overflow: 'hidden' }, { transform: [{ translateY: photoTranslate }] }]}>
+          {/* Photos carousel */}
           <FlatList
             data={profile.images}
             keyExtractor={(_, i) => String(i)}
@@ -310,232 +433,289 @@ export default function ProfileView() {
             showsHorizontalScrollIndicator={false}
             onScroll={onPhotoScroll}
             scrollEventThrottle={16}
+            style={{ flex: 1 }}
             renderItem={({ item }) => (
-              <Image source={{ uri: item }} style={styles.photo} />
+              <Image source={{ uri: item }} style={{ width: W, height: PHOTO_HEIGHT }} contentFit="cover" />
             )}
           />
-          {/* Dot indicators */}
-          {profile.images.length > 1 && (
-            <View style={styles.dots}>
+
+          {/* Photo progress bars — top */}
+          {photoCount > 1 && (
+            <View style={[s.progressBars, { top: 12 }]}>
               {profile.images.map((_, i) => (
                 <View
                   key={i}
                   style={[
-                    styles.dot,
-                    { backgroundColor: i === photoIndex ? colors.text : `${colors.text}44` },
-                    i === photoIndex && styles.dotActive,
+                    s.progressBar,
+                    {
+                      flex: 1,
+                      backgroundColor: i === photoIndex
+                        ? 'rgba(255,255,255,0.95)'
+                        : 'rgba(255,255,255,0.35)',
+                      height: i === photoIndex ? 3 : 2.5,
+                    },
                   ]}
                 />
               ))}
             </View>
           )}
-        </View>
 
-        <View style={styles.content}>
+          {/* Gradient overlay bottom of photo */}
+          <LinearGradient
+            colors={['transparent', 'rgba(0,0,0,0.25)', 'rgba(0,0,0,0.82)']}
+            locations={[0.3, 0.6, 1]}
+            style={[StyleSheet.absoluteFill, { justifyContent: 'flex-end' }]}
+          >
+            <View style={s.photoInfo}>
+              {/* Online status */}
+              {profile.isOnline && (
+                <View style={s.onlinePill}>
+                  <View style={s.onlineDot} />
+                  <Text style={s.onlineText}>Online</Text>
+                </View>
+              )}
 
-          {/* Name + location */}
-          <View style={styles.nameBlock}>
-            <View style={styles.nameRow}>
-              <Text style={[styles.bigName, { color: colors.text }]}>
-                {profile.name}{profile.age != null ? `, ${profile.age}` : ''}
-              </Text>
-              {profile.verified && <Ionicons name="checkmark-circle" size={22} color="#4FC3F7" style={{ marginLeft: 6 }} />}
-              {profile.premium && (
-                <View style={styles.premiumBadge}>
-                  <Ionicons name="star" size={10} color="#FFD60A" />
-                  <Text style={styles.premiumText}>PREMIUM</Text>
+              {/* Name + age + verified */}
+              <View style={s.nameAgeRow}>
+                <Text style={s.heroName}>
+                  {profile.name}
+                </Text>
+                {profile.age != null && (
+                  <Text style={s.heroAge}>{profile.age}</Text>
+                )}
+                {profile.verified && (
+                  <Ionicons name="checkmark-circle" size={22} color="#4FC3F7" style={{ marginLeft: 4 }} />
+                )}
+                {profile.premium && (
+                  <View style={s.premiumBadge}>
+                    <Ionicons name="star" size={10} color="#FFD60A" />
+                    <Text style={s.premiumText}>PRO</Text>
+                  </View>
+                )}
+              </View>
+
+              {/* Location + distance */}
+              {(profile.location || profile.distance) && (
+                <View style={s.locationRow}>
+                  <Ionicons name="location" size={13} color="rgba(255,255,255,0.85)" />
+                  <Text style={s.locationText}>
+                    {[profile.location, profile.distance ? `${profile.distance} away` : null].filter(Boolean).join('  ·  ')}
+                  </Text>
+                </View>
+              )}
+
+              {/* Interest chips on photo */}
+              {profile.interests.length > 0 && (
+                <View style={s.photoChips}>
+                  {profile.interests.slice(0, 3).map(item => (
+                    <View key={item.label} style={s.photoChip}>
+                      <Text style={s.photoChipText}>{item.emoji} {item.label}</Text>
+                    </View>
+                  ))}
                 </View>
               )}
             </View>
-            {(profile.location || profile.distance) && (
-              <View style={styles.locationRow}>
-                <Ionicons name="location-outline" size={13} color={colors.textSecondary} />
-                <Text style={[styles.locationText, { color: colors.textSecondary }]}>
-                  {[profile.location, profile.distance ? `${profile.distance} away` : null].filter(Boolean).join('  ·  ')}
-                </Text>
-              </View>
-            )}
-          </View>
+          </LinearGradient>
+        </Animated.View>
 
-          <View style={[styles.divider, { backgroundColor: colors.border }]} />
+        {/* ── Content cards ── */}
+        <View style={[s.content, { backgroundColor: colors.bg }]}>
 
           {/* About */}
           {!!profile.about && (
-            <>
-              <View style={styles.section}>
-                <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>ABOUT</Text>
-                <Text style={[styles.aboutText, { color: colors.text }]}>{profile.about}</Text>
-              </View>
-              <View style={[styles.divider, { backgroundColor: colors.border }]} />
-            </>
+            <SectionCard colors={colors}>
+              <SectionTitle label="ABOUT" colors={colors} />
+              <Text style={[s.aboutText, { color: colors.text }]}>{profile.about}</Text>
+            </SectionCard>
           )}
 
-          {/* Details grid */}
+          {/* Details */}
           {DETAIL_ROWS.length > 0 && (
-            <>
-              <View style={styles.section}>
-                <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>DETAILS</Text>
-                <View style={styles.detailGrid}>
-                  {DETAIL_ROWS.map((row) => (
-                    <DetailChip key={row.label} {...row} value={row.value!} colors={colors} />
-                  ))}
-                </View>
+            <SectionCard colors={colors}>
+              <SectionTitle label="DETAILS" colors={colors} />
+              <View style={{ gap: 0 }}>
+                {DETAIL_ROWS.map((row, i) => (
+                  <View key={row.label}>
+                    <DetailItem {...row} value={row.value!} colors={colors} />
+                    {i < DETAIL_ROWS.length - 1 && (
+                      <View style={[s.inlineDivider, { backgroundColor: colors.border }]} />
+                    )}
+                  </View>
+                ))}
               </View>
-              <View style={[styles.divider, { backgroundColor: colors.border }]} />
-            </>
+            </SectionCard>
           )}
 
           {/* Interests */}
           {profile.interests.length > 0 && (
-            <>
-              <View style={styles.section}>
-                <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>INTERESTS</Text>
-                <View style={styles.chipRow}>
-                  {profile.interests.map((item) => (
-                    <Squircle
-                      key={item.label}
-                      style={styles.interestChip}
-                      cornerRadius={20}
-                      cornerSmoothing={0.8}
-                      fillColor={colors.surface}
-                    >
-                      <Text style={styles.interestEmoji}>{item.emoji}</Text>
-                      <Text style={[styles.interestLabel, { color: colors.text }]}>{item.label}</Text>
-                    </Squircle>
-                  ))}
-                </View>
+            <SectionCard colors={colors}>
+              <SectionTitle label="INTERESTS" colors={colors} />
+              <View style={s.chipWrap}>
+                {profile.interests.map(item => (
+                  <Squircle
+                    key={item.label}
+                    style={s.interestChip}
+                    cornerRadius={20}
+                    cornerSmoothing={0.8}
+                    fillColor={colors.surface2}
+                  >
+                    <Text style={s.chipEmoji}>{item.emoji}</Text>
+                    <Text style={[s.chipLabel, { color: colors.text }]}>{item.label}</Text>
+                  </Squircle>
+                ))}
               </View>
-              <View style={[styles.divider, { backgroundColor: colors.border }]} />
-            </>
+            </SectionCard>
           )}
 
-          {/* Looking for */}
+          {/* Looking For */}
           {!!profile.lookingFor && (
-            <>
-              <View style={styles.section}>
-                <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>LOOKING FOR</Text>
-                <Squircle
-                  style={styles.lookingForCard}
-                  cornerRadius={18}
-                  cornerSmoothing={1}
-                  fillColor={colors.surface}
-                >
-                  <Ionicons name="heart" size={18} color={colors.btnPrimaryBg} />
-                  <Text style={[styles.lookingForText, { color: colors.text }]}>{profile.lookingFor}</Text>
-                </Squircle>
+            <SectionCard colors={colors}>
+              <SectionTitle label="LOOKING FOR" colors={colors} />
+              <View style={s.lookingRow}>
+                <View style={[s.lookingIcon, { backgroundColor: '#E8175D20' }]}>
+                  <Ionicons name="heart" size={18} color="#E8175D" />
+                </View>
+                <Text style={[s.lookingText, { color: colors.text }]}>{profile.lookingFor}</Text>
               </View>
-              <View style={[styles.divider, { backgroundColor: colors.border }]} />
-            </>
+            </SectionCard>
           )}
 
           {/* Prompts */}
           {profile.prompts.length > 0 && (
-            <>
-              <View style={styles.section}>
-                <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>PROMPTS</Text>
-                <View style={styles.promptList}>
-                  {profile.prompts.map((p, i) => (
-                    <Squircle
-                      key={i}
-                      style={styles.promptCard}
-                      cornerRadius={18}
-                      cornerSmoothing={1}
-                      fillColor={colors.surface}
-                    >
-                      <Text style={[styles.promptQuestion, { color: colors.textSecondary }]}>{p.question}</Text>
-                      <Text style={[styles.promptAnswer, { color: colors.text }]}>{p.answer}</Text>
-                    </Squircle>
-                  ))}
-                </View>
-              </View>
-              <View style={[styles.divider, { backgroundColor: colors.border }]} />
-            </>
-          )}
-
-          {/* Language */}
-          {profile.languages.length > 0 && (
-            <>
-              <View style={styles.section}>
-                <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>LANGUAGES</Text>
-                <View style={styles.chipRow}>
-                  {profile.languages.map((lang) => (
-                    <Squircle
-                      key={lang}
-                      style={styles.langChip}
-                      cornerRadius={16}
-                      cornerSmoothing={0.8}
-                      fillColor={colors.surface}
-                    >
-                      <Ionicons name="language-outline" size={14} color={colors.textSecondary} />
-                      <Text style={[styles.langText, { color: colors.text }]}>{lang}</Text>
-                    </Squircle>
-                  ))}
-                </View>
-              </View>
-              <View style={[styles.divider, { backgroundColor: colors.border }]} />
-            </>
-          )}
-
-          {/* Location */}
-          {(profile.location || profile.distance) && (
-            <>
-              <View style={styles.section}>
-                <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>LOCATION</Text>
+            <View style={{ gap: 10, marginBottom: 12 }}>
+              {profile.prompts.map((p, i) => (
                 <Squircle
-                  style={[styles.mapCard, { borderColor: colors.border }]}
-                  cornerRadius={18}
+                  key={i}
+                  style={s.promptCard}
+                  cornerRadius={22}
                   cornerSmoothing={1}
-                  fillColor={colors.surface}
+                  fillColor={colors.surface2}
+                  strokeColor={'rgba(255,255,255,0.11)'}
+                  strokeWidth={1}
                 >
-                  <Ionicons name="map-outline" size={28} color={colors.textSecondary} />
-                  <Text style={[styles.mapText, { color: colors.textSecondary }]}>
-                    {[profile.location, profile.distance ? `${profile.distance} away` : null].filter(Boolean).join('  ·  ')}
-                  </Text>
+                  <Text style={[s.promptQ, { color: colors.textSecondary }]}>{p.question}</Text>
+                  <Text style={[s.promptA, { color: colors.text }]}>{p.answer}</Text>
                 </Squircle>
+              ))}
+            </View>
+          )}
+
+          {/* Languages */}
+          {profile.languages.length > 0 && (
+            <SectionCard colors={colors}>
+              <SectionTitle label="LANGUAGES" colors={colors} />
+              <View style={s.chipWrap}>
+                {profile.languages.map(lang => (
+                  <Squircle
+                    key={lang}
+                    style={s.langChip}
+                    cornerRadius={16}
+                    cornerSmoothing={0.8}
+                    fillColor={colors.surface2}
+                  >
+                    <Ionicons name="language-outline" size={14} color={colors.textSecondary} />
+                    <Text style={[s.chipLabel, { color: colors.text }]}>{lang}</Text>
+                  </Squircle>
+                ))}
               </View>
-              <View style={[styles.divider, { backgroundColor: colors.border }]} />
-            </>
+            </SectionCard>
+          )}
+
+          {/* Location card */}
+          {(profile.location || profile.distance) && (
+            <Squircle
+              style={[s.locationCard, { marginBottom: 12 }]}
+              cornerRadius={22}
+              cornerSmoothing={1}
+              fillColor={colors.surface2}
+              strokeColor={'rgba(255,255,255,0.11)'}
+              strokeWidth={1}
+            >
+              <View style={[s.locationIconWrap, { backgroundColor: `${colors.btnPrimaryBg}12` }]}>
+                <Ionicons name="navigate-circle-outline" size={26} color={colors.btnPrimaryBg} />
+              </View>
+              <View>
+                <Text style={[{ fontSize: 11, fontFamily: 'ProductSans-Bold', letterSpacing: 1.2, color: colors.textSecondary, marginBottom: 3 }]}>LOCATION</Text>
+                <Text style={[{ fontSize: 15, fontFamily: 'ProductSans-Bold', color: colors.text }]}>
+                  {[profile.location, profile.distance ? `${profile.distance} away` : null].filter(Boolean).join(' · ')}
+                </Text>
+              </View>
+            </Squircle>
           )}
 
           {/* Report / Block */}
-          <View style={[styles.section, { gap: 8 }]}>
-            <Pressable onPress={handleReport} style={({ pressed }) => [pressed && { opacity: 0.7 }]}>
-              <View style={styles.dangerRow}>
-                <Ionicons name="flag-outline" size={16} color={colors.error} />
-                <Text style={[styles.dangerText, { color: colors.error }]}>Report {profile.name}</Text>
+          <Squircle
+            style={{ marginBottom: 12 }}
+            cornerRadius={22}
+            cornerSmoothing={1}
+            fillColor={colors.surface2}
+            strokeColor={'rgba(255,255,255,0.11)'}
+            strokeWidth={1}
+          >
+            <Pressable
+              onPress={handleReport}
+              style={({ pressed }) => [s.dangerRow, pressed && { opacity: 0.7 }]}
+            >
+              <View style={[s.dangerIcon, { backgroundColor: '#FF3B3018' }]}>
+                <Ionicons name="flag-outline" size={16} color="#FF3B30" />
               </View>
+              <Text style={[s.dangerText, { color: '#FF3B30' }]}>Report {profile.name}</Text>
+              <Ionicons name="chevron-forward" size={16} color="#FF3B3060" style={{ marginLeft: 'auto' }} />
             </Pressable>
-            <Pressable onPress={handleBlock} style={({ pressed }) => [pressed && { opacity: 0.7 }]}>
-              <View style={styles.dangerRow}>
-                <Ionicons name="ban-outline" size={16} color={colors.error} />
-                <Text style={[styles.dangerText, { color: colors.error }]}>Block {profile.name}</Text>
+            <View style={[s.inlineDivider, { backgroundColor: colors.border, marginHorizontal: 16 }]} />
+            <Pressable
+              onPress={handleBlock}
+              style={({ pressed }) => [s.dangerRow, pressed && { opacity: 0.7 }]}
+            >
+              <View style={[s.dangerIcon, { backgroundColor: '#FF3B3018' }]}>
+                <Ionicons name="ban-outline" size={16} color="#FF3B30" />
               </View>
+              <Text style={[s.dangerText, { color: '#FF3B30' }]}>Block {profile.name}</Text>
+              <Ionicons name="chevron-forward" size={16} color="#FF3B3060" style={{ marginLeft: 'auto' }} />
             </Pressable>
-          </View>
+          </Squircle>
 
         </View>
-      </ScrollView>
+      </Animated.ScrollView>
 
-      {/* ── Fixed action bar ── */}
-      <View style={[styles.actionBar, { backgroundColor: colors.bg, borderTopColor: colors.border, paddingBottom: Math.max(insets.bottom, 16) }]}>
-        {/* Dislike */}
+      {/* ── Action bar ── */}
+      <View style={[s.actionBar, {
+        backgroundColor: colors.bg,
+        borderTopColor: colors.border,
+        paddingBottom: Math.max(insets.bottom, 16),
+      }]}>
+        {/* Pass */}
         <Pressable onPress={() => router.back()} style={({ pressed }) => pressed && { opacity: 0.8 }}>
-          <Squircle style={styles.dislikeBtn} cornerRadius={28} cornerSmoothing={1} fillColor={colors.surface2} strokeColor={colors.border} strokeWidth={1.5}>
-            <Ionicons name="close" size={28} color="#FF3B30" />
+          <Squircle style={s.passBtn} cornerRadius={30} cornerSmoothing={1} fillColor={colors.surface2} strokeColor={'rgba(255,59,48,0.35)'} strokeWidth={1.5}>
+            <Ionicons name="close" size={30} color="#FF3B30" />
           </Squircle>
         </Pressable>
 
         {/* Super Like */}
         <Pressable onPress={() => setSuperLiked(v => !v)} style={({ pressed }) => pressed && { opacity: 0.8 }}>
-          <Squircle style={styles.superLikeBtn} cornerRadius={22} cornerSmoothing={1} fillColor={superLiked ? '#FFD60A' : colors.surface2} strokeColor={superLiked ? '#FFD60A' : colors.border} strokeWidth={1.5}>
+          <Squircle
+            style={s.superBtn}
+            cornerRadius={24}
+            cornerSmoothing={1}
+            fillColor={superLiked ? '#FFD60A' : colors.surface2}
+            strokeColor={superLiked ? '#FFD60A' : 'rgba(255,214,10,0.45)'}
+            strokeWidth={1.5}
+          >
             <Ionicons name="star" size={22} color={superLiked ? '#fff' : '#FFD60A'} />
           </Squircle>
         </Pressable>
 
         {/* Like */}
-        <Pressable onPress={() => { setLiked(v => !v); }} style={({ pressed }) => pressed && { opacity: 0.8 }}>
-          <Squircle style={styles.likeBtn} cornerRadius={28} cornerSmoothing={1} fillColor={liked ? '#E8175D' : colors.surface2} strokeColor={liked ? '#E8175D' : colors.border} strokeWidth={1.5}>
-            <Ionicons name="heart" size={28} color={liked ? '#fff' : '#E8175D'} />
+        <Pressable onPress={() => setLiked(v => !v)} style={({ pressed }) => pressed && { opacity: 0.8 }}>
+          <Squircle
+            style={s.likeBtn}
+            cornerRadius={30}
+            cornerSmoothing={1}
+            fillColor={liked ? '#E8175D' : colors.surface2}
+            strokeColor={liked ? '#E8175D' : 'rgba(232,23,93,0.35)'}
+            strokeWidth={1.5}
+          >
+            <Ionicons name="heart" size={30} color={liked ? '#fff' : '#E8175D'} />
           </Squircle>
         </Pressable>
       </View>
@@ -546,77 +726,102 @@ export default function ProfileView() {
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
-const styles = StyleSheet.create({
-  container:       { flex: 1 },
+const s = StyleSheet.create({
+  // Floating overlay buttons
+  floatRow: {
+    position: 'absolute', left: 16, right: 16, flexDirection: 'row', zIndex: 100,
+  },
+  floatBtn: {
+    width: 40, height: 40, borderRadius: 20,
+    backgroundColor: 'rgba(0,0,0,0.42)',
+    alignItems: 'center', justifyContent: 'center',
+    ...Platform.select({ ios: { backdropFilter: 'blur(8px)' } }),
+  },
 
-  // Header
-  header:          { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingBottom: 10, borderBottomWidth: StyleSheet.hairlineWidth },
-  headerBtn:       { width: 38, height: 38, alignItems: 'center', justifyContent: 'center' },
-  headerCenter:    { flexDirection: 'row', alignItems: 'center' },
-  headerName:      { fontSize: 16, fontFamily: 'ProductSans-Bold' },
+  // Sticky header
+  stickyHeader: {
+    position: 'absolute', left: 0, right: 0, zIndex: 50,
+    alignItems: 'center', paddingBottom: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  stickyName: { fontSize: 17, fontFamily: 'ProductSans-Bold' },
 
-  // Photos
-  photosWrap:      { width: W, height: W * 1.15 },
-  photo:           { width: W, height: W * 1.15, resizeMode: 'cover' },
-  dots:            { position: 'absolute', bottom: 14, alignSelf: 'center', flexDirection: 'row', gap: 5 },
-  dot:             { width: 6, height: 6, borderRadius: 3 },
-  dotActive:       { width: 18 },
+  // Photo progress bars
+  progressBars: {
+    position: 'absolute', left: 10, right: 10,
+    flexDirection: 'row', gap: 4, zIndex: 10,
+  },
+  progressBar: { borderRadius: 2 },
 
-  content:         { paddingHorizontal: 20, paddingTop: 20 },
+  // Photo info overlay
+  photoInfo: { paddingHorizontal: 16, paddingBottom: 20, gap: 6 },
+  onlinePill: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    backgroundColor: 'rgba(34,197,94,0.25)', borderRadius: 20,
+    alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 4,
+    borderWidth: 1, borderColor: 'rgba(34,197,94,0.5)',
+  },
+  onlineDot:   { width: 7, height: 7, borderRadius: 4, backgroundColor: '#22c55e' },
+  onlineText:  { color: '#22c55e', fontSize: 12, fontFamily: 'ProductSans-Bold' },
+  nameAgeRow:  { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  heroName:    { fontSize: 34, fontFamily: 'ProductSans-Black', color: '#fff', letterSpacing: -0.3 },
+  heroAge:     { fontSize: 30, fontFamily: 'ProductSans-Light', color: 'rgba(255,255,255,0.85)' },
+  premiumBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 3,
+    backgroundColor: '#FFD60A22', borderRadius: 8,
+    paddingHorizontal: 7, paddingVertical: 3, marginLeft: 4,
+  },
+  premiumText:  { color: '#FFD60A', fontSize: 10, fontFamily: 'ProductSans-Bold', letterSpacing: 1 },
+  locationRow:  { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  locationText: { color: 'rgba(255,255,255,0.85)', fontSize: 13, fontFamily: 'ProductSans-Medium' },
 
-  // Name block
-  nameBlock:       { gap: 5, marginBottom: 16 },
-  nameRow:         { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' },
-  bigName:         { fontSize: 26, fontFamily: 'ProductSans-Black' },
-  premiumBadge:    { flexDirection: 'row', alignItems: 'center', gap: 3, marginLeft: 8, backgroundColor: '#FFD60A22', paddingHorizontal: 7, paddingVertical: 3, borderRadius: 8 },
-  premiumText:     { color: '#FFD60A', fontSize: 10, fontFamily: 'ProductSans-Bold', letterSpacing: 1 },
-  locationRow:     { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  locationText:    { fontSize: 13, fontFamily: 'ProductSans-Regular' },
+  // Chips on photo
+  photoChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 2 },
+  photoChip: {
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    borderRadius: 20, paddingHorizontal: 11, paddingVertical: 5,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.3)',
+  },
+  photoChipText: { color: '#fff', fontSize: 12, fontFamily: 'ProductSans-Medium' },
 
-  divider:         { height: StyleSheet.hairlineWidth, marginVertical: 18 },
-
-  // Section
-  section:         { gap: 12 },
-  sectionLabel:    { fontSize: 11, fontFamily: 'ProductSans-Bold', letterSpacing: 1.4 },
-  aboutText:       { fontSize: 15, fontFamily: 'ProductSans-Regular', lineHeight: 24 },
-
-  // Detail grid
-  detailGrid:      { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  detailChip:      { flexDirection: 'row', alignItems: 'center', gap: 9, paddingHorizontal: 12, paddingVertical: 10 },
-  detailLabel:     { fontSize: 10, fontFamily: 'ProductSans-Regular' },
-  detailValue:     { fontSize: 13, fontFamily: 'ProductSans-Bold' },
+  // Content area
+  content: { paddingHorizontal: 16, paddingTop: 16 },
+  aboutText: { fontSize: 15, fontFamily: 'ProductSans-Regular', lineHeight: 24 },
+  inlineDivider: { height: StyleSheet.hairlineWidth },
 
   // Interests
-  chipRow:         { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  interestChip:    { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 9 },
-  interestEmoji:   { fontSize: 16 },
-  interestLabel:   { fontSize: 13, fontFamily: 'ProductSans-Medium' },
+  chipWrap:     { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  interestChip: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 9 },
+  chipEmoji:    { fontSize: 16 },
+  chipLabel:    { fontSize: 13, fontFamily: 'ProductSans-Medium' },
+  langChip:     { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 9 },
 
   // Looking for
-  lookingForCard:  { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 14 },
-  lookingForText:  { fontSize: 15, fontFamily: 'ProductSans-Bold' },
+  lookingRow:  { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  lookingIcon: { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  lookingText: { fontSize: 15, fontFamily: 'ProductSans-Bold', flex: 1 },
 
   // Prompts
-  promptList:      { gap: 10 },
-  promptCard:      { padding: 16, gap: 6 },
-  promptQuestion:  { fontSize: 12, fontFamily: 'ProductSans-Bold', letterSpacing: 0.3 },
-  promptAnswer:    { fontSize: 15, fontFamily: 'ProductSans-Regular', lineHeight: 23 },
+  promptCard: { padding: 18, gap: 8 },
+  promptQ:    { fontSize: 12, fontFamily: 'ProductSans-Bold', letterSpacing: 0.3 },
+  promptA:    { fontSize: 15, fontFamily: 'ProductSans-Regular', lineHeight: 23 },
 
-  // Language
-  langChip:        { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 9 },
-  langText:        { fontSize: 13, fontFamily: 'ProductSans-Medium' },
-
-  // Map
-  mapCard:         { alignItems: 'center', justifyContent: 'center', paddingVertical: 28, gap: 8 },
-  mapText:         { fontSize: 13, fontFamily: 'ProductSans-Regular' },
+  // Location card
+  locationCard:    { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 18 },
+  locationIconWrap: { width: 50, height: 50, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
 
   // Danger
-  dangerRow:       { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 },
-  dangerText:      { fontSize: 14, fontFamily: 'ProductSans-Medium' },
+  dangerRow:  { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 14 },
+  dangerIcon: { width: 34, height: 34, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  dangerText: { fontSize: 15, fontFamily: 'ProductSans-Medium' },
 
   // Action bar
-  actionBar:       { position: 'absolute', bottom: 0, left: 0, right: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 20, paddingTop: 12, borderTopWidth: StyleSheet.hairlineWidth },
-  dislikeBtn:      { width: 64, height: 64, alignItems: 'center', justifyContent: 'center' },
-  superLikeBtn:    { width: 52, height: 52, alignItems: 'center', justifyContent: 'center' },
-  likeBtn:         { width: 64, height: 64, alignItems: 'center', justifyContent: 'center' },
+  actionBar: {
+    position: 'absolute', bottom: 0, left: 0, right: 0,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 22,
+    paddingTop: 14, borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  passBtn:  { width: 66, height: 66, alignItems: 'center', justifyContent: 'center' },
+  superBtn: { width: 54, height: 54, alignItems: 'center', justifyContent: 'center' },
+  likeBtn:  { width: 66, height: 66, alignItems: 'center', justifyContent: 'center' },
 });

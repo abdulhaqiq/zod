@@ -404,7 +404,7 @@ const notifStyles = StyleSheet.create({
 export default function AdminVerificationsPage() {
   const router   = useRouter();
   const { colors } = useAppTheme();
-  const { token }  = useAuth();
+  const { token, profile }  = useAuth();
 
   const [attempts,  setAttempts]  = useState<Attempt[]>([]);
   const [loading,   setLoading]   = useState(true);

@@ -130,12 +130,14 @@ function _isPermanent(expiresAt?: string | null): boolean {
 // ─── Animated conversation row ────────────────────────────────────────────────
 
 function ConvRow({
-  conv, isMe, preview, timeStr, hasUnread, onPress, colors,
+  conv, isMe, preview, timeStr, isTimer, ringColor, hasUnread, onPress, colors,
 }: {
   conv: Conversation;
   isMe: boolean;
   preview: string;
   timeStr: string;
+  isTimer: boolean;
+  ringColor: string | null;   // null = no ring (permanent match)
   hasUnread: boolean;
   onPress: () => void;
   colors: any;
@@ -147,6 +149,10 @@ function ConvRow({
   const onPressOut = () =>
     Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 20, bounciness: 4 }).start();
 
+  const timeTextColor = isTimer
+    ? (ringColor ?? colors.textSecondary)
+    : (hasUnread ? colors.text : colors.textSecondary);
+
   return (
     <Animated.View style={{ transform: [{ scale }] }}>
       <Pressable
@@ -155,27 +161,46 @@ function ConvRow({
         onPressOut={onPressOut}
         style={({ pressed }) => [
           styles.convRow,
-          { backgroundColor: pressed ? colors.surface2 : colors.surface },
+          { backgroundColor: pressed ? colors.surface2 : 'transparent' },
         ]}
       >
+        {/* Avatar with optional coloured ring */}
         <View style={styles.avatarWrap}>
-          {conv.partner_image
-            ? <Image source={{ uri: conv.partner_image }} style={styles.avatar} contentFit="cover" cachePolicy="memory-disk" transition={150} recyclingKey={conv.partner_image} />
-            : <View style={[styles.avatar, { backgroundColor: colors.surface2 }]} />
-          }
+          {ringColor ? (
+            <View style={[styles.avatarRing, { borderColor: ringColor }]}>
+              {conv.partner_image
+                ? <Image source={{ uri: conv.partner_image }} style={styles.avatarInner} contentFit="cover" cachePolicy="memory-disk" transition={150} recyclingKey={conv.partner_image} />
+                : <View style={[styles.avatarInner, { backgroundColor: colors.surface2 }]} />
+              }
+            </View>
+          ) : (
+            conv.partner_image
+              ? <Image source={{ uri: conv.partner_image }} style={styles.avatar} contentFit="cover" cachePolicy="memory-disk" transition={150} recyclingKey={conv.partner_image} />
+              : <View style={[styles.avatar, { backgroundColor: colors.surface2 }]} />
+          )}
           {conv.is_online && (
-            <View style={[styles.onlineDot, { borderColor: colors.surface, backgroundColor: '#22c55e' }]} />
+            <View style={[styles.onlineDot, { borderColor: colors.surface2, backgroundColor: '#22c55e' }]} />
           )}
         </View>
+
         <View style={{ flex: 1, gap: 3 }}>
           <View style={styles.topRow}>
             <Text style={[styles.convName, { color: colors.text }]}>{conv.partner_name}</Text>
-            <Text style={[styles.convTime, {
-              color: hasUnread ? colors.text : colors.textSecondary,
-              fontFamily: hasUnread ? 'ProductSans-Bold' : 'ProductSans-Regular',
-            }]}>
-              {timeStr}
-            </Text>
+            {isTimer ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                <Ionicons name="time-outline" size={11} color={timeTextColor} />
+                <Text style={[styles.convTime, { color: timeTextColor, fontFamily: 'ProductSans-Medium' }]}>
+                  {timeStr}
+                </Text>
+              </View>
+            ) : (
+              <Text style={[styles.convTime, {
+                color: timeTextColor,
+                fontFamily: hasUnread ? 'ProductSans-Bold' : 'ProductSans-Regular',
+              }]}>
+                {timeStr}
+              </Text>
+            )}
           </View>
           <Text
             style={[styles.convPreview, {
@@ -187,6 +212,7 @@ function ConvRow({
             {isMe ? `You: ${preview}` : preview}
           </Text>
         </View>
+
         {hasUnread && (
           <Squircle style={styles.unreadBadge} cornerRadius={20} cornerSmoothing={1} fillColor={colors.text}>
             <Text style={[styles.unreadText, { color: colors.bg }]}>{conv.unread_count}</Text>
@@ -626,50 +652,56 @@ export default function ChatsPage({ insets, token }: { insets: any; token: strin
           )}
 
           {/* New matches that match the search query (flat, no circles while searching) */}
-          <View style={{ gap: 10 }}>
-            {searchConvMatches.map((c) => (
-              <Squircle
-                key={c.partner_id}
-                cornerRadius={22} cornerSmoothing={1}
-                fillColor={colors.surface}
-                strokeColor={'#6366f1'}
-                strokeWidth={1.5}
-                style={{ overflow: 'hidden' }}
-              >
-                <ConvRow
-                  conv={c}
-                  isMe={false}
-                  preview="Say hi! 👋"
-                  timeStr=""
-                  hasUnread={false}
-                  colors={colors}
-                  onPress={() => openChat(c)}
-                />
-              </Squircle>
-            ))}
-          </View>
-
-          {/* Active conversations (have messages) */}
-          <View style={{ gap: 10, marginTop: searchConvMatches.length > 0 ? 10 : 0, marginBottom: convLoadingMore ? 0 : 4 }}>
-            {activeConvs.map((c) => {
-              const rawContent  = c.last_message?.content ?? '';
-              const msgType     = c.last_message?.msg_type;
-              const preview     = _previewText(rawContent, msgType);
-              const isMyMsg     = c.last_message?.sender_id === myId;
-              const permanent   = _isPermanent(c.expires_at);
-              const timerStr    = (!permanent && c.expires_at) ? _formatExpiry(c.expires_at) : null;
-              const timeStr     = timerStr ? `⏱ ${timerStr}` : _relativeTime(c.last_message!.created_at);
-              const hasUnread   = c.unread_count > 0;
-              const isSuper     = !!c.is_super_match;
-              const borderColor = isSuper ? '#F59E0B' : timerStr ? '#6366f1' : colors.border;
-              const borderW     = isSuper || timerStr ? 1.5 : StyleSheet.hairlineWidth;
+          <View style={{ gap: 8 }}>
+            {searchConvMatches.map((c) => {
+              const isSuper = !!c.is_super_match;
+              const ring    = isSuper ? '#F59E0B' : '#6366f1';
               return (
                 <Squircle
                   key={c.partner_id}
                   cornerRadius={22} cornerSmoothing={1}
-                  fillColor={colors.surface}
-                  strokeColor={borderColor}
-                  strokeWidth={borderW}
+                  fillColor={colors.surface2}
+                  strokeColor={'rgba(255,255,255,0.11)'}
+                  strokeWidth={1}
+                  style={{ overflow: 'hidden' }}
+                >
+                  <ConvRow
+                    conv={c}
+                    isMe={false}
+                    preview="Say hi! 👋"
+                    timeStr=""
+                    isTimer={false}
+                    ringColor={ring}
+                    hasUnread={false}
+                    colors={colors}
+                    onPress={() => openChat(c)}
+                  />
+                </Squircle>
+              );
+            })}
+          </View>
+
+          {/* Active conversations (have messages) */}
+          <View style={{ gap: 8, marginTop: searchConvMatches.length > 0 ? 8 : 0, marginBottom: convLoadingMore ? 0 : 4 }}>
+            {activeConvs.map((c) => {
+              const rawContent = c.last_message?.content ?? '';
+              const msgType    = c.last_message?.msg_type;
+              const preview    = _previewText(rawContent, msgType);
+              const isMyMsg    = c.last_message?.sender_id === myId;
+              const permanent  = _isPermanent(c.expires_at);
+              const timerStr   = (!permanent && c.expires_at) ? _formatExpiry(c.expires_at) : null;
+              const timeStr    = timerStr ?? _relativeTime(c.last_message!.created_at);
+              const hasUnread  = c.unread_count > 0;
+              const isSuper    = !!c.is_super_match;
+              // Ring colour on avatar — gold for super-like timed, blue for regular timed, none for permanent
+              const ring = timerStr ? (isSuper ? '#F59E0B' : '#6366f1') : null;
+              return (
+                <Squircle
+                  key={c.partner_id}
+                  cornerRadius={22} cornerSmoothing={1}
+                  fillColor={colors.surface2}
+                  strokeColor={'rgba(255,255,255,0.11)'}
+                  strokeWidth={1}
                   style={{ overflow: 'hidden' }}
                 >
                   <ConvRow
@@ -677,6 +709,8 @@ export default function ChatsPage({ insets, token }: { insets: any; token: strin
                     isMe={isMyMsg}
                     preview={preview}
                     timeStr={timeStr}
+                    isTimer={!!timerStr}
+                    ringColor={ring}
                     hasUnread={hasUnread}
                     colors={colors}
                     onPress={() => openChat(c)}
@@ -720,6 +754,8 @@ const styles = StyleSheet.create({
   convRow:       { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 14, paddingHorizontal: 16, borderRadius: 22 },
   avatarWrap:    { position: 'relative' },
   avatar:        { width: 52, height: 52, borderRadius: 26 },
+  avatarRing:    { width: 56, height: 56, borderRadius: 28, borderWidth: 2, padding: 2 },
+  avatarInner:   { width: 48, height: 48, borderRadius: 24 },
   onlineDot:     { position: 'absolute', bottom: 1, right: 1, width: 13, height: 13, borderRadius: 7, borderWidth: 2 },
   topRow:        { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   convName:      { fontSize: 15, fontFamily: 'ProductSans-Bold' },

@@ -19,6 +19,7 @@ export interface CachedMsg {
   id:            string;
   text:          string;
   from:          'me' | 'them';
+  sender_id?:    string;          // stored so from can be re-derived if myId was wrong at write time
   time:          string;          // display string e.g. "14:32"
   rawTime:       string;          // ISO 8601 — used as pagination cursor
   status?:       'sending' | 'sent' | 'delivered' | 'read';

@@ -22,6 +22,7 @@ import {
   View,
 } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
 import ChipSelectorSheet, { type ChipOption } from '@/components/ui/ChipSelectorSheet';
 import WheelPickerSheet from '@/components/ui/WheelPickerSheet';
 import VoiceSection from '@/components/ui/VoiceSection';
@@ -504,6 +505,7 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
   const [moodText,         setMoodText]         = useState(profile?.mood_text ?? '');
   const [moodModalOpen,    setMoodModalOpen]    = useState(false);
   const [universityModalOpen,   setUniversityModalOpen]   = useState(false);
+  const [aiScoreModalOpen, setAiScoreModalOpen] = useState(false);
   // University email verification state
   const [uniEmail,              setUniEmail]              = useState(profile?.university_email ?? '');
   const [uniEmailDraft,         setUniEmailDraft]         = useState(profile?.university_email ?? '');
@@ -592,7 +594,7 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
   // ── Profile completeness score ────────────────────────────────────────────
   const profileFields: { label: string; filled: boolean; tip: string }[] = [
     { label: 'Photos',        filled: (profile?.photos?.length ?? 0) >= 3,  tip: 'Add at least 3 photos' },
-    { label: 'Bio',           filled: !!(profile?.about_me),                 tip: 'Write a bio about yourself' },
+    { label: 'Bio',           filled: !!(profile?.bio),                      tip: 'Write a bio about yourself' },
     { label: 'Height',        filled: !!(profile?.height_cm),                tip: 'Add your height' },
     { label: 'Exercise',      filled: !!exerciseId,                          tip: 'Set your exercise habits' },
     { label: 'Drinking',      filled: !!drinkingId,                          tip: 'Set your drinking habits' },
@@ -604,7 +606,7 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
     { label: 'Ethnicity',     filled: !!ethnicityId,                         tip: 'Add your ethnicity' },
     { label: 'Languages',     filled: languageIds.length > 0,                tip: 'Add languages you speak' },
     { label: 'Interests',     filled: (profile?.interests?.length ?? 0) >= 3, tip: 'Pick at least 3 interests' },
-    { label: 'Work/Education', filled: !!(profile?.company || profile?.school), tip: 'Add your work or education' },
+    { label: 'Work/Education', filled: !!((profile?.work_experience?.length ?? 0) > 0 || (profile?.education?.length ?? 0) > 0), tip: 'Add your work or education' },
   ];
   const filledCount  = profileFields.filter(f => f.filled).length;
   const scorePercent = Math.round((filledCount / profileFields.length) * 100);
@@ -762,211 +764,263 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
 
   return (
     <ScrollView
-      style={{ flex: 1 }}
+      style={{ flex: 1, backgroundColor: colors.bg }}
       contentContainerStyle={{ paddingBottom: insets.bottom + 90 }}
       showsVerticalScrollIndicator={false}
     >
-      {/* ── Header ──────────────────────────────────────────────────────── */}
-      <View style={[styles.igHeaderWrap, { borderBottomColor: colors.border }]}>
-        <View style={styles.igHeader}>
+      {/* ── Header (respects status bar) ─────────────────── */}
+      <View style={{ paddingHorizontal: 20, paddingBottom: 0 }}>
+        {/* Profile Section */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+          {/* Avatar */}
           {avatarUrl ? (
-            <ExpoImage source={{ uri: avatarUrl }} style={styles.avatarImage} contentFit="cover" cachePolicy="memory-disk" transition={200} />
+            <ExpoImage 
+              source={{ uri: avatarUrl }} 
+              style={{ width: 68, height: 68, borderRadius: 34 }} 
+              contentFit="cover" 
+              cachePolicy="memory-disk" 
+              transition={200} 
+            />
           ) : (
-            <View style={[styles.avatarImage, styles.avatarPlaceholder, { backgroundColor: colors.surface2 }]}>
-              <Ionicons name="person" size={28} color={colors.textSecondary} />
+            <View style={{ 
+              width: 68, 
+              height: 68, 
+              borderRadius: 34, 
+              backgroundColor: colors.surface2,
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}>
+              <Ionicons name="person" size={30} color={colors.textSecondary} />
             </View>
           )}
-          <View style={styles.igRight}>
-            <Text style={[styles.igName, { color: colors.text }]}>{displayName}</Text>
-            <View style={styles.actionRow}>
+
+          {/* Name & Buttons */}
+          <View style={{ flex: 1, gap: 8 }}>
+            {/* Name & Verified Badge */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              <Text style={{ fontSize: 18, fontFamily: 'ProductSans-Black', color: colors.text }}>
+                {displayName}
+              </Text>
+              {profile?.is_verified && (
+                <View style={{ 
+                  backgroundColor: '#16a34a', 
+                  borderRadius: 10, 
+                  paddingHorizontal: 6, 
+                  paddingVertical: 3, 
+                  flexDirection: 'row', 
+                  alignItems: 'center', 
+                  gap: 2 
+                }}>
+                  <Ionicons name="shield-checkmark" size={10} color="#fff" />
+                  <Text style={{ fontSize: 10, fontFamily: 'ProductSans-Bold', color: '#fff' }}>Verified</Text>
+                </View>
+              )}
+            </View>
+
+            {/* Buttons Row */}
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              {/* Edit Profile Button */}
               <Pressable
-                style={[styles.actionBtn, { borderWidth: 1, borderColor: colors.border }]}
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                   navPush('/edit-profile');
                 }}
+                style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1, flex: 1 }]}
               >
-                <Ionicons name="create-outline" size={12} color={colors.text} />
-                <Text style={[styles.actionBtnText, { color: colors.text }]}>Edit Profile</Text>
+                <View style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 5,
+                  backgroundColor: colors.surface,
+                  borderRadius: 18,
+                  paddingVertical: 8,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                }}>
+                  <Ionicons name="create-outline" size={13} color={colors.text} />
+                  <Text style={{ fontSize: 12, fontFamily: 'ProductSans-Bold', color: colors.text }}>
+                    Edit Profile
+                  </Text>
+                </View>
               </Pressable>
+
+              {/* AI Credits Button */}
+              <Pressable 
+                onPress={() => navPush('/ai-credits' as any)}
+                style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}
+              >
+                <View style={{ 
+                  flexDirection: 'row', 
+                  alignItems: 'center', 
+                  gap: 5,
+                  backgroundColor: colors.surface,
+                  borderRadius: 18,
+                  paddingHorizontal: 12,
+                  paddingVertical: 8,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                }}>
+                  <ExpoImage 
+                    source={require('@/assets/images/lightning-bolt.png')}
+                    style={{ width: 14, height: 14 }}
+                    contentFit="contain"
+                  />
+                  <Text style={{ fontSize: 12, fontFamily: 'ProductSans-Bold', color: colors.text }}>
+                    {myFeatures?.ai_credits_balance ?? 0}
+                  </Text>
+                </View>
+              </Pressable>
+
+              {/* AI Score Button (only show when 100%) */}
+              {scorePercent === 100 && (
+                <Pressable 
+                  onPress={() => setAiScoreModalOpen(true)}
+                  style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}
+                >
+                  <View style={{ 
+                    flexDirection: 'row', 
+                    alignItems: 'center', 
+                    gap: 5,
+                    backgroundColor: colors.surface,
+                    borderRadius: 18,
+                    paddingHorizontal: 12,
+                    paddingVertical: 8,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                  }}>
+                    <ExpoImage 
+                      source={require('@/assets/images/ai-score-star.png')}
+                      style={{ width: 14, height: 14 }}
+                      contentFit="contain"
+                    />
+                    <Text style={{ fontSize: 12, fontFamily: 'ProductSans-Bold', color: colors.text }}>
+                      100%
+                    </Text>
+                  </View>
+                </Pressable>
+              )}
             </View>
           </View>
-        </View>
-
-        <View style={styles.statsRow}>
-          <StatCol label="Photos"  value={String(profile?.photos?.length ?? 0)} colors={colors} />
-          <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
-          <StatCol label="Matches" value={statsMatches !== null ? String(statsMatches) : '—'} colors={colors} />
-          <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
-          <StatCol label="Views"   value={statsViews !== null ? String(statsViews) : '—'} colors={colors} />
         </View>
       </View>
 
       {/* ── Subscription banner ─────────────────────────────────────────── */}
-      <View style={{ paddingHorizontal: 16, marginTop: 16 }}>
+      <View style={{ paddingHorizontal: 16, marginTop: 12 }}>
         <Pressable
           onPress={() => navPush('/subscription')}
           style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}
         >
-          <Squircle
-            cornerRadius={18} cornerSmoothing={1}
-            fillColor={isPro ? colors.text : colors.surface}
-            strokeColor={isPro ? colors.text : colors.border}
-            strokeWidth={isPro ? 0 : 1}
-            style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 15, gap: 10 }}
-          >
-            <Ionicons
-              name={isPro ? 'star' : 'star-outline'}
-              size={16}
-              color={isPro ? colors.bg : colors.textSecondary}
-            />
-            <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: 14, fontFamily: 'ProductSans-Bold', color: isPro ? colors.bg : colors.text }}>
-                {isPro ? 'Zod Pro' : 'Zod Free'}
-              </Text>
-              <Text style={{ fontSize: 12, fontFamily: 'ProductSans-Regular', color: isPro ? colors.surface3 : colors.textSecondary, marginTop: 1 }}>
-                {isPro ? 'All premium features unlocked' : 'Upgrade to unlock all features'}
-              </Text>
-            </View>
-            {!isPro && (
-              <View style={{ backgroundColor: colors.text, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6 }}>
-                <Text style={{ fontSize: 12, fontFamily: 'ProductSans-Bold', color: colors.bg }}>Upgrade</Text>
-              </View>
-            )}
-            <Ionicons
-              name="chevron-forward"
-              size={13}
-              color={isPro ? colors.surface3 : colors.textSecondary}
-            />
-          </Squircle>
-        </Pressable>
-      </View>
-
-
-      {/* ── Verification banner ─────────────────────────────────────────── */}
-      <View style={{ paddingHorizontal: 16, marginTop: 10 }}>
-        <Pressable
-          onPress={() => navPush(profile?.is_verified ? { pathname: '/verification', params: { tab: 'id' } } : '/verification')}
-          style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}
-        >
-          <Squircle
-            style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 14, paddingHorizontal: 16 }}
-            cornerRadius={18} cornerSmoothing={1}
-            fillColor={colors.surface}
-            strokeColor={profile?.is_verified ? 'rgba(34,197,94,0.35)' : colors.border}
-            strokeWidth={1}
-          >
-            <Squircle style={{ width: 34, height: 34, alignItems: 'center', justifyContent: 'center' }} cornerRadius={10} cornerSmoothing={1}
-              fillColor={profile?.is_verified ? 'rgba(34,197,94,0.15)' : colors.surface2}>
-              <Ionicons name={profile?.is_verified ? 'shield-checkmark' : 'shield-checkmark-outline'} size={17} color={profile?.is_verified ? '#22c55e' : colors.textSecondary} />
-            </Squircle>
-            <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: 14, fontFamily: 'ProductSans-Bold', color: colors.text }}>Verification</Text>
-              <Text style={{ fontSize: 12, fontFamily: 'ProductSans-Regular', color: profile?.is_verified ? '#22c55e' : colors.textSecondary, marginTop: 1 }}>
-                {profile?.is_verified ? 'Face Verified · Complete ID' : 'Get verified to unlock more matches'}
-              </Text>
-            </View>
-            {profile?.is_verified && (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#16a34a', borderRadius: 20, paddingHorizontal: 8, paddingVertical: 4 }}>
-                <Ionicons name="shield-checkmark" size={11} color="#fff" />
-                <Text style={{ fontSize: 11, fontFamily: 'ProductSans-Bold', color: '#fff' }}>Verified</Text>
-              </View>
-            )}
-            <Ionicons name="chevron-forward" size={13} color={colors.textSecondary} style={{ marginLeft: 4 }} />
-          </Squircle>
-        </Pressable>
-      </View>
-
-      {/* ── AI Credits card ─────────────────────────────────────────────── */}
-      <View style={{ paddingHorizontal: 16, marginTop: 10 }}>
-        <Pressable
-          onPress={() => navPush('/ai-credits' as any)}
-          style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}
-        >
-          <Squircle
-            style={styles.creditsBanner}
-            cornerRadius={18} cornerSmoothing={1}
-            fillColor={colors.surface}
-            strokeColor={'rgba(234,179,8,0.3)'}
-            strokeWidth={1}
-          >
-            {/* Left: icon + label */}
-            <Squircle style={styles.creditsIconWrap} cornerRadius={12} cornerSmoothing={1} fillColor="rgba(234,179,8,0.12)">
-              <Ionicons name="flash" size={18} color="#f59e0b" />
-            </Squircle>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.creditsTitle, { color: colors.text }]}>AI Credits</Text>
-              <Text style={[styles.creditsSub, { color: colors.textSecondary }]}>
-                {myFeatures?.ai_credits_monthly
-                  ? `${myFeatures.ai_credits_monthly}/month included with your plan`
-                  : 'Power all AI features in the app'}
-              </Text>
-            </View>
-            {/* Right: balance badge */}
-            <View style={styles.creditsBalancePill}>
-              <Ionicons name="flash" size={11} color="#f59e0b" />
-              <Text style={styles.creditsBalanceNum}>{myFeatures?.ai_credits_balance ?? 0}</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={13} color={colors.textSecondary} style={{ marginLeft: 4 }} />
-          </Squircle>
-        </Pressable>
-      </View>
-
-      {/* ── AI Profile Score ────────────────────────────────────────────── */}
-      <View style={{ paddingHorizontal: 16, marginTop: 14 }}>
-        <Squircle
-          style={styles.scoreCard}
-          cornerRadius={22}
-          cornerSmoothing={1}
-          fillColor={colors.surface}
-          strokeColor={colors.border}
-          strokeWidth={1}
-        >
-          {/* Header */}
-          <View style={styles.scoreHeader}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
-              <View style={[styles.scoreIconWrap, { backgroundColor: colors.surface2 }]}>
-                <Ionicons name="sparkles" size={14} color={colors.text} />
-              </View>
-              <View>
-                <Text style={[styles.scoreTitle, { color: colors.text }]}>AI Profile Score</Text>
-                <Text style={[styles.scoreSubtitle, { color: colors.textSecondary }]}>
-                  {scorePercent >= 90 ? 'Looking great!' : scorePercent >= 60 ? 'Good — a few tweaks left' : 'Complete your profile to get more matches'}
+          {isPro ? (
+            <Squircle
+              cornerRadius={18} cornerSmoothing={1}
+              fillColor={colors.text}
+              strokeWidth={0}
+              style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 15, gap: 10 }}
+            >
+              <Ionicons name="star" size={16} color={colors.bg} />
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 14, fontFamily: 'ProductSans-Bold', color: colors.bg }}>
+                  Zod Pro
+                </Text>
+                <Text style={{ fontSize: 12, fontFamily: 'ProductSans-Regular', color: colors.surface3, marginTop: 1 }}>
+                  All premium features unlocked
                 </Text>
               </View>
-            </View>
-            <Text style={[styles.scorePercent, { color: colors.text }]}>
-              {scorePercent}%
-            </Text>
-          </View>
-
-          {/* Progress bar */}
-          <View style={[styles.scoreBarBg, { backgroundColor: colors.surface2 }]}>
-            <View
-              style={[
-                styles.scoreBarFill,
-                {
-                  width: `${scorePercent}%`,
-                  backgroundColor: colors.text,
-                },
-              ]}
-            />
-          </View>
-
-          {/* Tips */}
-          {missing.length > 0 && (
-            <View style={styles.scoreTips}>
-              <Text style={[styles.scoreTipsTitle, { color: colors.textSecondary }]}>IMPROVE YOUR SCORE</Text>
-              {missing.map((f) => (
-                <View key={f.label} style={styles.scoreTipRow}>
-                  <Ionicons name="add-circle-outline" size={15} color={colors.textSecondary} />
-                  <Text style={[styles.scoreTipText, { color: colors.text }]}>{f.tip}</Text>
+              <Ionicons name="chevron-forward" size={13} color={colors.surface3} />
+            </Squircle>
+          ) : (
+            <View style={{ overflow: 'hidden', borderRadius: 22 }}>
+              <LinearGradient
+                colors={['#FF416C', '#FF4B2B']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={{ flexDirection: 'row', alignItems: 'center', paddingLeft: 16, paddingVertical: 14, paddingRight: 12 }}
+              >
+                <View style={{ flex: 1, gap: 4 }}>
+                  <Text style={{ fontSize: 16, fontFamily: 'ProductSans-Bold', color: '#FFFFFF' }}>
+                    Zod Free
+                  </Text>
+                  <Text style={{ fontSize: 12, fontFamily: 'ProductSans-Regular', color: '#FFFFFF', opacity: 0.9 }}>
+                    Upgrade to unlock all features
+                  </Text>
+                  <View style={{ backgroundColor: 'rgba(255, 255, 255, 0.95)', borderRadius: 16, paddingHorizontal: 14, paddingVertical: 8, alignSelf: 'flex-start', marginTop: 8 }}>
+                    <Text style={{ fontSize: 13, fontFamily: 'ProductSans-Bold', color: '#FF416C' }}>
+                      Upgrade
+                    </Text>
+                  </View>
                 </View>
-              ))}
+                <View style={{ backgroundColor: 'rgba(255, 255, 255, 0.15)', borderRadius: 14, width: 64, height: 64, alignItems: 'center', justifyContent: 'center', marginLeft: 8 }}>
+                  <ExpoImage 
+                    source={require('@/assets/images/hearts.png')}
+                    style={{ width: 44, height: 44 }}
+                    contentFit="contain"
+                  />
+                </View>
+              </LinearGradient>
             </View>
           )}
-        </Squircle>
+        </Pressable>
       </View>
+
+
+      {/* ── AI Profile Score (hide if 100%) ─────────────────────────────── */}
+      {scorePercent < 100 && (
+        <View style={{ paddingHorizontal: 16, marginTop: 14 }}>
+          <Squircle
+            style={styles.scoreCard}
+            cornerRadius={22}
+            cornerSmoothing={1}
+            fillColor={colors.surface}
+            strokeColor={colors.border}
+            strokeWidth={1}
+          >
+            {/* Header */}
+            <View style={styles.scoreHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+                <View style={[styles.scoreIconWrap, { backgroundColor: colors.surface2 }]}>
+                  <Ionicons name="sparkles" size={14} color={colors.text} />
+                </View>
+                <View>
+                  <Text style={[styles.scoreTitle, { color: colors.text }]}>AI Profile Score</Text>
+                  <Text style={[styles.scoreSubtitle, { color: colors.textSecondary }]}>
+                    {scorePercent >= 90 ? 'Looking great!' : scorePercent >= 60 ? 'Good — a few tweaks left' : 'Complete your profile to get more matches'}
+                  </Text>
+                </View>
+              </View>
+              <Text style={[styles.scorePercent, { color: colors.text }]}>
+                {scorePercent}%
+              </Text>
+            </View>
+
+            {/* Progress bar */}
+            <View style={[styles.scoreBarBg, { backgroundColor: colors.surface2 }]}>
+              <View
+                style={[
+                  styles.scoreBarFill,
+                  {
+                    width: `${scorePercent}%`,
+                    backgroundColor: colors.text,
+                  },
+                ]}
+              />
+            </View>
+
+            {/* Tips */}
+            {missing.length > 0 && (
+              <View style={styles.scoreTips}>
+                <Text style={[styles.scoreTipsTitle, { color: colors.textSecondary }]}>IMPROVE YOUR SCORE</Text>
+                {missing.map((f) => (
+                  <View key={f.label} style={styles.scoreTipRow}>
+                    <Ionicons name="add-circle-outline" size={15} color={colors.textSecondary} />
+                    <Text style={[styles.scoreTipText, { color: colors.text }]}>{f.tip}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+          </Squircle>
+        </View>
+      )}
 
       {/* ── ZOD WORK ────────────────────────────────────────────────────── */}
       <View style={styles.section}>
@@ -978,11 +1032,39 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
             subtitle="Industries, skills, commitment, equity, goals & filters"
             colors={colors}
             onPress={() => navPush('/zod-work')}
-            last
           />
         </Group>
       </View>
 
+      {/* ── Verification banner (only if not verified) ─────────────────── */}
+      {!profile?.is_verified && (
+        <View style={{ paddingHorizontal: 16, marginTop: 10 }}>
+          <Pressable
+            onPress={() => navPush('/verification')}
+            style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}
+          >
+            <Squircle
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 14, paddingHorizontal: 16 }}
+              cornerRadius={18} cornerSmoothing={1}
+              fillColor={colors.surface}
+              strokeColor={colors.border}
+              strokeWidth={1}
+            >
+              <Squircle style={{ width: 34, height: 34, alignItems: 'center', justifyContent: 'center' }} cornerRadius={10} cornerSmoothing={1}
+                fillColor={colors.surface2}>
+                <Ionicons name="shield-checkmark-outline" size={17} color={colors.textSecondary} />
+              </Squircle>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 14, fontFamily: 'ProductSans-Bold', color: colors.text }}>Get Verified</Text>
+                <Text style={{ fontSize: 12, fontFamily: 'ProductSans-Regular', color: colors.textSecondary, marginTop: 1 }}>
+                  Unlock more matches with face & ID verification
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={13} color={colors.textSecondary} />
+            </Squircle>
+          </Pressable>
+        </View>
+      )}
 
       {/* ── ABOUT YOU — Mood Status ──────────────────────────────────────── */}
       <View style={styles.section}>
@@ -1066,12 +1148,15 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
       <View style={styles.section}>
         <SectionLabel title="RELATIONSHIPS" colors={colors} />
         <Group colors={colors}>
-          <EditRow icon="heart-outline" label="Looking For" value={getLookupLabel('looking_for', lookingForId ? Number(lookingForId) : null) || '—'}
-            onPress={() => setChipPicker({
-              title: 'Looking For', category: 'looking_for', single: true,
-              selected: lookingForId ? [lookingForId] : [],
-              onDone: ([v]) => { setLookingForId(v); saveField({ looking_for_id: Number(v) }); },
-            })} colors={colors} />
+          {/* Hide "Looking For" in Halal Pro mode */}
+          {!(halalMode && isPro) && (
+            <EditRow icon="heart-outline" label="Looking For" value={getLookupLabel('looking_for', lookingForId ? Number(lookingForId) : null) || '—'}
+              onPress={() => setChipPicker({
+                title: 'Looking For', category: 'looking_for', single: true,
+                selected: lookingForId ? [lookingForId] : [],
+                onDone: ([v]) => { setLookingForId(v); saveField({ looking_for_id: Number(v) }); },
+              })} colors={colors} />
+          )}
 
           <EditRow icon="people-outline" label="Family Plans" value={getLookupLabel('family_plans', familyPlansId ? Number(familyPlansId) : null) || '—'}
             onPress={() => setChipPicker({
@@ -1420,6 +1505,64 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
           colors={colors}
         />
       )}
+
+      {/* ── AI Score modal (bottom sheet) ────────────────────────────────── */}
+      <Modal visible={aiScoreModalOpen} animationType="slide" transparent onRequestClose={() => setAiScoreModalOpen(false)}>
+        <View style={{ flex: 1, justifyContent: 'flex-end' }}>
+          <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' }} onPress={() => setAiScoreModalOpen(false)} />
+          <View style={{ backgroundColor: colors.bg, borderTopLeftRadius: 36, borderTopRightRadius: 36, paddingHorizontal: 24, paddingBottom: insets.bottom + 24, paddingTop: 14 }}>
+            {/* Handle */}
+            <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: colors.border, alignSelf: 'center', marginBottom: 24 }} />
+
+            {/* Header */}
+            <View style={{ alignItems: 'center', gap: 16 }}>
+              <ExpoImage 
+                source={require('@/assets/images/ai-score-star.png')}
+                style={{ width: 80, height: 80 }}
+                contentFit="contain"
+              />
+              <View style={{ alignItems: 'center', gap: 6 }}>
+                <Text style={{ fontSize: 28, fontFamily: 'ProductSans-Black', color: colors.text }}>
+                  100% Complete!
+                </Text>
+                <Text style={{ fontSize: 15, fontFamily: 'ProductSans-Regular', color: colors.textSecondary, textAlign: 'center', paddingHorizontal: 20 }}>
+                  Your profile is fully optimized for matching
+                </Text>
+              </View>
+            </View>
+
+            {/* Features */}
+            <View style={{ gap: 16, marginTop: 28, marginBottom: 28 }}>
+              {[
+                { icon: 'checkmark-circle', text: 'All profile fields completed', color: '#16a34a' },
+                { icon: 'sparkles', text: 'AI-optimized for best matches', color: '#6366f1' },
+                { icon: 'trending-up', text: 'Higher visibility in feed', color: '#f59e0b' },
+              ].map((item, i) => (
+                <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
+                  <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' }}>
+                    <Ionicons name={item.icon as any} size={22} color={item.color} />
+                  </View>
+                  <Text style={{ flex: 1, fontSize: 16, fontFamily: 'ProductSans-Regular', color: colors.text }}>
+                    {item.text}
+                  </Text>
+                </View>
+              ))}
+            </View>
+
+            {/* Close button */}
+            <Pressable
+              onPress={() => setAiScoreModalOpen(false)}
+              style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}
+            >
+              <View style={{ backgroundColor: colors.text, borderRadius: 50, paddingVertical: 17, alignItems: 'center' }}>
+                <Text style={{ fontSize: 17, fontFamily: 'ProductSans-Bold', color: colors.bg }}>
+                  Got it!
+                </Text>
+              </View>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
 
       {/* ── University email modal ─────────────────────────────────────────── */}
       <Modal visible={universityModalOpen} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setUniversityModalOpen(false)}>

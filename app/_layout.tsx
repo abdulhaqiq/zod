@@ -372,9 +372,14 @@ function RootLayoutInner() {
       }
 
     } else if (isLoggedIn && !isOnboarded && isOnProtectedScreen) {
-      const next = profile ? firstIncompleteStep(profile) : '/profile';
-      router.replace(next as any);
-      didNavigate = true;
+      // Guard: if profile hasn't arrived yet, bootstrap is still in flight.
+      // Never redirect to onboarding with a null profile — wait for next render.
+      if (profile === null) {
+        // Don't set didNavigate — effect will re-fire once profile is populated.
+      } else {
+        router.replace(firstIncompleteStep(profile) as any);
+        didNavigate = true;
+      }
 
     } else if (
       isLoggedIn &&
@@ -425,52 +430,55 @@ function RootLayoutInner() {
     <ThemeProvider value={isDark ? DarkTheme : DefaultTheme}>
       <View style={{ flex: 1, backgroundColor: bgColor }}>
 
-        {/* Only render the Stack when there's no network error or suspension */}
-        {!isNetworkError && !isSuspended && (
-          <Stack>
-            <Stack.Screen name="welcome"         options={{ headerShown: false }} />
-            <Stack.Screen name="(tabs)"          options={{ headerShown: false, gestureEnabled: false }} />
-            <Stack.Screen name="phone"           options={{ headerShown: false }} />
-            <Stack.Screen name="otp"             options={{ headerShown: false }} />
-            <Stack.Screen name="passkey"         options={{ headerShown: false }} />
-            <Stack.Screen name="profile"         options={{ headerShown: false }} />
-            <Stack.Screen name="gender"          options={{ headerShown: false }} />
-            <Stack.Screen name="purpose"         options={{ headerShown: false }} />
-            <Stack.Screen name="goals"           options={{ headerShown: false }} />
-            <Stack.Screen name="height"          options={{ headerShown: false }} />
-            <Stack.Screen name="interests"       options={{ headerShown: false }} />
-            <Stack.Screen name="lifestyle"       options={{ headerShown: false }} />
-            <Stack.Screen name="values"          options={{ headerShown: false }} />
-            <Stack.Screen name="prompts"         options={{ headerShown: false }} />
-            <Stack.Screen name="photos"          options={{ headerShown: false }} />
-            <Stack.Screen name="feed"            options={{ headerShown: false }} />
-            <Stack.Screen name="profile-view"    options={{ headerShown: false, presentation: 'card' }} />
-            <Stack.Screen name="edit-profile"    options={{ headerShown: false }} />
-            <Stack.Screen name="verification"    options={{ headerShown: false }} />
-            <Stack.Screen name="work-experience" options={{ headerShown: false }} />
-            <Stack.Screen name="education"       options={{ headerShown: false }} />
-            <Stack.Screen name="location-search" options={{ headerShown: false }} />
-            <Stack.Screen name="subscription"    options={{ headerShown: false, presentation: 'fullScreenModal' }} />
-            <Stack.Screen name="chat"            options={{ headerShown: false, gestureEnabled: false }} />
-            <Stack.Screen name="mini-games"     options={{ headerShown: false }} />
-            <Stack.Screen name="notifications"   options={{ headerShown: false }} />
-            <Stack.Screen name="security"        options={{ headerShown: false }} />
-            <Stack.Screen name="language"        options={{ headerShown: false }} />
-            <Stack.Screen name="legal"           options={{ headerShown: false }} />
-            <Stack.Screen name="get-help"        options={{ headerShown: false }} />
-            <Stack.Screen name="purchases"              options={{ headerShown: false }} />
-            <Stack.Screen name="ai-credits"             options={{ headerShown: false }} />
-            <Stack.Screen name="admin-verifications"  options={{ headerShown: false }} />
-            <Stack.Screen name="admin-marketing"      options={{ headerShown: false }} />
-            <Stack.Screen name="zod-work"             options={{ headerShown: false }} />
-            <Stack.Screen name="work-edit-profile"    options={{ headerShown: false }} />
-            <Stack.Screen name="religion"             options={{ headerShown: false }} />
-            <Stack.Screen name="faith"               options={{ headerShown: false }} />
-            <Stack.Screen name="face-scan-required"   options={{ headerShown: false, gestureEnabled: false }} />
-            <Stack.Screen name="wali-settings"        options={{ headerShown: false }} />
-            <Stack.Screen name="modal"                options={{ presentation: 'modal', title: 'Modal' }} />
-          </Stack>
-        )}
+        {/*
+          Stack is ALWAYS mounted — unmounting it destroys navigation state, which
+          causes Expo Router to reset to initialRouteName ('welcome') on recovery
+          and the routing guard briefly sees isOnboarded=false → flashes /profile.
+          Network-error and suspended overlays use absoluteFill to cover it instead.
+        */}
+        <Stack>
+          <Stack.Screen name="welcome"         options={{ headerShown: false }} />
+          <Stack.Screen name="(tabs)"          options={{ headerShown: false, gestureEnabled: false }} />
+          <Stack.Screen name="phone"           options={{ headerShown: false }} />
+          <Stack.Screen name="otp"             options={{ headerShown: false }} />
+          <Stack.Screen name="passkey"         options={{ headerShown: false }} />
+          <Stack.Screen name="profile"         options={{ headerShown: false }} />
+          <Stack.Screen name="gender"          options={{ headerShown: false }} />
+          <Stack.Screen name="purpose"         options={{ headerShown: false }} />
+          <Stack.Screen name="goals"           options={{ headerShown: false }} />
+          <Stack.Screen name="height"          options={{ headerShown: false }} />
+          <Stack.Screen name="interests"       options={{ headerShown: false }} />
+          <Stack.Screen name="lifestyle"       options={{ headerShown: false }} />
+          <Stack.Screen name="values"          options={{ headerShown: false }} />
+          <Stack.Screen name="prompts"         options={{ headerShown: false }} />
+          <Stack.Screen name="photos"          options={{ headerShown: false }} />
+          <Stack.Screen name="feed"            options={{ headerShown: false }} />
+          <Stack.Screen name="profile-view"    options={{ headerShown: false, presentation: 'card' }} />
+          <Stack.Screen name="edit-profile"    options={{ headerShown: false }} />
+          <Stack.Screen name="verification"    options={{ headerShown: false }} />
+          <Stack.Screen name="work-experience" options={{ headerShown: false }} />
+          <Stack.Screen name="education"       options={{ headerShown: false }} />
+          <Stack.Screen name="location-search" options={{ headerShown: false }} />
+          <Stack.Screen name="subscription"    options={{ headerShown: false, presentation: 'fullScreenModal' }} />
+          <Stack.Screen name="chat"            options={{ headerShown: false, gestureEnabled: false }} />
+          <Stack.Screen name="mini-games"      options={{ headerShown: false }} />
+          <Stack.Screen name="notifications"   options={{ headerShown: false }} />
+          <Stack.Screen name="security"        options={{ headerShown: false }} />
+          <Stack.Screen name="language"        options={{ headerShown: false }} />
+          <Stack.Screen name="legal"           options={{ headerShown: false }} />
+          <Stack.Screen name="get-help"        options={{ headerShown: false }} />
+          <Stack.Screen name="purchases"             options={{ headerShown: false }} />
+          <Stack.Screen name="ai-credits"            options={{ headerShown: false }} />
+          <Stack.Screen name="admin-verifications"   options={{ headerShown: false }} />
+          <Stack.Screen name="admin-marketing"       options={{ headerShown: false }} />
+          <Stack.Screen name="zod-work"              options={{ headerShown: false }} />
+          <Stack.Screen name="work-edit-profile"     options={{ headerShown: false }} />
+          <Stack.Screen name="religion"              options={{ headerShown: false }} />
+          <Stack.Screen name="faith"                 options={{ headerShown: false }} />
+          <Stack.Screen name="face-scan-required"    options={{ headerShown: false, gestureEnabled: false }} />
+          <Stack.Screen name="wali-settings"         options={{ headerShown: false }} />
+          <Stack.Screen name="modal"                 options={{ presentation: 'modal', title: 'Modal' }} />
+        </Stack>
 
         <StatusBar style={isDark ? 'light' : 'dark'} />
 

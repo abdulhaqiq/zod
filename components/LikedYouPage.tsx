@@ -1,4 +1,5 @@
 import { navPush, navReplace } from '@/utils/nav';
+import { preFillProfile } from '@/components/ProfileView';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Image as ExpoImage } from 'expo-image';
@@ -309,7 +310,11 @@ export default function LikedYouPage({
                   fillColor={colors.surface} strokeColor={colors.border} strokeWidth={StyleSheet.hairlineWidth}>
                   <Pressable
                     style={styles.photoWrap}
-                    onPress={() => !isBlurred && navPush({ pathname: '/profile-view', params: { id: p.id } } as any)}
+                    onPress={() => {
+                      if (isBlurred) return;
+                      preFillProfile(p);
+                      navPush({ pathname: '/profile-view', params: { id: p.id } } as any);
+                    }}
                     disabled={isBlurred}
                   >
                     <ExpoImage

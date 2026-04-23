@@ -23,7 +23,7 @@ import {
 import ScreenHeader from '@/components/ui/ScreenHeader';
 import Squircle from '@/components/ui/Squircle';
 import { apiFetch, API_V1 } from '@/constants/api';
-import { getLookupLabel } from '@/constants/lookupData';
+import { getLookupLabel, getFilteredInterests } from '@/constants/lookupData';
 import { useAuth } from '@/context/AuthContext';
 import { useAppTheme } from '@/context/ThemeContext';
 import type { AppColors } from '@/constants/appColors';
@@ -384,7 +384,11 @@ export default function EditProfilePage() {
   const { lookups } = useLookups();
   const toChips = (cat: string): ChipOption[] =>
     (lookups[cat] ?? []).map(r => ({ value: String(r.id), emoji: r.emoji, label: r.label }));
-  const INTERESTS = toChips('interests');
+  
+  // Filter interests based on Halal mode
+  const filteredInterestsData = getFilteredInterests(profile?.halal_mode_enabled ?? false);
+  const INTERESTS = filteredInterestsData.map(r => ({ value: String(r.id), emoji: r.emoji, label: r.label }));
+  
   const CAUSES    = toChips('causes');
   const QUALITIES = toChips('values_list');
   const SECT      = toChips('sect');
@@ -891,12 +895,15 @@ export default function EditProfilePage() {
           {/* ── LOCATION ────────────────────────────────────────────────── */}
           <View style={styles.section}>
             <SectionLabel title="LOCATION" colors={colors} />
+            <Text style={[styles.sectionNote, { color: colors.textSecondary }]}>
+              These are shown on your profile · Use Travel Mode below to change matching
+            </Text>
             <Group colors={colors}>
               <EditRow
                 icon="location-outline"
                 label="Living Now"
-                value={profile?.city ?? undefined}
-                preview={profile?.city ? undefined : 'Tap to set'}
+                value={profile?.living_in ?? undefined}
+                preview={profile?.living_in ? 'Profile info only' : 'Tap to set'}
                 onPress={() => navPush('/location-search?type=living')}
                 colors={colors}
               />
@@ -904,11 +911,79 @@ export default function EditProfilePage() {
                 icon="home-outline"
                 label="Hometown"
                 value={profile?.hometown ?? undefined}
-                preview={profile?.hometown ? undefined : 'Tap to set'}
+                preview={profile?.hometown ? 'Profile info only' : 'Tap to set'}
                 onPress={() => navPush('/location-search?type=hometown')}
                 colors={colors}
                 last
               />
+            </Group>
+          </View>
+
+          {/* ── TRAVEL MODE ─────────────────────────────────────────────────── */}
+          <View style={styles.section}>
+            <SectionLabel title="TRAVEL MODE" colors={colors} />
+            <Text style={[styles.sectionNote, { color: colors.textSecondary }]}>
+              Changes where you match with people · Your profile location stays the same
+            </Text>
+            <Group colors={colors}>
+              {/* Travel Mode Toggle */}
+              <View style={[
+                styles.editRow,
+                { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+              ]}>
+                <Squircle style={styles.editIconWrap} cornerRadius={10} cornerSmoothing={1} fillColor="#833ab4">
+                  <Ionicons name="airplane" size={16} color="#fff" />
+                </Squircle>
+                <View style={{ flex: 1, gap: 1 }}>
+                  <Text style={[styles.editLabel, { color: colors.text }]}>Travel Mode</Text>
+                  <Text style={[styles.editPreview, { color: colors.textSecondary }]}>
+                    {profile?.travel_mode_enabled 
+                      ? 'Active — matching by travel location' 
+                      : 'Match with people in any city'}
+                  </Text>
+                </View>
+                <Switch
+                  value={profile?.travel_mode_enabled ?? false}
+                  onValueChange={async (val) => {
+                    if (!token) return;
+                    if (!val) {
+                      try {
+                        const updated = await apiFetch<any>('/profile/me', {
+                          method: 'PATCH',
+                          token,
+                          body: JSON.stringify({ 
+                            travel_mode_enabled: false, 
+                            travel_city: null, 
+                            travel_country: null 
+                          }),
+                        });
+                        updateProfile(updated);
+                      } catch { /* silent */ }
+                    } else {
+                      navPush('/location-search?type=city');
+                    }
+                  }}
+                  thumbColor={colors.bg}
+                  trackColor={{ false: colors.surface2, true: colors.text }}
+                />
+              </View>
+
+              {/* Show location picker only if travel mode is enabled */}
+              {profile?.travel_mode_enabled && (
+                <EditRow
+                  icon="location-outline"
+                  label="Search Location"
+                  value={
+                    profile?.travel_city
+                      ? `${profile.travel_city}${profile.travel_country ? `, ${profile.travel_country}` : ''}`
+                      : undefined
+                  }
+                  preview={profile?.travel_city ? 'Currently matching here' : 'Tap to select city'}
+                  onPress={() => navPush('/location-search?type=city')}
+                  colors={colors}
+                  last
+                />
+              )}
             </Group>
           </View>
 
@@ -995,6 +1070,7 @@ const styles = StyleSheet.create({
 
   section:      { paddingHorizontal: 16, marginTop: 22, gap: 6 },
   sectionLabel: { fontSize: 12, fontFamily: 'ProductSans-Bold', letterSpacing: 1.5, marginLeft: 2, marginBottom: 2 },
+  sectionNote:  { fontSize: 11, fontFamily: 'ProductSans-Regular', marginLeft: 2, marginBottom: 6, lineHeight: 16 },
 
   group:        { overflow: 'hidden' },
 

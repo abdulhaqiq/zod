@@ -16,7 +16,7 @@ interface SquircleProps {
 export default function Squircle({
   cornerRadius,
   cornerSmoothing = 1,
-  fillColor = '#ffffff',
+  fillColor,
   strokeColor,
   strokeWidth = 1.5,
   style,
@@ -48,7 +48,7 @@ export default function Squircle({
 
   // Inner path (fill color) — inset so the border ring is fully visible
   const innerPath =
-    size.width > 0
+    size.width > 0 && fillColor
       ? getSvgPath({
           width: size.width - inset * 2,
           height: size.height - inset * 2,
@@ -60,7 +60,7 @@ export default function Squircle({
 
   return (
     <View style={[{ position: 'relative' }, style]} onLayout={onLayout}>
-      {size.width > 0 && (
+      {size.width > 0 && (outerPath || innerPath) && (
         <Svg
           width={size.width}
           height={size.height}
@@ -69,7 +69,7 @@ export default function Squircle({
           {/* Border layer */}
           {outerPath ? <Path d={outerPath} fill={strokeColor} /> : null}
           {/* Fill layer — translated inward by strokeWidth */}
-          {innerPath ? (
+          {innerPath && fillColor ? (
             <Path
               d={innerPath}
               fill={fillColor}

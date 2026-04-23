@@ -189,8 +189,11 @@ export default function SubscriptionPage() {
   const isAlreadyOnSelectedTier =
     tier === 'premium_plus'
       ? userTier === 'premium_plus'
-      : isPro; // pro or premium+ both cover the Pro tab
+      : (tier === 'pro' && (userTier === 'pro' || userTier === 'premium_plus')); // pro or premium+ both cover the Pro tab
   const expiresAt = status?.expiresAt ?? null;
+  
+  // Can upgrade to Premium+ if currently on Pro
+  const canUpgradeToPremium = userTier === 'pro' && tier === 'premium_plus';
 
   // ── Feature lists from DB (fallback to hardcoded until DB responds) ──────────
 
@@ -355,21 +358,89 @@ export default function SubscriptionPage() {
 
       <ScrollView style={styles.flex} contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
 
+        {/* ── Current Subscription Status ────────────────────────────────── */}
+        {isPro && (
+          <View style={[styles.currentPlanCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <View style={styles.currentPlanHeader}>
+              <Squircle style={[styles.currentPlanIcon, { backgroundColor: colors.surface2 }]} cornerRadius={12} cornerSmoothing={1}>
+                <Ionicons name={userTier === 'premium_plus' ? 'diamond' : 'star'} size={20} color={colors.text} />
+              </Squircle>
+              <View style={{ flex: 1 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <Text style={[styles.currentPlanTitle, { color: colors.text }]}>
+                    {userTier === 'premium_plus' ? 'Premium+' : 'Zod Pro'}
+                  </Text>
+                  {canUpgradeToPremium && (
+                    <View style={{ backgroundColor: colors.text, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 }}>
+                      <Text style={{ fontSize: 10, fontFamily: 'ProductSans-Bold', color: colors.bg }}>Viewing Premium+</Text>
+                    </View>
+                  )}
+                </View>
+                <Text style={[styles.currentPlanSub, { color: colors.textSecondary }]}>
+                  {canUpgradeToPremium 
+                    ? 'Upgrade for more features'
+                    : expiresAt
+                      ? `Renews ${new Date(expiresAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+                      : 'Active'}
+                </Text>
+              </View>
+              <Pressable
+                onPress={handleManageSubscription}
+                style={({ pressed }) => [pressed && { opacity: 0.7 }]}
+              >
+                <Squircle style={[styles.manageBtn, { backgroundColor: colors.surface2 }]} cornerRadius={10} cornerSmoothing={1}>
+                  <Text style={[styles.manageBtnText, { color: colors.text }]}>Manage</Text>
+                </Squircle>
+              </Pressable>
+            </View>
+
+            {/* Quick Stats */}
+            {!canUpgradeToPremium && (
+              <View style={styles.quickStats}>
+                <View style={styles.statItem}>
+                  <Ionicons name="star" size={14} color={colors.textSecondary} />
+                  <Text style={[styles.statText, { color: colors.textSecondary }]}>
+                    {slRemaining}/{slLimit} Super Likes
+                  </Text>
+                </View>
+                <View style={styles.statDivider}>
+                  <View style={[styles.statDot, { backgroundColor: colors.border }]} />
+                </View>
+                <View style={styles.statItem}>
+                  <Ionicons name="flash" size={14} color={colors.textSecondary} />
+                  <Text style={[styles.statText, { color: colors.textSecondary }]}>
+                    {myFeatures?.ai_credits_balance ?? 0} AI Credits
+                  </Text>
+                </View>
+              </View>
+            )}
+          </View>
+        )}
+
         {/* ── Hero ─────────────────────────────────────────────────────── */}
         <View style={styles.hero}>
-          <Squircle style={styles.heroIcon} cornerRadius={24} cornerSmoothing={1} fillColor={colors.surface2}>
-            <Ionicons name={tier === 'premium_plus' ? 'diamond' : 'star' as any} size={34} color={colors.text} />
-          </Squircle>
-          <Text style={[styles.heroTitle, { color: colors.text }]}>
-            {tier === 'pro' ? 'Pro' : 'Premium+'}
-          </Text>
+          {canUpgradeToPremium ? (
+            <Text style={[styles.heroTitle, { color: colors.text }]}>
+              Upgrade to Premium+
+            </Text>
+          ) : isPro ? (
+            <Text style={[styles.heroTitle, { color: colors.text }]}>
+              Your Subscription
+            </Text>
+          ) : (
+            <Text style={[styles.heroTitle, { color: colors.text, textAlign: 'center' }]}>
+              Choose the plan{'\n'}that <Text style={{ color: colors.textSecondary }}>fits</Text> you
+            </Text>
+          )}
           <Text style={[styles.heroSub, { color: colors.textSecondary }]}>
-            {tier === 'pro'
-              ? 'Everything you need to find the right person, faster.'
-              : 'The full experience. Priority matching, no limits.'}
+            {canUpgradeToPremium 
+              ? 'Get priority matching, more Super Likes, AI Credits, and exclusive features.'
+              : isPro 
+                ? 'Manage your subscription or explore Premium+'
+                : 'Unlock unlimited likes, see who likes you, and more.'}
           </Text>
 
-          {/* Tier switcher pill — below the hero text */}
+          {/* Tier switcher pill */}
           <View style={[styles.tierPill, { backgroundColor: colors.surface2 }]}>
             {(['pro', 'premium_plus'] as PlanTier[]).map(t => (
               <Pressable
@@ -391,87 +462,55 @@ export default function SubscriptionPage() {
               </Pressable>
             ))}
           </View>
-
-          {/* Super likes quota badge for current user */}
-          {isPro && (
-            <View style={[styles.quotaBadge, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-              <Ionicons name="star" size={13} color={colors.text} />
-              <Text style={[styles.quotaText, { color: colors.text }]}>
-                {slRemaining} / {slLimit} super likes this week
-                {slResetsIn != null ? `  ·  resets in ${slResetsIn}d` : ''}
-              </Text>
-            </View>
-          )}
         </View>
 
         {/* ── Billing options ───────────────────────────────────────────── */}
-        <View style={styles.billingWrap}>
-          {plansLoading ? (
-            // Skeleton rows while backend prices load
-            ['threemonths', 'monthly', 'weekly'].map(b => (
-              <View key={b} style={[styles.billingOptionSkeleton, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                <ActivityIndicator size="small" color={colors.textTertiary} />
-              </View>
-            ))
-          ) : (
-            billingPeriods.map(b => {
-              const rcPrice = getRcPriceDisplay(tier, b);
-              const dbPrice = getPriceDisplay(tier, b);
-              const rcDesc  = getRcDescription(tier, b);
-              const dbDesc  = getDescription(tier, b);
-              const dbBadge = getBadge(tier, b);
-              // Fallback stand-in badge when DB hasn't returned a badge yet
-              const standInBadge = dbBadge ?? (b === 'threemonths' ? 'Best Value' : null);
-              return (
-                <BillingOption
-                  key={b}
-                  label={billingLabel[b]}
-                  price={rcPrice ?? dbPrice ?? '—'}
-                  sub={rcDesc ?? dbDesc ?? (b === 'weekly' ? 'Billed weekly' : b === 'monthly' ? 'Billed monthly' : 'Billed every 3 months')}
-                  badge={standInBadge}
-                  selected={billing === b}
-                  onSelect={() => setBilling(b)}
-                  colors={colors}
-                />
-              );
-            })
-          )}
-        </View>
-
-        {/* ── AI Credits balance (shown when subscribed) ──────────────────── */}
-        {isPro && myFeatures != null && (
-          <Squircle style={[styles.tableCard, { marginBottom: 12 }]} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={StyleSheet.hairlineWidth}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 14 }}>
-              <Squircle style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }} cornerRadius={12} cornerSmoothing={1} fillColor={colors.surface2}>
-                <Ionicons name="flash" size={20} color={colors.text} />
-              </Squircle>
-              <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 13, fontFamily: 'ProductSans-Bold', color: colors.text }}>AI Credits</Text>
-                <Text style={{ fontSize: 12, fontFamily: 'ProductSans-Regular', color: colors.textSecondary, marginTop: 1 }}>
-                  {myFeatures.ai_credits_balance} remaining · {myFeatures.ai_credits_monthly}/mo included
-                </Text>
-              </View>
-              <Pressable
-                onPress={() => router.push('/ai-credits' as any)}
-                style={({ pressed }) => [pressed && { opacity: 0.7 }]}
-              >
-                <Squircle style={{ paddingHorizontal: 12, paddingVertical: 6 }} cornerRadius={20} cornerSmoothing={1} fillColor={colors.surface2}>
-                  <Text style={{ fontSize: 12, fontFamily: 'ProductSans-Bold', color: colors.text }}>Top Up</Text>
-                </Squircle>
-              </Pressable>
-            </View>
-          </Squircle>
-        )}
-
-        {/* ── Feature comparison (all features, ✓ or ✗ for active tier) ── */}
-        <Squircle style={styles.tableCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={StyleSheet.hairlineWidth}>
-
-          <View style={styles.tableHeader}>
-            <Text style={[styles.tableHeaderLeft, { color: colors.textSecondary }]}>What you get</Text>
+        <View style={styles.pricingSection}>
+          <View style={styles.pricingSectionHeader}>
+            <Text style={[styles.pricingSectionTitle, { color: colors.text }]}>
+              Select your plan
+            </Text>
           </View>
 
-          <View style={[styles.divider, { backgroundColor: colors.border }]} />
+          <View style={styles.billingWrap}>
+            {plansLoading ? (
+              // Skeleton rows while backend prices load
+              ['threemonths', 'monthly', 'weekly'].map(b => (
+                <View key={b} style={[styles.billingOptionSkeleton, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                  <ActivityIndicator size="small" color={colors.textTertiary} />
+                </View>
+              ))
+            ) : (
+              billingPeriods.map(b => {
+                const rcPrice = getRcPriceDisplay(tier, b);
+                const dbPrice = getPriceDisplay(tier, b);
+                const rcDesc  = getRcDescription(tier, b);
+                const dbDesc  = getDescription(tier, b);
+                const dbBadge = getBadge(tier, b);
+                // Fallback stand-in badge when DB hasn't returned a badge yet
+                const standInBadge = dbBadge ?? (b === 'threemonths' ? 'Best Value' : null);
+                return (
+                  <BillingOption
+                    key={b}
+                    label={billingLabel[b]}
+                    price={rcPrice ?? dbPrice ?? '—'}
+                    sub={rcDesc ?? dbDesc ?? (b === 'weekly' ? 'Billed weekly' : b === 'monthly' ? 'Billed monthly' : 'Billed every 3 months')}
+                    badge={standInBadge}
+                    selected={billing === b}
+                    onSelect={() => setBilling(b)}
+                    colors={colors}
+                  />
+                );
+              })
+            )}
+          </View>
+        </View>
 
+        {/* ── Feature comparison (all features, ✓ or ✗ for active tier) ── */}
+        <Text style={[styles.featuresHeader, { color: colors.text }]}>
+          What's included
+        </Text>
+        <Squircle style={styles.tableCard} cornerRadius={22} cornerSmoothing={1} fillColor={colors.surface} strokeColor={colors.border} strokeWidth={StyleSheet.hairlineWidth}>
           {featureKeys.map((feat, i) => {
             const val       = featureValue(activePlanFeatures, feat.key);
             const included  = val !== false;
@@ -487,16 +526,12 @@ export default function SubscriptionPage() {
                 ]}
               >
                 <View style={styles.featureLabelWrap}>
-                  <Squircle
-                    style={styles.featureDot}
-                    cornerRadius={10} cornerSmoothing={1}
-                    fillColor={included ? colors.surface2 : colors.surface}
-                  >
-                    <Ionicons name={feat.icon as any} size={13} color={iconColor} />
-                  </Squircle>
+                  <Ionicons name={included ? 'checkmark-circle' : 'close-circle'} size={20} color={included ? colors.text : colors.textTertiary} />
                   <Text style={[styles.featureText, { color: textColor }]}>{feat.label}</Text>
                 </View>
-                <FeatureCell value={val} colors={colors} />
+                {typeof val === 'string' && val !== 'true' && (
+                  <Text style={[styles.featureValue, { color: colors.textSecondary }]}>{val}</Text>
+                )}
               </View>
             );
           })}
@@ -565,6 +600,16 @@ export default function SubscriptionPage() {
                   </View>
                 </View>
               </Pressable>
+              {userTier === 'pro' && tier === 'pro' && (
+                <Pressable
+                  onPress={() => setTier('premium_plus')}
+                  style={({ pressed }) => [{ marginTop: 8 }, pressed && { opacity: 0.7 }]}
+                >
+                  <Text style={[styles.upgradeHint, { color: colors.text }]}>
+                    Want more? Tap Premium+ above to see upgrade options →
+                  </Text>
+                </Pressable>
+              )}
               <Text style={[styles.ctaLegal, { color: colors.textTertiary }]}>
                 Tap to manage or cancel in App Store settings.
               </Text>
@@ -580,7 +625,9 @@ export default function SubscriptionPage() {
                     <ActivityIndicator color={colors.bg} />
                   ) : storeAvailable ? (
                     <View style={styles.ctaBtnInner}>
-                      <Text style={[styles.ctaBtnLabel, { color: colors.bg }]}>Get {tierName}</Text>
+                      <Text style={[styles.ctaBtnLabel, { color: colors.bg }]}>
+                        {canUpgradeToPremium ? `Upgrade to ${tierName}` : `Get ${tierName}`}
+                      </Text>
                       {ctaPrice && ctaDesc ? (
                         <Text style={[styles.ctaBtnSub, { color: colors.bg, opacity: 0.7 }]}>
                           {ctaPrice} · {ctaDesc}
@@ -800,18 +847,43 @@ export default function SubscriptionPage() {
 const styles = StyleSheet.create({
   root:   { flex: 1 },
   flex:   { flex: 1 },
-  scroll: { paddingHorizontal: 16, paddingTop: 20, paddingBottom: 200 },
+  scroll: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 200 },
 
-  hero:     { alignItems: 'center', gap: 12, marginBottom: 24 },
-  heroIcon: { width: 76, height: 76, alignItems: 'center', justifyContent: 'center', marginBottom: 2 },
-  heroSub:  { fontSize: 14, fontFamily: 'ProductSans-Regular', textAlign: 'center', lineHeight: 21, paddingHorizontal: 16 },
+  // Current plan card
+  currentPlanCard: {
+    borderRadius: 20,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: 16,
+    marginBottom: 24,
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8 },
+      android: { elevation: 2 },
+    }),
+  },
+  currentPlanHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 16 },
+  currentPlanIcon: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+  currentPlanTitle: { fontSize: 17, fontFamily: 'ProductSans-Bold' },
+  currentPlanSub: { fontSize: 13, fontFamily: 'ProductSans-Regular', marginTop: 2 },
+  manageBtn: { paddingHorizontal: 14, paddingVertical: 7 },
+  manageBtnText: { fontSize: 13, fontFamily: 'ProductSans-Bold' },
+  quickStats: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  statItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  statText: { fontSize: 12, fontFamily: 'ProductSans-Regular' },
+  statDivider: { paddingHorizontal: 8 },
+  statDot: { width: 3, height: 3, borderRadius: 1.5 },
 
-  quotaBadge:  { flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: 20, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 14, paddingVertical: 7 },
-  quotaText:   { fontSize: 12, fontFamily: 'ProductSans-Medium' },
+  hero:     { alignItems: 'center', gap: 8, marginBottom: 24 },
+  heroSub:  { fontSize: 15, fontFamily: 'ProductSans-Regular', textAlign: 'center', lineHeight: 22, paddingHorizontal: 24, marginBottom: 8 },
 
-  heroTitle:     { fontSize: 28, fontFamily: 'ProductSans-Bold', marginBottom: 6 },
+  heroTitle:     { fontSize: 32, fontFamily: 'ProductSans-Black', textAlign: 'center', lineHeight: 38 },
 
+  pricingSection: { marginBottom: 20 },
+  pricingSectionHeader: { marginBottom: 16 },
+  pricingSectionTitle: { fontSize: 20, fontFamily: 'ProductSans-Bold' },
+  
   billingWrap:   { gap: 10, marginBottom: 20 },
+  
+  featuresHeader: { fontSize: 20, fontFamily: 'ProductSans-Bold', marginBottom: 16 },
   billingOption: {},
   billingOptionSkeleton: { height: 72, borderRadius: 18, borderWidth: StyleSheet.hairlineWidth, alignItems: 'center', justifyContent: 'center' },
   billingInner:  { flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 16, paddingVertical: 16 },
@@ -830,15 +902,12 @@ const styles = StyleSheet.create({
   tierTabActive:      { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.08, shadowRadius: 4, elevation: 2 },
   tierTabText:        { fontSize: 14, fontFamily: 'ProductSans-Bold' },
 
-  tableCard:          { marginBottom: 16, overflow: 'hidden' },
-  tableHeader:        { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 16, paddingBottom: 10 },
-  tableHeaderLeft:    { flex: 1, fontSize: 11, fontFamily: 'ProductSans-Bold', letterSpacing: 0.7, textTransform: 'uppercase' },
-  divider:            { height: StyleSheet.hairlineWidth, marginHorizontal: 16, marginBottom: 2 },
+  tableCard:          { marginBottom: 16, overflow: 'hidden', padding: 4 },
 
-  featureRow:         { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 11 },
-  featureLabelWrap:   { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
-  featureDot:         { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
-  featureText:        { fontSize: 13, fontFamily: 'ProductSans-Regular', flex: 1 },
+  featureRow:         { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 14 },
+  featureLabelWrap:   { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  featureText:        { fontSize: 15, fontFamily: 'ProductSans-Regular', flex: 1 },
+  featureValue:       { fontSize: 13, fontFamily: 'ProductSans-Medium' },
   cellBadge:     { width: 26, height: 26, alignItems: 'center', justifyContent: 'center' },
   cellBadgeWide: { minWidth: 54, paddingHorizontal: 10, paddingVertical: 6, alignItems: 'center', justifyContent: 'center' },
   cellQty:       { fontSize: 10, fontFamily: 'ProductSans-Bold', textAlign: 'center' },
@@ -868,6 +937,7 @@ const styles = StyleSheet.create({
   alreadyInner: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   alreadyLabel: { fontSize: 15, fontFamily: 'ProductSans-Black' },
   alreadySub:   { fontSize: 12, fontFamily: 'ProductSans-Regular', marginTop: 2 },
+  upgradeHint:  { fontSize: 13, fontFamily: 'ProductSans-Medium', textAlign: 'center', textDecorationLine: 'underline' },
 
   ctaBtn:      { paddingVertical: 16, paddingHorizontal: 20, alignItems: 'center', marginBottom: 10 },
   ctaBtnInner: { alignItems: 'center', gap: 2 },

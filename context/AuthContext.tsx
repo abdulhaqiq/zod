@@ -109,6 +109,7 @@ export interface UserProfile {
   education: Array<{ institution: string; course: string; degree: string; grad_year: string }> | null;
   city: string | null;
   hometown: string | null;
+  living_in: string | null;
   address: string | null;
   country: string | null;
   subscription_tier: string;         // "free" | "pro"
@@ -177,6 +178,7 @@ export interface UserProfile {
   is_verified: boolean;
   is_onboarded: boolean;
   is_active: boolean;
+  is_admin: boolean;
   created_at: string;
 
   face_scan_required: boolean;
@@ -468,9 +470,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setRefresh(refresh ?? null);
         setProfile(me);
         setIsOnboarded(me.is_onboarded);
+        // Re-register push token on every successful session restore so stale
+        // or missing tokens are refreshed automatically without requiring a re-login.
+        _registerPushToken(activeToken);
       } else {
-        // Token genuinely unusable (401 etc) — clear session
+        // Token genuinely unusable (401 / expired with no valid refresh) — clear
+        // both SecureStore AND React state so the routing guard sees isLoggedIn=false
+        // and routes to /welcome rather than landing on a stale protected screen.
         await _clearSession();
+        setToken(null);
+        setRefresh(null);
+        setProfile(null);
+        setIsOnboarded(false);
       }
 
       setIsLoading(false);

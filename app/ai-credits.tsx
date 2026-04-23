@@ -4,6 +4,7 @@
  */
 
 import { Ionicons } from '@expo/vector-icons';
+import { Image as ExpoImage } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import {
@@ -41,68 +42,68 @@ function UseRow({ icon, label, desc, cost, colors, last }: {
 }) {
   return (
     <View style={[st.useRow, !last && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border }]}>
-      <Squircle style={st.useIcon} cornerRadius={10} cornerSmoothing={1} fillColor={colors.surface2}>
-        <Ionicons name={icon as any} size={14} color={colors.text} />
+      <Squircle style={st.useIcon} cornerRadius={12} cornerSmoothing={1} fillColor={colors.surface2}>
+        <Ionicons name={icon as any} size={16} color={colors.text} />
       </Squircle>
       <View style={{ flex: 1 }}>
         <Text style={[st.useLbl, { color: colors.text }]}>{label}</Text>
         <Text style={[st.useDesc, { color: colors.textSecondary }]}>{desc}</Text>
       </View>
-      <View style={[st.costBadge, { backgroundColor: colors.surface2 }]}>
-        <Ionicons name="flash" size={10} color={colors.text} />
+      <Squircle style={st.costBadge} cornerRadius={10} cornerSmoothing={1} fillColor={colors.surface2}>
+        <ExpoImage 
+          source={require('@/assets/images/lightning-bolt.png')}
+          style={{ width: 12, height: 12 }}
+          contentFit="contain"
+        />
         <Text style={[st.costNum, { color: colors.text }]}>{cost}</Text>
-      </View>
+      </Squircle>
     </View>
   );
 }
 
-// ─── Pack card ────────────────────────────────────────────────────────────────
+// ─── Pack row ─────────────────────────────────────────────────────────────────
 
-function PackCard({ pack, buying, onBuy, colors }: {
-  pack: AiCreditPack; buying: boolean; onBuy: (p: AiCreditPack) => void; colors: any;
+function PackRow({ pack, buying, onBuy, colors, isLast }: {
+  pack: AiCreditPack; buying: boolean; onBuy: (p: AiCreditPack) => void; colors: any; isLast: boolean;
 }) {
-  const badge     = (pack as any).badge as string | undefined;
-  const isBestVal = badge === 'Best Value';
+  const badge = (pack as any).badge as string | undefined;
 
   return (
-    <Pressable onPress={() => !buying && onBuy(pack)} style={({ pressed }) => [{ opacity: pressed ? 0.75 : 1 }]}>
-      <Squircle
-        style={st.packCard} cornerRadius={18} cornerSmoothing={1}
-        fillColor={colors.surface} strokeColor={colors.border} strokeWidth={StyleSheet.hairlineWidth}
-      >
-        {badge && (
-          <View style={[st.packRibbon, { backgroundColor: colors.surface2 }]}>
-            <Text style={[st.packRibbonTxt, { color: colors.text }]}>{badge}</Text>
-          </View>
-        )}
-
-        <Squircle style={st.packIcon} cornerRadius={14} cornerSmoothing={1} fillColor={colors.surface2}>
-          <Ionicons name="flash" size={20} color={colors.text} />
-        </Squircle>
-
-        <View style={{ flex: 1 }}>
-          <Text style={[st.packName, { color: colors.text }]}>{pack.label}</Text>
-          <View style={st.packSubRow}>
-            <Text style={[st.packSub, { color: colors.textSecondary }]}>AI Credits</Text>
-            {isBestVal && (
-              <View style={[st.savePill, { backgroundColor: colors.surface2 }]}>
-                <Text style={[st.saveTxt, { color: colors.textSecondary }]}>Save 33%</Text>
-              </View>
-            )}
-          </View>
-        </View>
-
-        <View style={{ alignItems: 'flex-end', gap: 6 }}>
-          <Text style={[st.packPrice, { color: colors.text }]}>{pack.price}</Text>
-          <Squircle style={st.buyBtn} cornerRadius={12} cornerSmoothing={1} fillColor={colors.text}>
-            {buying
-              ? <ActivityIndicator size="small" color={colors.bg} />
-              : <Text style={[st.buyTxt, { color: colors.bg }]}>Buy</Text>
-            }
-          </Squircle>
-        </View>
+    <View style={[st.packRow, !isLast && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border }]}>
+      <Squircle style={st.packRowIcon} cornerRadius={14} cornerSmoothing={1} fillColor={colors.surface2}>
+        <ExpoImage 
+          source={require('@/assets/images/lightning-bolt.png')}
+          style={{ width: 20, height: 20 }}
+          contentFit="contain"
+        />
       </Squircle>
-    </Pressable>
+
+      <View style={{ flex: 1 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <Text style={[st.packRowName, { color: colors.text }]}>{pack.label}</Text>
+          {badge && (
+            <Squircle cornerRadius={6} cornerSmoothing={1} fillColor={colors.surface2} style={{ paddingHorizontal: 6, paddingVertical: 2 }}>
+              <Text style={{ fontSize: 9, fontFamily: 'ProductSans-Bold', color: colors.text }}>{badge}</Text>
+            </Squircle>
+          )}
+        </View>
+        <Text style={[st.packRowSub, { color: colors.textSecondary }]}>{pack.price}</Text>
+      </View>
+
+      <Pressable 
+        onPress={() => !buying && onBuy(pack)} 
+        style={({ pressed }) => [{ opacity: pressed || buying ? 0.7 : 1 }]}
+        disabled={buying}
+      >
+        <Squircle style={st.packRowBtn} cornerRadius={14} cornerSmoothing={1} fillColor={colors.text}>
+          {buying ? (
+            <ActivityIndicator size="small" color={colors.bg} />
+          ) : (
+            <Text style={[st.packRowBtnTxt, { color: colors.bg }]}>Buy</Text>
+          )}
+        </Squircle>
+      </Pressable>
+    </View>
   );
 }
 
@@ -115,22 +116,25 @@ function PlanRow({ label, icon, credits, isCurrent, isLast, colors }: {
     <View style={[
       st.planRow,
       !isLast && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
-      isCurrent && { backgroundColor: colors.surface2 },
     ]}>
-      <Squircle style={st.planIcon} cornerRadius={9} cornerSmoothing={1}
-        fillColor={isCurrent ? colors.border : colors.surface2}>
-        <Ionicons name={icon} size={13} color={colors.text} />
+      <Squircle style={st.planIcon} cornerRadius={11} cornerSmoothing={1}
+        fillColor={colors.surface2}>
+        <Ionicons name={icon} size={15} color={colors.text} />
       </Squircle>
       <Text style={[st.planName, { color: colors.text, flex: 1 }]}>{label}</Text>
       {isCurrent && (
-        <View style={[st.currentPill, { backgroundColor: colors.border }]}>
+        <Squircle style={st.currentPill} cornerRadius={8} cornerSmoothing={1} fillColor={colors.surface2}>
           <Text style={[st.currentTxt, { color: colors.text }]}>Current</Text>
-        </View>
+        </Squircle>
       )}
       <View style={st.planAmt}>
         {credits > 0 ? (
           <>
-            <Ionicons name="flash" size={11} color={colors.text} />
+            <ExpoImage 
+              source={require('@/assets/images/lightning-bolt.png')}
+              style={{ width: 12, height: 12 }}
+              contentFit="contain"
+            />
             <Text style={[st.planAmtNum, { color: colors.text }]}>{credits}/mo</Text>
           </>
         ) : (
@@ -191,64 +195,54 @@ export default function AiCreditsScreen() {
 
       <ScrollView style={st.flex} contentContainerStyle={st.scroll} showsVerticalScrollIndicator={false}>
 
-        {/* ── Hero ── */}
-        <View style={st.hero}>
-          <Squircle style={st.heroIcon} cornerRadius={24} cornerSmoothing={1} fillColor={colors.surface2}>
-            <Ionicons name="flash" size={34} color={colors.text} />
-          </Squircle>
-
-          <Text style={[st.heroBalance, { color: colors.text }]}>{balance}</Text>
-          <Text style={[st.heroSub, { color: colors.textSecondary }]}>AI Credits in your wallet</Text>
-
-          {/* Tier + reset pills */}
-          <View style={st.heroPills}>
-            <View style={[st.heroPill, { backgroundColor: colors.surface2 }]}>
-              <Ionicons name="star" size={11} color={colors.text} />
-              <Text style={[st.heroPillTxt, { color: colors.text }]}>{tierLabel} Plan</Text>
-            </View>
-            {monthly > 0 ? (
-              <View style={[st.heroPill, { backgroundColor: colors.surface2 }]}>
-                <Ionicons name="flash" size={11} color={colors.text} />
-                <Text style={[st.heroPillTxt, { color: colors.text }]}>+{monthly} on {nextReset}</Text>
-              </View>
-            ) : (
-              <View style={[st.heroPill, { backgroundColor: colors.surface2 }]}>
-                <Ionicons name="information-circle-outline" size={11} color={colors.textSecondary} />
-                <Text style={[st.heroPillTxt, { color: colors.textSecondary }]}>Upgrade for monthly credits</Text>
-              </View>
-            )}
-          </View>
-
-          {/* Balance bar */}
-          <View style={[st.barTrack, { backgroundColor: colors.surface2 }]}>
-            <View style={[st.barFill, {
-              width: `${Math.min(100, (balance / 50) * 100)}%` as any,
-              backgroundColor: colors.text,
-            }]} />
+        {/* ── Hero (Glowing Balance Card) ── */}
+        <View style={{ alignItems: 'center', marginBottom: 32, marginTop: 24 }}>
+          <Text style={{ fontSize: 15, fontFamily: 'ProductSans-Regular', color: colors.textSecondary, marginBottom: 8 }}>
+            Total Balance
+          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <ExpoImage
+              source={require('@/assets/images/lightning-bolt.png')}
+              style={{ width: 32, height: 32 }}
+              contentFit="contain"
+            />
+            <Text style={{ fontSize: 48, fontFamily: 'ProductSans-Bold', color: colors.text }}>
+              {balance}
+            </Text>
           </View>
         </View>
 
         {/* ── Upgrade nudge (free only) ── */}
         {!isPro && (
           <Pressable onPress={() => router.push('/subscription' as any)}
-            style={({ pressed }) => [{ opacity: pressed ? 0.8 : 1, marginBottom: 16 }]}>
-            <Squircle style={st.upgradeCard} cornerRadius={18} cornerSmoothing={1}
+            style={({ pressed }) => [{ opacity: pressed ? 0.8 : 1, marginBottom: 20 }]}>
+            <Squircle style={st.upgradeCard} cornerRadius={24} cornerSmoothing={1}
               fillColor={colors.surface} strokeColor={colors.border} strokeWidth={StyleSheet.hairlineWidth}>
-              <Squircle style={st.upgradeIconWrap} cornerRadius={12} cornerSmoothing={1} fillColor={colors.surface2}>
-                <Ionicons name="star" size={16} color={colors.text} />
+              <Squircle style={st.upgradeIconWrap} cornerRadius={14} cornerSmoothing={1} fillColor={colors.surface2}>
+                <Ionicons name="star" size={18} color={colors.text} />
               </Squircle>
               <View style={{ flex: 1 }}>
                 <Text style={[st.upgradeTitle, { color: colors.text }]}>Get monthly credits with Pro</Text>
                 <Text style={[st.upgradeSub, { color: colors.textSecondary }]}>10 credits/mo included · from $4.99/wk</Text>
               </View>
-              <Ionicons name="chevron-forward" size={15} color={colors.textSecondary} />
+              <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
             </Squircle>
           </Pressable>
         )}
 
+        {/* ── Buy credits ── */}
+        <Text style={[st.secLabel, { color: colors.textSecondary }]}>BUY CREDITS</Text>
+        <Squircle style={st.card} cornerRadius={24} cornerSmoothing={1}
+          fillColor={colors.surface} strokeColor={colors.border}
+          strokeWidth={StyleSheet.hairlineWidth}>
+          {AI_CREDIT_PACKS.map((pack, i) => (
+            <PackRow key={pack.id} pack={pack} buying={buyingPack === pack.id} onBuy={handleBuy} colors={colors} isLast={i === AI_CREDIT_PACKS.length - 1} />
+          ))}
+        </Squircle>
+
         {/* ── What credits do ── */}
-        <Text style={[st.secLabel, { color: colors.textSecondary }]}>WHAT CREDITS DO</Text>
-        <Squircle style={st.card} cornerRadius={18} cornerSmoothing={1}
+        <Text style={[st.secLabel, { color: colors.textSecondary, marginTop: 28 }]}>WHAT CREDITS DO</Text>
+        <Squircle style={st.card} cornerRadius={24} cornerSmoothing={1}
           fillColor={colors.surface} strokeColor={colors.border}
           strokeWidth={StyleSheet.hairlineWidth}>
           {CREDIT_USES.map((cr, i) => (
@@ -257,17 +251,9 @@ export default function AiCreditsScreen() {
           ))}
         </Squircle>
 
-        {/* ── Buy credits ── */}
-        <Text style={[st.secLabel, { color: colors.textSecondary, marginTop: 22 }]}>BUY CREDITS</Text>
-        <View style={{ gap: 10 }}>
-          {AI_CREDIT_PACKS.map(pack => (
-            <PackCard key={pack.id} pack={pack} buying={buyingPack === pack.id} onBuy={handleBuy} colors={colors} />
-          ))}
-        </View>
-
         {/* ── Monthly plan grants ── */}
-        <Text style={[st.secLabel, { color: colors.textSecondary, marginTop: 22 }]}>MONTHLY PLAN GRANTS</Text>
-        <Squircle style={st.card} cornerRadius={18} cornerSmoothing={1}
+        <Text style={[st.secLabel, { color: colors.textSecondary, marginTop: 28 }]}>MONTHLY PLAN GRANTS</Text>
+        <Squircle style={st.card} cornerRadius={24} cornerSmoothing={1}
           fillColor={colors.surface} strokeColor={colors.border}
           strokeWidth={StyleSheet.hairlineWidth}>
           {PLAN_ROWS.map((row, i) => (
@@ -297,61 +283,49 @@ export default function AiCreditsScreen() {
 const st = StyleSheet.create({
   root:   { flex: 1 },
   flex:   { flex: 1 },
-  scroll: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 60 },
+  scroll: { paddingHorizontal: 20, paddingTop: 4, paddingBottom: 60 },
 
   // Hero
-  hero:        { alignItems: 'center', gap: 10, marginBottom: 24 },
-  heroIcon:    { width: 72, height: 72, alignItems: 'center', justifyContent: 'center', marginBottom: 2 },
-  heroBalance: { fontSize: 44, fontFamily: 'ProductSans-Bold', lineHeight: 48 },
-  heroSub:     { fontSize: 14, fontFamily: 'ProductSans-Regular' },
   heroPills:   { flexDirection: 'row', gap: 8, flexWrap: 'wrap', justifyContent: 'center' },
-  heroPill:    { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20 },
-  heroPillTxt: { fontSize: 12, fontFamily: 'ProductSans-Medium' },
-  barTrack:    { width: '60%', height: 3, borderRadius: 2, overflow: 'hidden', marginTop: 4 },
-  barFill:     { height: 3, borderRadius: 2 },
+  heroPill:    { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 6 },
+  heroPillTxt: { fontSize: 13, fontFamily: 'ProductSans-Medium' },
 
   // Upgrade nudge
-  upgradeCard:    { flexDirection: 'row', alignItems: 'center', gap: 11, paddingHorizontal: 14, paddingVertical: 13 },
-  upgradeIconWrap:{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
-  upgradeTitle:   { fontSize: 13, fontFamily: 'ProductSans-Bold', marginBottom: 1 },
-  upgradeSub:     { fontSize: 11, fontFamily: 'ProductSans-Regular' },
+  upgradeCard:    { flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 18, paddingVertical: 16 },
+  upgradeIconWrap:{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  upgradeTitle:   { fontSize: 15, fontFamily: 'ProductSans-Bold', marginBottom: 2 },
+  upgradeSub:     { fontSize: 12, fontFamily: 'ProductSans-Regular' },
 
   // Section label
-  secLabel: { fontSize: 11, fontFamily: 'ProductSans-Bold', letterSpacing: 1.2, marginBottom: 8, marginLeft: 2 },
+  secLabel: { fontSize: 12, fontFamily: 'ProductSans-Bold', letterSpacing: 1.2, marginBottom: 10, marginLeft: 2 },
 
   // Card wrapper (shared)
   card: { overflow: 'hidden' },
 
   // Use rows
-  useRow:   { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 12, gap: 12 },
-  useIcon:  { width: 34, height: 34, alignItems: 'center', justifyContent: 'center' },
-  useLbl:   { fontSize: 13, fontFamily: 'ProductSans-Bold', marginBottom: 1 },
-  useDesc:  { fontSize: 11, fontFamily: 'ProductSans-Regular' },
-  costBadge:{ flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
-  costNum:  { fontSize: 12, fontFamily: 'ProductSans-Bold' },
+  useRow:   { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14, gap: 14 },
+  useIcon:  { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+  useLbl:   { fontSize: 14, fontFamily: 'ProductSans-Bold', marginBottom: 2 },
+  useDesc:  { fontSize: 12, fontFamily: 'ProductSans-Regular' },
+  costBadge:{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5 },
+  costNum:  { fontSize: 13, fontFamily: 'ProductSans-Bold' },
 
-  // Pack cards
-  packCard:     { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 14, gap: 12 },
-  packRibbon:   { position: 'absolute', top: -8, right: 12, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 },
-  packRibbonTxt:{ fontSize: 9, fontFamily: 'ProductSans-Bold' },
-  packIcon:     { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  packName:     { fontSize: 15, fontFamily: 'ProductSans-Bold' },
-  packSubRow:   { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 2 },
-  packSub:      { fontSize: 11, fontFamily: 'ProductSans-Regular' },
-  savePill:     { paddingHorizontal: 5, paddingVertical: 1, borderRadius: 5 },
-  saveTxt:      { fontSize: 9, fontFamily: 'ProductSans-Bold' },
-  packPrice:    { fontSize: 16, fontFamily: 'ProductSans-Bold' },
-  buyBtn:       { paddingHorizontal: 16, paddingVertical: 7, alignItems: 'center', justifyContent: 'center', minWidth: 58 },
-  buyTxt:       { fontSize: 13, fontFamily: 'ProductSans-Bold' },
+  // Pack rows
+  packRow:      { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14, gap: 14 },
+  packRowIcon:  { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+  packRowName:  { fontSize: 15, fontFamily: 'ProductSans-Bold' },
+  packRowSub:   { fontSize: 13, fontFamily: 'ProductSans-Regular', marginTop: 2 },
+  packRowBtn:   { paddingHorizontal: 16, paddingVertical: 8, alignItems: 'center', justifyContent: 'center', minWidth: 60 },
+  packRowBtnTxt:{ fontSize: 13, fontFamily: 'ProductSans-Bold' },
 
   // Plan rows
-  planRow:    { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 12, gap: 10 },
-  planIcon:   { width: 30, height: 30, alignItems: 'center', justifyContent: 'center' },
-  planName:   { fontSize: 13, fontFamily: 'ProductSans-Medium' },
-  planAmt:    { flexDirection: 'row', alignItems: 'center', gap: 2 },
-  planAmtNum: { fontSize: 13, fontFamily: 'ProductSans-Bold' },
-  currentPill:{ paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6 },
-  currentTxt: { fontSize: 9, fontFamily: 'ProductSans-Bold' },
+  planRow:    { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14, gap: 12 },
+  planIcon:   { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
+  planName:   { fontSize: 14, fontFamily: 'ProductSans-Medium' },
+  planAmt:    { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  planAmtNum: { fontSize: 14, fontFamily: 'ProductSans-Bold' },
+  currentPill:{ paddingHorizontal: 8, paddingVertical: 3 },
+  currentTxt: { fontSize: 10, fontFamily: 'ProductSans-Bold' },
 
-  footer: { fontSize: 11, fontFamily: 'ProductSans-Regular', textAlign: 'center', marginTop: 24, lineHeight: 16 },
+  footer: { fontSize: 12, fontFamily: 'ProductSans-Regular', textAlign: 'center', marginTop: 28, lineHeight: 18 },
 });

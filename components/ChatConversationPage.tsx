@@ -73,6 +73,7 @@ interface Msg {
   id: string;
   text: string;
   from: 'me' | 'them';
+  sender_id?: string;  // persisted for cache rehydration (re-derives `from` when myId was empty at write time)
   time: string;
   rawTime?: string;   // ISO 8601 — pagination cursor
   isCard?: boolean;
@@ -4287,11 +4288,12 @@ export default function ChatConversationPage() {
     const text = isOldCard ? rawText.replace(OLD_CARD_PREFIX, '') : rawText;
 
     return {
-      id:      m.id,
+      id:        m.id,
       text,
-      from:    m.sender_id === myId ? 'me' : 'them',
-      time:    _formatTime(m.created_at),
-      rawTime: m.created_at,
+      from:      m.sender_id === myId ? 'me' : 'them',
+      sender_id: m.sender_id,
+      time:      _formatTime(m.created_at),
+      rawTime:   m.created_at,
       isCard,
       cardMeta,
       isAnswer: m.msg_type === 'answer',
@@ -4325,7 +4327,8 @@ export default function ChatConversationPage() {
   const PAGE_SIZE = 60;
 
   useEffect(() => {
-    if (!token || !partnerId) { setLoadingHistory(false); return; }
+    // myId must be resolved before loading — if profile hasn't arrived yet, wait.
+    if (!token || !partnerId || !myId) { setLoadingHistory(false); return; }
     let cancelled = false;
 
     const init = async () => {
@@ -4333,8 +4336,17 @@ export default function ChatConversationPage() {
       const cached = await loadCache(partnerId);
 
       if (cached.length > 0 && !cancelled) {
-        seenMsgIdsRef.current = new Set(cached.map(m => m.id));
-        setMessages(cached as Msg[]);
+        // Re-derive `from` using the current myId — cached `from` values may have
+        // been written when myId was '' (profile not yet loaded), causing all
+        // messages to be wrongly attributed as 'them'.
+        const rehydrated = (cached as Msg[]).map(m => ({
+          ...m,
+          from: (m as any).sender_id
+            ? ((m as any).sender_id === myId ? 'me' : 'them') as 'me' | 'them'
+            : m.from,
+        }));
+        seenMsgIdsRef.current = new Set(rehydrated.map(m => m.id));
+        setMessages(rehydrated);
         setLoadingHistory(false);
         setTimeout(() => scrollRef.current?.scrollToEnd({ animated: false }), 80);
 
@@ -4387,7 +4399,7 @@ export default function ChatConversationPage() {
 
     init();
     return () => { cancelled = true; };
-  }, [token, partnerId]);
+  }, [token, partnerId, myId]);
 
   // ── Load older messages (scroll-to-top pagination) ─────────────────────────
   const loadOlderMessages = useCallback(async () => {
@@ -5531,7 +5543,12 @@ export default function ChatConversationPage() {
 
           {/* Message limit hint */}
           {!partnerHasReplied && myMsgCount === 1 && (
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingBottom: 6 }}>
+            <View style={{
+              flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+              gap: 5, paddingTop: 8, paddingBottom: 4,
+              borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border,
+              marginBottom: 6,
+            }}>
               <Ionicons name="information-circle-outline" size={13} color={colors.textSecondary} />
               <Text style={{ fontSize: 11, fontFamily: 'ProductSans-Medium', color: colors.textSecondary }}>
                 1 opening message left — waiting for {name.split(' ')[0]} to reply

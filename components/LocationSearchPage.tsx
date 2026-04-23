@@ -72,13 +72,13 @@ export default function LocationSearchPage() {
   const { token, updateProfile } = useAuth();
 
   const title = type === 'hometown' ? 'Hometown'
-    : type === 'city'     ? 'Change Location'
+    : type === 'city'     ? 'Travel Mode'
     : 'Living Now';
   const subtitle = type === 'hometown'
-    ? 'Where did you grow up?'
+    ? 'Where did you grow up? (Profile info only)'
     : type === 'city'
-    ? 'Search for any city in the world'
-    : 'Where do you currently live?';
+    ? 'Match with people in any city worldwide'
+    : 'Where do you currently live? (Profile info only)';
 
   const [query,      setQuery]      = useState('');
   const [results,    setResults]    = useState<CityResult[]>(POPULAR);
@@ -152,15 +152,15 @@ export default function LocationSearchPage() {
   }, [query]);
 
   const select = async (item: CityResult, index: number) => {
+    if (!token) return;
     Keyboard.dismiss();
     const cityKey = `${item.city}-${item.country}-${index}`;
     setSavingCity(cityKey);
     try {
       if (type === 'city') {
-        // Travel mode: coords already resolved by Apple Maps above
         const res = await apiFetch<any>('/location/change-city', {
           method: 'POST',
-          token: token ?? undefined,
+          token,
           body: JSON.stringify({
             city:      item.city,
             country:   item.country,
@@ -176,11 +176,10 @@ export default function LocationSearchPage() {
           travel_country:      res.country,
         });
       } else {
-        // Living Now / Hometown: update profile display field only
-        const field = type === 'hometown' ? 'hometown' : 'city';
+        const field = type === 'hometown' ? 'hometown' : 'living_in';
         const updated = await apiFetch<any>('/profile/me', {
           method: 'PATCH',
-          token: token ?? undefined,
+          token,
           body: JSON.stringify({ [field]: item.city }),
         });
         updateProfile(updated);

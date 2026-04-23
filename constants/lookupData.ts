@@ -65,6 +65,13 @@ export const LOOKUP: Record<string, LookupItem[]> = {
     { id: 248, emoji: '👗',  label: 'Fashion' },
     { id: 249, emoji: '🎤',  label: 'Concerts' },
     { id: 250, emoji: '⛺',  label: 'Camping' },
+    // Islamic interests (visible in Halal mode)
+    { id: 451, emoji: '📖',  label: 'Quran' },
+    { id: 452, emoji: '👨‍👩‍👧',  label: 'Family' },
+    { id: 453, emoji: '📝',  label: 'Islamic Study' },
+    { id: 454, emoji: '🕌',  label: 'Mosque' },
+    { id: 455, emoji: '🤲',  label: 'Charity' },
+    { id: 456, emoji: '☪️',  label: 'Islamic History' },
   ],
 
   values_list: [
@@ -370,4 +377,23 @@ export function getLookupLabels(category: string, ids: number[] | null | undefin
 export function getRelationshipLabels(ids: number[] | null | undefined): string[] {
   if (!ids) return [];
   return ids.map(id => RELATIONSHIP_TYPES.find(rt => rt.id === id)?.label ?? '').filter(Boolean);
+}
+
+/** IDs of interests that don't meet Islamic guidelines (hidden in Halal mode) */
+const NON_ISLAMIC_INTEREST_IDS = [240, 245]; // Wine, Dogs
+
+/** IDs of Islamic-specific interests (only visible in Halal mode) */
+const ISLAMIC_INTEREST_IDS = [451, 452, 453, 454, 455, 456]; // Quran, Family, Islamic Study, Mosque, Charity, Islamic History
+
+/** Filter interests based on Halal mode */
+export function getFilteredInterests(halalMode: boolean): LookupItem[] {
+  const interests = LOOKUP.interests || [];
+  
+  if (halalMode) {
+    // In Halal mode: exclude non-Islamic interests
+    return interests.filter(item => !NON_ISLAMIC_INTEREST_IDS.includes(item.id));
+  } else {
+    // In normal mode: exclude Islamic-specific interests
+    return interests.filter(item => !ISLAMIC_INTEREST_IDS.includes(item.id));
+  }
 }

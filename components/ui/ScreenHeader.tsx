@@ -42,7 +42,7 @@ export default function ScreenHeader({
       colors={gradientColors}
       start={{ x: 0, y: 0 }}
       end={{ x: 0, y: 1 }}
-      style={[styles.header, { paddingTop: insets.top + 10 }]}
+      style={[styles.header, { paddingTop: insets.top }]}
     >
       <View style={styles.headerRow}>
         {/* Left — close / back */}

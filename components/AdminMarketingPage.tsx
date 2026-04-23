@@ -723,11 +723,21 @@ function CountriesTab({ token, colors }: { token: string; colors: any }) {
 
 export default function AdminMarketingPage() {
   const { colors } = useAppTheme();
-  const { token } = useAuth();
+  const { token, profile } = useAuth();
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<'send' | 'templates' | 'countries'>('send');
 
-  if (!token) return null;
+  if (!token || !profile?.is_admin) {
+    return (
+      <View style={[styles.root, { backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center', gap: 12 }]}>
+        <Ionicons name="lock-closed-outline" size={40} color={colors.textSecondary} />
+        <Text style={{ fontSize: 15, fontFamily: 'ProductSans-Bold', color: colors.text }}>Admin access only</Text>
+        <Pressable onPress={() => router.back()} hitSlop={12}>
+          <Text style={{ fontSize: 13, fontFamily: 'ProductSans-Regular', color: colors.textSecondary }}>Go back</Text>
+        </Pressable>
+      </View>
+    );
+  }
 
   return (
     <View style={[styles.root, { backgroundColor: colors.bg }]}>
