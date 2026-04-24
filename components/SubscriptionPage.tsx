@@ -360,61 +360,61 @@ export default function SubscriptionPage() {
 
         {/* ── Current Subscription Status ────────────────────────────────── */}
         {isPro && (
-          <View style={[styles.currentPlanCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <Squircle 
+            cornerRadius={20} 
+            cornerSmoothing={1}
+            fillColor={colors.surface} 
+            strokeColor={colors.border} 
+            strokeWidth={1}
+            style={{ padding: 16, marginBottom: 24 }}
+          >
             <View style={styles.currentPlanHeader}>
-              <Squircle style={[styles.currentPlanIcon, { backgroundColor: colors.surface2 }]} cornerRadius={12} cornerSmoothing={1}>
+              <Squircle fillColor={colors.surface2} cornerRadius={12} cornerSmoothing={1} style={styles.currentPlanIcon}>
                 <Ionicons name={userTier === 'premium_plus' ? 'diamond' : 'star'} size={20} color={colors.text} />
               </Squircle>
               <View style={{ flex: 1 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <Text style={[styles.currentPlanTitle, { color: colors.text }]}>
-                    {userTier === 'premium_plus' ? 'Premium+' : 'Zod Pro'}
-                  </Text>
-                  {canUpgradeToPremium && (
-                    <View style={{ backgroundColor: colors.text, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 }}>
-                      <Text style={{ fontSize: 10, fontFamily: 'ProductSans-Bold', color: colors.bg }}>Viewing Premium+</Text>
-                    </View>
-                  )}
-                </View>
+                <Text style={[styles.currentPlanTitle, { color: colors.text }]}>
+                  {userTier === 'premium_plus' ? 'Premium+' : 'Zod Pro'}
+                </Text>
                 <Text style={[styles.currentPlanSub, { color: colors.textSecondary }]}>
-                  {canUpgradeToPremium 
-                    ? 'Upgrade for more features'
-                    : expiresAt
-                      ? `Renews ${new Date(expiresAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
-                      : 'Active'}
+                  {expiresAt
+                    ? `Renews ${new Date(expiresAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+                    : 'Active'}
                 </Text>
               </View>
               <Pressable
                 onPress={handleManageSubscription}
                 style={({ pressed }) => [pressed && { opacity: 0.7 }]}
               >
-                <Squircle style={[styles.manageBtn, { backgroundColor: colors.surface2 }]} cornerRadius={10} cornerSmoothing={1}>
+                <Squircle fillColor={colors.surface2} cornerRadius={10} cornerSmoothing={1} style={styles.manageBtn}>
                   <Text style={[styles.manageBtnText, { color: colors.text }]}>Manage</Text>
                 </Squircle>
               </Pressable>
             </View>
 
             {/* Quick Stats */}
-            {!canUpgradeToPremium && (
-              <View style={styles.quickStats}>
-                <View style={styles.statItem}>
-                  <Ionicons name="star" size={14} color={colors.textSecondary} />
-                  <Text style={[styles.statText, { color: colors.textSecondary }]}>
-                    {slRemaining}/{slLimit} Super Likes
-                  </Text>
-                </View>
-                <View style={styles.statDivider}>
-                  <View style={[styles.statDot, { backgroundColor: colors.border }]} />
-                </View>
-                <View style={styles.statItem}>
-                  <Ionicons name="flash" size={14} color={colors.textSecondary} />
-                  <Text style={[styles.statText, { color: colors.textSecondary }]}>
-                    {myFeatures?.ai_credits_balance ?? 0} AI Credits
-                  </Text>
-                </View>
+            <View style={styles.quickStats}>
+              <View style={styles.statItem}>
+                <Squircle fillColor={colors.surface2} cornerRadius={8} cornerSmoothing={1} style={{ width: 24, height: 24, alignItems: 'center', justifyContent: 'center' }}>
+                  <Ionicons name="star" size={14} color={colors.text} />
+                </Squircle>
+                <Text style={[styles.statText, { color: colors.textSecondary }]}>
+                  {slRemaining}/{slLimit} Super Likes
+                </Text>
               </View>
-            )}
-          </View>
+              <View style={styles.statDivider}>
+                <View style={[styles.statDot, { backgroundColor: colors.border }]} />
+              </View>
+              <View style={styles.statItem}>
+                <Squircle fillColor={colors.surface2} cornerRadius={8} cornerSmoothing={1} style={{ width: 24, height: 24, alignItems: 'center', justifyContent: 'center' }}>
+                  <Ionicons name="flash" size={14} color={colors.text} />
+                </Squircle>
+                <Text style={[styles.statText, { color: colors.textSecondary }]}>
+                  {myFeatures?.ai_credits_balance ?? 0} AI Credits
+                </Text>
+              </View>
+            </View>
+          </Squircle>
         )}
 
         {/* ── Hero ─────────────────────────────────────────────────────── */}
@@ -585,11 +585,18 @@ export default function SubscriptionPage() {
                 onPress={handleManageSubscription}
                 style={({ pressed }) => [pressed && { opacity: 0.8 }]}
               >
-                <View style={[styles.alreadyBtn, { backgroundColor: colors.surface2, borderRadius: 50 }]}>
+                <Squircle
+                  cornerRadius={20}
+                  cornerSmoothing={1}
+                  fillColor={colors.surface}
+                  strokeColor={colors.border}
+                  strokeWidth={1}
+                  style={styles.alreadyBtn}
+                >
                   <View style={styles.alreadyInner}>
                     <Ionicons name="checkmark-circle" size={20} color={colors.text} />
                     <View style={{ flex: 1 }}>
-                      <Text style={[styles.alreadyLabel, { color: colors.text }]}>Already Subscribed</Text>
+                      <Text style={[styles.alreadyLabel, { color: colors.text }]}>You already have this plan</Text>
                       <Text style={[styles.alreadySub, { color: colors.textSecondary }]}>
                         {expiresAt
                           ? `Renews ${new Date(expiresAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
@@ -598,21 +605,8 @@ export default function SubscriptionPage() {
                     </View>
                     <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />
                   </View>
-                </View>
+                </Squircle>
               </Pressable>
-              {userTier === 'pro' && tier === 'pro' && (
-                <Pressable
-                  onPress={() => setTier('premium_plus')}
-                  style={({ pressed }) => [{ marginTop: 8 }, pressed && { opacity: 0.7 }]}
-                >
-                  <Text style={[styles.upgradeHint, { color: colors.text }]}>
-                    Want more? Tap Premium+ above to see upgrade options →
-                  </Text>
-                </Pressable>
-              )}
-              <Text style={[styles.ctaLegal, { color: colors.textTertiary }]}>
-                Tap to manage or cancel in App Store settings.
-              </Text>
             </>
           ) : (
             <>
@@ -850,16 +844,6 @@ const styles = StyleSheet.create({
   scroll: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 200 },
 
   // Current plan card
-  currentPlanCard: {
-    borderRadius: 20,
-    borderWidth: StyleSheet.hairlineWidth,
-    padding: 16,
-    marginBottom: 24,
-    ...Platform.select({
-      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8 },
-      android: { elevation: 2 },
-    }),
-  },
   currentPlanHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 16 },
   currentPlanIcon: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   currentPlanTitle: { fontSize: 17, fontFamily: 'ProductSans-Bold' },

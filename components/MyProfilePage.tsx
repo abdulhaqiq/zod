@@ -22,7 +22,6 @@ import {
   View,
 } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
-import { LinearGradient } from 'expo-linear-gradient';
 import ChipSelectorSheet, { type ChipOption } from '@/components/ui/ChipSelectorSheet';
 import WheelPickerSheet from '@/components/ui/WheelPickerSheet';
 import VoiceSection from '@/components/ui/VoiceSection';
@@ -776,7 +775,7 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
           {avatarUrl ? (
             <ExpoImage 
               source={{ uri: avatarUrl }} 
-              style={{ width: 68, height: 68, borderRadius: 34 }} 
+              style={{ width: 68, height: 68, borderRadius: 34, borderWidth: 2, borderColor: colors.border }} 
               contentFit="cover" 
               cachePolicy="memory-disk" 
               transition={200} 
@@ -787,6 +786,8 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
               height: 68, 
               borderRadius: 34, 
               backgroundColor: colors.surface2,
+              borderWidth: 2,
+              borderColor: colors.border,
               alignItems: 'center',
               justifyContent: 'center',
             }}>
@@ -930,35 +931,29 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
               <Ionicons name="chevron-forward" size={13} color={colors.surface3} />
             </Squircle>
           ) : (
-            <View style={{ overflow: 'hidden', borderRadius: 22 }}>
-              <LinearGradient
-                colors={['#FF416C', '#FF4B2B']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={{ flexDirection: 'row', alignItems: 'center', paddingLeft: 16, paddingVertical: 14, paddingRight: 12 }}
-              >
-                <View style={{ flex: 1, gap: 4 }}>
-                  <Text style={{ fontSize: 16, fontFamily: 'ProductSans-Bold', color: '#FFFFFF' }}>
-                    Zod Free
-                  </Text>
-                  <Text style={{ fontSize: 12, fontFamily: 'ProductSans-Regular', color: '#FFFFFF', opacity: 0.9 }}>
-                    Upgrade to unlock all features
-                  </Text>
-                  <View style={{ backgroundColor: 'rgba(255, 255, 255, 0.95)', borderRadius: 16, paddingHorizontal: 14, paddingVertical: 8, alignSelf: 'flex-start', marginTop: 8 }}>
-                    <Text style={{ fontSize: 13, fontFamily: 'ProductSans-Bold', color: '#FF416C' }}>
-                      Upgrade
-                    </Text>
-                  </View>
-                </View>
-                <View style={{ backgroundColor: 'rgba(255, 255, 255, 0.15)', borderRadius: 14, width: 64, height: 64, alignItems: 'center', justifyContent: 'center', marginLeft: 8 }}>
-                  <ExpoImage 
-                    source={require('@/assets/images/hearts.png')}
-                    style={{ width: 44, height: 44 }}
-                    contentFit="contain"
-                  />
-                </View>
-              </LinearGradient>
-            </View>
+            <Squircle
+              cornerRadius={18} cornerSmoothing={1}
+              fillColor={colors.surface}
+              strokeColor={colors.border}
+              strokeWidth={1}
+              style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 15, gap: 10 }}
+            >
+              <Ionicons name="star-outline" size={16} color={colors.textSecondary} />
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 14, fontFamily: 'ProductSans-Bold', color: colors.text }}>
+                  Zod Free
+                </Text>
+                <Text style={{ fontSize: 12, fontFamily: 'ProductSans-Regular', color: colors.textSecondary, marginTop: 1 }}>
+                  Upgrade to unlock all features
+                </Text>
+              </View>
+              <View style={{ backgroundColor: colors.text, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6 }}>
+                <Text style={{ fontSize: 12, fontFamily: 'ProductSans-Bold', color: colors.bg }}>
+                  Upgrade
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={13} color={colors.textSecondary} />
+            </Squircle>
           )}
         </Pressable>
       </View>
@@ -1022,9 +1017,9 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
         </View>
       )}
 
-      {/* ── ZOD WORK ────────────────────────────────────────────────────── */}
+      {/* ── WORK & EDUCATION ────────────────────────────────────────────────────── */}
       <View style={styles.section}>
-        <SectionLabel title="ZOD WORK" colors={colors} />
+        <SectionLabel title="WORK & EDUCATION" colors={colors} />
         <Group colors={colors}>
           <SettingRow
             icon="briefcase-outline"
@@ -1066,9 +1061,9 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
         </View>
       )}
 
-      {/* ── ABOUT YOU — Mood Status ──────────────────────────────────────── */}
+      {/* ── YOUR MOOD — Mood Status ──────────────────────────────────────── */}
       <View style={styles.section}>
-        <SectionLabel title="ABOUT YOU" colors={colors} />
+        <SectionLabel title="YOUR MOOD" colors={colors} />
         <Group colors={colors}>
           <View style={styles.moodRow}>
             <Pressable onPress={() => setMoodModalOpen(true)} style={[styles.moodBadge, { backgroundColor: colors.bg, borderColor: colors.border }]}>
@@ -1508,41 +1503,41 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
 
       {/* ── AI Score modal (bottom sheet) ────────────────────────────────── */}
       <Modal visible={aiScoreModalOpen} animationType="slide" transparent onRequestClose={() => setAiScoreModalOpen(false)}>
-        <View style={{ flex: 1, justifyContent: 'flex-end' }}>
-          <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' }} onPress={() => setAiScoreModalOpen(false)} />
-          <View style={{ backgroundColor: colors.bg, borderTopLeftRadius: 36, borderTopRightRadius: 36, paddingHorizontal: 24, paddingBottom: insets.bottom + 24, paddingTop: 14 }}>
+        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: colors.bg === '#000000' ? 'rgba(0,0,0,0.5)' : 'rgba(0,0,0,0.3)' }}>
+          <Pressable style={{ flex: 1 }} onPress={() => setAiScoreModalOpen(false)} />
+          <View style={{ backgroundColor: colors.surface, borderTopLeftRadius: 30, borderTopRightRadius: 30, paddingHorizontal: 20, paddingBottom: insets.bottom + 20, paddingTop: 12 }}>
             {/* Handle */}
-            <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: colors.border, alignSelf: 'center', marginBottom: 24 }} />
+            <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: colors.border, alignSelf: 'center', marginBottom: 20 }} />
 
             {/* Header */}
-            <View style={{ alignItems: 'center', gap: 16 }}>
+            <View style={{ alignItems: 'center', gap: 12 }}>
               <ExpoImage 
                 source={require('@/assets/images/ai-score-star.png')}
-                style={{ width: 80, height: 80 }}
+                style={{ width: 60, height: 60 }}
                 contentFit="contain"
               />
-              <View style={{ alignItems: 'center', gap: 6 }}>
-                <Text style={{ fontSize: 28, fontFamily: 'ProductSans-Black', color: colors.text }}>
+              <View style={{ alignItems: 'center', gap: 4 }}>
+                <Text style={{ fontSize: 24, fontFamily: 'ProductSans-Black', color: colors.text }}>
                   100% Complete!
                 </Text>
-                <Text style={{ fontSize: 15, fontFamily: 'ProductSans-Regular', color: colors.textSecondary, textAlign: 'center', paddingHorizontal: 20 }}>
+                <Text style={{ fontSize: 14, fontFamily: 'ProductSans-Regular', color: colors.textSecondary, textAlign: 'center', paddingHorizontal: 16 }}>
                   Your profile is fully optimized for matching
                 </Text>
               </View>
             </View>
 
             {/* Features */}
-            <View style={{ gap: 16, marginTop: 28, marginBottom: 28 }}>
+            <View style={{ gap: 12, marginTop: 20, marginBottom: 20 }}>
               {[
                 { icon: 'checkmark-circle', text: 'All profile fields completed', color: '#16a34a' },
                 { icon: 'sparkles', text: 'AI-optimized for best matches', color: '#6366f1' },
                 { icon: 'trending-up', text: 'Higher visibility in feed', color: '#f59e0b' },
               ].map((item, i) => (
-                <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
-                  <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' }}>
-                    <Ionicons name={item.icon as any} size={22} color={item.color} />
+                <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                  <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: colors.surface2, alignItems: 'center', justifyContent: 'center' }}>
+                    <Ionicons name={item.icon as any} size={20} color={item.color} />
                   </View>
-                  <Text style={{ flex: 1, fontSize: 16, fontFamily: 'ProductSans-Regular', color: colors.text }}>
+                  <Text style={{ flex: 1, fontSize: 15, fontFamily: 'ProductSans-Regular', color: colors.text }}>
                     {item.text}
                   </Text>
                 </View>
@@ -1554,8 +1549,8 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
               onPress={() => setAiScoreModalOpen(false)}
               style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}
             >
-              <View style={{ backgroundColor: colors.text, borderRadius: 50, paddingVertical: 17, alignItems: 'center' }}>
-                <Text style={{ fontSize: 17, fontFamily: 'ProductSans-Bold', color: colors.bg }}>
+              <View style={{ backgroundColor: colors.text, borderRadius: 50, paddingVertical: 15, alignItems: 'center' }}>
+                <Text style={{ fontSize: 16, fontFamily: 'ProductSans-Bold', color: colors.bg }}>
                   Got it!
                 </Text>
               </View>

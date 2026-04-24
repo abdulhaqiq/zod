@@ -4094,9 +4094,18 @@ export default function ChatConversationPage() {
     return () => clearInterval(id);
   }, [expiresAt]);
 
+  // 2-message limit: disable input until partner replies
+  const myMsgCount       = messages.filter(m => m.from === 'me').length;
+  const partnerHasReplied = messages.some(m => m.from === 'them');
+  const isInputBlocked   = !partnerHasReplied && myMsgCount >= 2;
+
   // Match timer helpers (inline so they re-evaluate on tick)
   const _matchIsPermanent = !expiresAt || (new Date(expiresAt).getTime() - Date.now() > 7 * 24 * 3600 * 1000);
+  const bothHaveMessaged = myMsgCount > 0 && partnerHasReplied;
+  
   const matchTimerStr = (() => {
+    // If both users have sent messages, match doesn't expire
+    if (bothHaveMessaged) return null;
     if (_matchIsPermanent || !expiresAt) return null;
     const ms = new Date(expiresAt).getTime() - Date.now();
     if (ms <= 0) return 'Expired';
@@ -4106,11 +4115,6 @@ export default function ChatConversationPage() {
     if (h >= 1) return `${h}h ${m}m`;
     return `${m}m`;
   })();
-
-  // 2-message limit: disable input until partner replies
-  const myMsgCount       = messages.filter(m => m.from === 'me').length;
-  const partnerHasReplied = messages.some(m => m.from === 'them');
-  const isInputBlocked   = !partnerHasReplied && myMsgCount >= 2;
 
   const openCtxMenu = useCallback((msg: Msg) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);

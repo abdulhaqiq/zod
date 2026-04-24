@@ -4,7 +4,7 @@ const PROD_API_URL = 'https://dev.zod.pro.ailoo.co';
 
 // Set to true to always point at production, even when running in dev/Expo Go.
 // Set to false to auto-detect the local dev server IP from Expo's hostUri.
-const USE_PROD_API = true;
+const USE_PROD_API = false;
 
 const APP_API_KEY: string =
   (Constants.expoConfig?.extra as any)?.APP_API_KEY ?? '';

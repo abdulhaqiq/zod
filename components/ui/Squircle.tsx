@@ -32,27 +32,15 @@ export default function Squircle({
   };
 
   const hasBorder = !!strokeColor;
-  const inset = hasBorder ? strokeWidth : 0;
+  const halfStroke = hasBorder ? strokeWidth / 2 : 0;
 
-  // Outer path (border color) — full size
-  const outerPath =
-    size.width > 0 && hasBorder
+  // Main path for both fill and stroke
+  const mainPath =
+    size.width > 0
       ? getSvgPath({
-          width: size.width,
-          height: size.height,
-          cornerRadius,
-          cornerSmoothing,
-          preserveSmoothing: true,
-        })
-      : null;
-
-  // Inner path (fill color) — inset so the border ring is fully visible
-  const innerPath =
-    size.width > 0 && fillColor
-      ? getSvgPath({
-          width: size.width - inset * 2,
-          height: size.height - inset * 2,
-          cornerRadius: Math.max(cornerRadius - inset, 0),
+          width: size.width - (hasBorder ? strokeWidth : 0),
+          height: size.height - (hasBorder ? strokeWidth : 0),
+          cornerRadius: Math.max(cornerRadius - halfStroke, 0),
           cornerSmoothing,
           preserveSmoothing: true,
         })
@@ -60,22 +48,19 @@ export default function Squircle({
 
   return (
     <View style={[{ position: 'relative' }, style]} onLayout={onLayout}>
-      {size.width > 0 && (outerPath || innerPath) && (
+      {size.width > 0 && mainPath && (
         <Svg
           width={size.width}
           height={size.height}
           style={{ position: 'absolute', top: 0, left: 0 }}
         >
-          {/* Border layer */}
-          {outerPath ? <Path d={outerPath} fill={strokeColor} /> : null}
-          {/* Fill layer — translated inward by strokeWidth */}
-          {innerPath && fillColor ? (
-            <Path
-              d={innerPath}
-              fill={fillColor}
-              transform={`translate(${inset}, ${inset})`}
-            />
-          ) : null}
+          <Path
+            d={mainPath}
+            fill={fillColor || 'transparent'}
+            stroke={strokeColor}
+            strokeWidth={strokeWidth}
+            transform={`translate(${halfStroke}, ${halfStroke})`}
+          />
         </Svg>
       )}
       {children}
