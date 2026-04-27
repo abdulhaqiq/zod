@@ -65,9 +65,22 @@ export default function ProfileScreen() {
   const [dob, setDob] = useState<Date | null>(existingDob);
   const [showPicker, setShowPicker] = useState(false);
   const [pickerTemp, setPickerTemp] = useState<Date>(existingDob ?? DEFAULT_PICKER_DATE);
+  const [showAgeConfirm, setShowAgeConfirm] = useState(false);
+  const [pendingDob, setPendingDob] = useState<Date | null>(null);
 
   // Debounce ref — avoid firing on every keystroke
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Calculate age in years from a date
+  const calculateAge = (birthDate: Date): number => {
+    const today = new Date();
+    let age = today.getFullYear() - birthDate.getFullYear();
+    const monthDiff = today.getMonth() - birthDate.getMonth();
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+      age--;
+    }
+    return age;
+  };
 
   const emailFormatValid = EMAIL_REGEX.test(email.trim());
   const isValid = fullName.trim().length >= 2 && emailFormatValid && emailError === null && !checkingEmail && dob !== null;
@@ -247,8 +260,16 @@ export default function ProfileScreen() {
             </TouchableOpacity>
             <TouchableOpacity
               onPress={() => {
-                setDob(pickerTemp);
-                setShowPicker(false);
+                const age = calculateAge(pickerTemp);
+                // Show confirmation if user is exactly 18 or 19 (just met minimum age)
+                if (age === 18 || age === 19) {
+                  setPendingDob(pickerTemp);
+                  setShowPicker(false);
+                  setShowAgeConfirm(true);
+                } else {
+                  setDob(pickerTemp);
+                  setShowPicker(false);
+                }
               }}
             >
               <Text style={[styles.toolbarBtn, styles.doneBtn, { color: colors.text }]}>Done</Text>
@@ -269,6 +290,63 @@ export default function ProfileScreen() {
           />
 
           <SafeAreaView />
+        </View>
+      </Modal>
+
+      {/* Age confirmation modal */}
+      <Modal
+        visible={showAgeConfirm}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowAgeConfirm(false)}
+      >
+        <View style={styles.confirmBackdrop}>
+          <Squircle
+            style={[styles.confirmBox, { backgroundColor: colors.surface }]}
+            cornerRadius={24}
+            cornerSmoothing={1}
+          >
+            <View style={styles.confirmIcon}>
+              <Ionicons name="calendar-outline" size={32} color={colors.text} />
+            </View>
+            
+            <Text style={[styles.confirmTitle, { color: colors.text }]}>
+              Confirm Your Age
+            </Text>
+            
+            <Text style={[styles.confirmMessage, { color: colors.textSecondary }]}>
+              You selected birth year {pendingDob?.getFullYear()}. Are you sure you are at least 18 years old?
+            </Text>
+
+            <View style={styles.confirmButtons}>
+              <TouchableOpacity
+                style={[styles.confirmBtn, styles.cancelBtn, { backgroundColor: colors.bg }]}
+                onPress={() => {
+                  setShowAgeConfirm(false);
+                  setPendingDob(null);
+                }}
+              >
+                <Text style={[styles.confirmBtnText, { color: colors.textSecondary }]}>
+                  Change Date
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.confirmBtn, styles.confirmBtnPrimary, { backgroundColor: colors.text }]}
+                onPress={() => {
+                  if (pendingDob) {
+                    setDob(pendingDob);
+                  }
+                  setShowAgeConfirm(false);
+                  setPendingDob(null);
+                }}
+              >
+                <Text style={[styles.confirmBtnText, { color: colors.bg }]}>
+                  Yes, I'm 18+
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </Squircle>
         </View>
       </Modal>
     </OnboardingShell>
@@ -309,4 +387,56 @@ const styles = StyleSheet.create({
   toolbarBtn: { fontSize: 16, fontFamily: 'ProductSans-Regular' },
   doneBtn: { fontFamily: 'ProductSans-Bold' },
   picker: { width: '100%' },
+
+  // Age confirmation modal
+  confirmBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  confirmBox: {
+    width: '100%',
+    maxWidth: 340,
+    padding: 24,
+    alignItems: 'center',
+  },
+  confirmIcon: {
+    marginBottom: 16,
+  },
+  confirmTitle: {
+    fontSize: 20,
+    fontFamily: 'ProductSans-Bold',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  confirmMessage: {
+    fontSize: 15,
+    fontFamily: 'ProductSans-Regular',
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: 24,
+  },
+  confirmButtons: {
+    flexDirection: 'row',
+    gap: 12,
+    width: '100%',
+  },
+  confirmBtn: {
+    flex: 1,
+    height: 50,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  cancelBtn: {
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  confirmBtnPrimary: {},
+  confirmBtnText: {
+    fontSize: 16,
+    fontFamily: 'ProductSans-Bold',
+  },
 });

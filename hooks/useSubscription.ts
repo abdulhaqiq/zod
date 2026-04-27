@@ -17,6 +17,7 @@ import Purchases, {
   type PurchasesPackage,
 } from 'react-native-purchases';
 import { NativeModules } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiFetch } from '@/constants/api';
 import { RC_ENTITLEMENT, RC_OFFERING, RC_PREMIUM_OFFERING, RC_PREMIUM_ENTITLEMENT, RC_CREDITS_OFFERING, RC_CREDITS_ENTITLEMENT, RC_IOS_PUBLIC_KEY, type AiCreditPack } from '@/constants/iap';
 import { useAuth } from '@/context/AuthContext';
@@ -99,6 +100,13 @@ export function useSubscription() {
   const [error,            setError]            = useState<string | null>(null);
   const configuredToken = useRef<string | null>(null);
 
+  const PLANS_CACHE_KEY = 'subscription_plans_v1';
+  const PLANS_CACHE_TIMESTAMP_KEY = 'subscription_plans_timestamp_v1';
+  const FEATURES_CACHE_KEY = 'subscription_features_v1';
+  const FEATURES_CACHE_TIMESTAMP_KEY = 'subscription_features_timestamp_v1';
+  const CACHE_TTL = 3600000; // 1 hour in milliseconds
+  const FEATURES_CACHE_TTL = 120000; // 2 minutes for features (more dynamic)
+
   // ── Configure RevenueCat SDK — key fetched from backend ──────────────────
 
   useEffect(() => {
@@ -109,26 +117,113 @@ export function useSubscription() {
       // Fetch status, plan catalog, and personal feature limits from backend.
       // All three work in Expo Go (no native RC SDK needed).
       fetchStatus();
-      // 8-second timeout — if the DB is unreachable the skeleton won't spin forever.
-      const plansTimeout = new Promise<BackendPlan[]>((_, reject) =>
-        setTimeout(() => reject(new Error('timeout')), 8000)
-      );
-      Promise.race([
-        apiFetch<BackendPlan[]>('/subscription/plans', { token }),
-        plansTimeout,
-      ])
-        .then(data => { setPlans((data as BackendPlan[]) ?? []); setPlansLoading(false); })
-        .catch(() => { setPlansLoading(false); });
-      apiFetch<MyFeatures>('/subscription/my-features', { token })
-        .then(data => {
-          setMyFeatures(data);
-          // Sync super_likes_remaining into the cached profile so FeedScreen
-          // sees the correct count without needing a separate profile refresh.
-          if (data?.super_likes_remaining !== undefined) {
-            updateProfile({ super_likes_remaining: data.super_likes_remaining });
+      
+      // ── Smart caching for plans ──────────────────────────────────────────
+      // Load cached plans immediately for instant UI
+      const loadCachedPlans = async () => {
+        try {
+          const [cachedPlans, cachedTimestamp] = await Promise.all([
+            AsyncStorage.getItem(PLANS_CACHE_KEY),
+            AsyncStorage.getItem(PLANS_CACHE_TIMESTAMP_KEY),
+          ]);
+          
+          if (cachedPlans) {
+            const parsed = JSON.parse(cachedPlans);
+            setPlans(parsed);
+            setPlansLoading(false);
+            
+            // Check if cache is still fresh
+            if (cachedTimestamp) {
+              const timestamp = parseInt(cachedTimestamp, 10);
+              const age = Date.now() - timestamp;
+              if (age < CACHE_TTL) {
+                // Cache is fresh, no need to fetch from API
+                return true;
+              }
+            }
           }
-        })
-        .catch(() => {});
+        } catch (err) {
+          // Cache read failed, will fetch from API
+        }
+        return false;
+      };
+      
+      const cacheIsFresh = await loadCachedPlans();
+      
+      // Fetch from API only if cache is stale or missing
+      if (!cacheIsFresh) {
+        const plansTimeout = new Promise<BackendPlan[]>((_, reject) =>
+          setTimeout(() => reject(new Error('timeout')), 8000)
+        );
+        Promise.race([
+          apiFetch<BackendPlan[]>('/subscription/plans', { token }),
+          plansTimeout,
+        ])
+          .then(async (data) => {
+            const plans = (data as BackendPlan[]) ?? [];
+            setPlans(plans);
+            setPlansLoading(false);
+            
+            // Cache the fresh data
+            try {
+              await AsyncStorage.setItem(PLANS_CACHE_KEY, JSON.stringify(plans));
+              await AsyncStorage.setItem(PLANS_CACHE_TIMESTAMP_KEY, Date.now().toString());
+            } catch (err) {
+              // Cache write failed, not critical
+            }
+          })
+          .catch(() => { setPlansLoading(false); });
+      }
+      
+      // ── Smart caching for features ───────────────────────────────────────
+      const loadCachedFeatures = async () => {
+        try {
+          const [cachedFeatures, cachedTimestamp] = await Promise.all([
+            AsyncStorage.getItem(FEATURES_CACHE_KEY),
+            AsyncStorage.getItem(FEATURES_CACHE_TIMESTAMP_KEY),
+          ]);
+          
+          if (cachedFeatures) {
+            const parsed = JSON.parse(cachedFeatures);
+            setMyFeatures(parsed);
+            
+            // Check if cache is still fresh (2 minutes for features)
+            if (cachedTimestamp) {
+              const timestamp = parseInt(cachedTimestamp, 10);
+              const age = Date.now() - timestamp;
+              if (age < FEATURES_CACHE_TTL) {
+                return true;
+              }
+            }
+          }
+        } catch (err) {
+          // Cache read failed
+        }
+        return false;
+      };
+      
+      const featuresCacheIsFresh = await loadCachedFeatures();
+      
+      if (!featuresCacheIsFresh) {
+        apiFetch<MyFeatures>('/subscription/my-features', { token })
+          .then(async (data) => {
+            setMyFeatures(data);
+            // Sync super_likes_remaining into the cached profile so FeedScreen
+            // sees the correct count without needing a separate profile refresh.
+            if (data?.super_likes_remaining !== undefined) {
+              updateProfile({ super_likes_remaining: data.super_likes_remaining });
+            }
+            
+            // Cache the fresh data
+            try {
+              await AsyncStorage.setItem(FEATURES_CACHE_KEY, JSON.stringify(data));
+              await AsyncStorage.setItem(FEATURES_CACHE_TIMESTAMP_KEY, Date.now().toString());
+            } catch (err) {
+              // Cache write failed, not critical
+            }
+          })
+          .catch(() => {});
+      }
 
       // Skip native RC SDK entirely in Expo Go — no native store available
       if (!IS_EXPO_GO) {
@@ -185,11 +280,23 @@ export function useSubscription() {
   const fetchMyFeatures = useCallback(async () => {
     if (!token) return;
     try {
+      // Clear cache before fetching (for explicit refetch after purchase)
+      await AsyncStorage.removeItem(FEATURES_CACHE_KEY);
+      await AsyncStorage.removeItem(FEATURES_CACHE_TIMESTAMP_KEY);
+      
       const feat = await apiFetch<MyFeatures>('/subscription/my-features', { token });
       if (feat) {
         setMyFeatures(feat);
         if (feat.super_likes_remaining !== undefined) {
           updateProfile({ super_likes_remaining: feat.super_likes_remaining });
+        }
+        
+        // Cache the fresh data
+        try {
+          await AsyncStorage.setItem(FEATURES_CACHE_KEY, JSON.stringify(feat));
+          await AsyncStorage.setItem(FEATURES_CACHE_TIMESTAMP_KEY, Date.now().toString());
+        } catch (err) {
+          // Cache write failed, not critical
         }
       }
     } catch { /* ignore */ }

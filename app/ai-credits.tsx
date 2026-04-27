@@ -172,7 +172,7 @@ export default function AiCreditsScreen() {
     try {
       const res = await purchaseAiCredits(pack);
       if (res.success) {
-        Alert.alert('Credits Added', `+${pack.credits} credits added to your wallet.`, [{ text: 'Great!' }]);
+        Alert.alert('Credits Added!', `+${pack.credits} AI Credits added to your wallet.`, [{ text: 'Great!' }]);
       } else if (res.error) {
         Alert.alert('Purchase Failed', res.error);
       }

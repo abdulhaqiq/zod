@@ -112,27 +112,88 @@ function LikedCardSkeleton({ colors }: { colors: any }) {
 }
 
 function AppLogo({
-  color, bgColor, halalMode, isMuslim, appMode, onPress,
+  color, bgColor, halalMode, isMuslim, appMode, onPress, onSelectStandard, onSelectHalal,
 }: {
-  color: string; bgColor: string; halalMode: boolean; isMuslim: boolean; appMode: AppMode; onPress: () => void;
+  color: string; bgColor: string; halalMode: boolean; isMuslim: boolean; appMode: AppMode; 
+  onPress: () => void; onSelectStandard: () => void; onSelectHalal: () => void;
 }) {
   const isWork = appMode === 'work';
-  const pillActive = isWork || halalMode;
-  const pillLabel = isWork ? 'Work' : halalMode ? 'Halal' : 'Standard';
+  const isStandard = !halalMode && !isWork;
 
   return (
-    <Pressable onPress={onPress} hitSlop={8} style={styles.logoBtn}>
-      <Text style={[styles.logoText, { color }]}>zod</Text>
-      <View style={[
-        styles.halalPill,
-        { backgroundColor: pillActive ? color : 'transparent', borderColor: pillActive ? color : color + '55' },
-      ]}>
-        <Text style={[styles.halalPillLabel, { color: pillActive ? bgColor : color }]}>
-          {pillLabel}
-        </Text>
-        <Ionicons name="chevron-down" size={10} color={pillActive ? bgColor : color} />
-      </View>
-    </Pressable>
+    <View style={styles.logoContainer}>
+      {/* Zod Logo */}
+      <Pressable onPress={isMuslim ? onPress : undefined} hitSlop={8} style={styles.logoBtn}>
+        <Text style={[styles.logoText, { color }]}>zod</Text>
+      </Pressable>
+
+      {/* Mode Badge - Only show active one if Muslim */}
+      {isMuslim && !isWork && (
+        <>
+          {/* Standard Badge - only when in Standard mode */}
+          {isStandard && (
+            <Pressable
+              onPress={onSelectStandard}
+              style={[
+                styles.modeButton,
+                { 
+                  backgroundColor: color,
+                  borderColor: color + '55',
+                },
+              ]}
+            >
+              <Ionicons 
+                name="layers" 
+                size={14} 
+                color={bgColor} 
+              />
+              <Text style={[
+                styles.modeButtonText,
+                { color: bgColor },
+              ]}>
+                Standard
+              </Text>
+              <Ionicons 
+                name="chevron-down" 
+                size={12} 
+                color={bgColor} 
+              />
+            </Pressable>
+          )}
+
+          {/* Halal Badge - only when in Halal mode */}
+          {halalMode && (
+            <Pressable
+              onPress={onSelectHalal}
+              style={[
+                styles.modeButton,
+                { 
+                  backgroundColor: color,
+                  borderColor: color + '55',
+                },
+              ]}
+            >
+              <Ionicons 
+                name="moon" 
+                size={14} 
+                color={bgColor} 
+              />
+              <Text style={[
+                styles.modeButtonText,
+                { color: bgColor },
+              ]}>
+                Halal
+              </Text>
+              <Ionicons 
+                name="chevron-down" 
+                size={12} 
+                color={bgColor} 
+              />
+            </Pressable>
+          )}
+        </>
+      )}
+    </View>
   );
 }
 
@@ -2136,6 +2197,8 @@ export default function FeedScreen() {
             isMuslim={isMuslim}
             appMode={appMode}
             onPress={() => setHalalSheetVisible(true)}
+            onSelectStandard={() => setHalalSheetVisible(true)}
+            onSelectHalal={() => setHalalSheetVisible(true)}
           />
           <Pressable onPress={() => appMode === 'work' ? setWorkFilterOpen(true) : setFilterOpen(true)} hitSlop={8}>
             <Squircle style={styles.iconBtn} cornerRadius={14} cornerSmoothing={1} fillColor={colors.surface2}>
@@ -2729,8 +2792,12 @@ const styles = StyleSheet.create({
   exploreHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingBottom: 10, borderBottomWidth: StyleSheet.hairlineWidth },
 
   // Logo
+  logoContainer:  { flexDirection: 'row', alignItems: 'center', gap: 8 },
   logoBtn:        { flexDirection: 'row', alignItems: 'center', gap: 8 },
   logoText:       { fontFamily: 'PageSerif', fontSize: 26, lineHeight: 30, letterSpacing: -0.5 },
+  modeButtons:    { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  modeButton:     { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 16, borderWidth: 1 },
+  modeButtonText: { fontSize: 12, fontFamily: 'ProductSans-Bold' },
   halalPill:      { flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 20, borderWidth: 1 },
   halalPillText:  { fontSize: 12 },
   halalPillLabel: { fontSize: 11, fontFamily: 'ProductSans-Bold' },

@@ -2,7 +2,7 @@
   "expo": {
     "name": "Zod",
     "slug": "zod",
-    "version": "1.0.1",
+    "version": "1.0.3",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "zod",
@@ -17,7 +17,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.zod.ai",
-      "buildNumber": "14",
+      "buildNumber": "16",
       "infoPlist": {
         "CFBundleDevelopmentRegion": "en",
         "CFBundleLocalizations": [

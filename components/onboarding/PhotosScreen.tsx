@@ -54,52 +54,46 @@ export default function PhotosScreen() {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
       quality: 0.85,
-      allowsMultipleSelection: true,
-      selectionLimit: remaining,
+      allowsMultipleSelection: false,
     });
 
     if (result.canceled || !result.assets.length) return;
 
-    // Upload selected photos one by one, filling slots in order
-    for (const asset of result.assets) {
-      if (photosRef.current.length >= MAX_PHOTOS) break;
+    // Upload single photo
+    const asset = result.assets[0];
+    const slotIndex = photosRef.current.length;
+    setUploading(slotIndex);
 
-      const slotIndex = photosRef.current.length;
-      setUploading(slotIndex);
+    try {
+      const form = new FormData();
+      form.append('file', {
+        uri: asset.uri,
+        name: asset.fileName ?? `photo_${Date.now()}.jpg`,
+        type: asset.mimeType ?? 'image/jpeg',
+      } as any);
 
-      try {
-        const form = new FormData();
-        form.append('file', {
-          uri: asset.uri,
-          name: asset.fileName ?? `photo_${Date.now()}.jpg`,
-          type: asset.mimeType ?? 'image/jpeg',
-        } as any);
+      const res = await fetch(`${API_V1}/upload/photo`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: form,
+      });
 
-        const res = await fetch(`${API_V1}/upload/photo`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${token}` },
-          body: form,
-        });
+      const data = await res.json();
 
-        const data = await res.json();
-
-        if (!res.ok) {
-          const detail: string = data?.detail ?? 'Please try a different photo.';
-          Alert.alert(getRejectionTitle(detail), detail);
-          // Continue trying the remaining selected photos
-          continue;
-        }
-
-        const updated = [...photosRef.current, data.url].slice(0, MAX_PHOTOS);
-        photosRef.current = updated;
-        setPhotos(updated);
-        await save({ photos: updated });
-      } catch {
-        Alert.alert('Upload failed', 'Could not connect to server. Please check your connection.');
-        break;
-      } finally {
-        setUploading(null);
+      if (!res.ok) {
+        const detail: string = data?.detail ?? 'Please try a different photo.';
+        Alert.alert(getRejectionTitle(detail), detail);
+        return;
       }
+
+      const updated = [...photosRef.current, data.url].slice(0, MAX_PHOTOS);
+      photosRef.current = updated;
+      setPhotos(updated);
+      await save({ photos: updated });
+    } catch {
+      Alert.alert('Upload failed', 'Could not connect to server. Please check your connection.');
+    } finally {
+      setUploading(null);
     }
   };
 

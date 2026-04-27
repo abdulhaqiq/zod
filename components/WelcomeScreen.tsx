@@ -7,6 +7,7 @@ import * as LocalAuthentication from 'expo-local-authentication';
 import * as WebBrowser from 'expo-web-browser';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
+import { getDeviceInfo } from '@/utils/deviceInfo';
 import {
   ActivityIndicator,
   Alert,
@@ -76,6 +77,7 @@ export default function WelcomeScreen() {
   // null = loading, undefined = no recent account, RecentAccount = has one
   const [recentAccount, setRecentAccount] = useState<RecentAccount | null | undefined>(null);
   const [showOtherMethods, setShowOtherMethods] = useState(false);
+  const [testModeEnabled, setTestModeEnabled] = useState(false);
 
   const [googleRequest, googleResponse, promptGoogleAsync] = Google.useAuthRequest({
     iosClientId:     GOOGLE_IOS_CLIENT_ID,
@@ -86,6 +88,11 @@ export default function WelcomeScreen() {
     loadRecentAccount()
       .then(acc => setRecentAccount(acc ?? undefined))
       .catch(() => setRecentAccount(undefined));
+    
+    // Fetch test mode config
+    apiFetch<{ test_mode_enabled: boolean }>('/config/public')
+      .then(data => setTestModeEnabled(data.test_mode_enabled))
+      .catch(() => setTestModeEnabled(false)); // Default to false if API fails
   }, []);
 
   useEffect(() => {
@@ -110,9 +117,10 @@ export default function WelcomeScreen() {
 
   const handleGoogleToken = async (googleAccessToken: string) => {
     try {
+      const device = await getDeviceInfo();
       const data = await apiFetch<TokenResponse>('/auth/google', {
         method: 'POST',
-        body: JSON.stringify({ access_token: googleAccessToken }),
+        body: JSON.stringify({ access_token: googleAccessToken, device }),
       });
 
       const me = await authedFetch<UserProfile>('/profile/me', data.access_token);
@@ -205,9 +213,10 @@ export default function WelcomeScreen() {
         .filter(Boolean)
         .join(' ') || undefined;
 
+      const device = await getDeviceInfo();
       const data = await apiFetch<TokenResponse>('/auth/apple', {
         method: 'POST',
-        body: JSON.stringify({ identity_token: identityToken, full_name: appleFullName }),
+        body: JSON.stringify({ identity_token: identityToken, full_name: appleFullName, device }),
       });
 
       const me = await authedFetch<UserProfile>('/profile/me', data.access_token);
@@ -397,18 +406,20 @@ export default function WelcomeScreen() {
                   )}
                 </TouchableOpacity>
 
-                <TouchableOpacity
-                  style={[styles.btnPhone, !eulaAccepted && { opacity: 0.45 }]}
-                  onPress={() => {
-                    if (!eulaAccepted) {
-                      Alert.alert('Please agree first', 'You must accept our Terms of Service and Community Guidelines before continuing.');
-                      return;
-                    }
-                    navPush('/phone' as any);
-                  }}
-                >
-                  <Text style={styles.btnPhoneText}>Use phone number</Text>
-                </TouchableOpacity>
+                {testModeEnabled && (
+                  <TouchableOpacity
+                    style={[styles.btnPhone, !eulaAccepted && { opacity: 0.45 }]}
+                    onPress={() => {
+                      if (!eulaAccepted) {
+                        Alert.alert('Please agree first', 'You must accept our Terms of Service and Community Guidelines before continuing.');
+                        return;
+                      }
+                      navPush('/phone' as any);
+                    }}
+                  >
+                    <Text style={styles.btnPhoneText}>Use phone number</Text>
+                  </TouchableOpacity>
+                )}
 
                 {hasRecent && (
                   <Pressable onPress={() => setShowOtherMethods(false)}>
@@ -475,8 +486,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     minHeight: 56,
   },
-  btnAppleInner: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  btnAppleText: { fontSize: 16, fontFamily: 'ProductSans-Bold', color: '#000' },
+  btnAppleInner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  btnAppleText: { fontSize: 16, fontFamily: 'ProductSans-Bold', color: '#000', marginTop: 0, marginBottom: 0, includeFontPadding: false },
   btnPhone: {
     backgroundColor: 'transparent',
     borderRadius: 50,
@@ -484,6 +495,7 @@ const styles = StyleSheet.create({
     borderColor: '#fff',
     paddingVertical: 18,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   btnPhoneText: { fontSize: 16, fontFamily: 'ProductSans-Bold', color: '#fff' },
   btnGoogle: {
@@ -496,8 +508,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     minHeight: 56,
   },
-  btnGoogleInner: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  btnGoogleText: { fontSize: 16, fontFamily: 'ProductSans-Bold', color: '#fff' },
+  btnGoogleInner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  btnGoogleText: { fontSize: 16, fontFamily: 'ProductSans-Bold', color: '#fff', marginTop: 0, marginBottom: 0, includeFontPadding: false },
   legal: {
     color: 'rgba(255,255,255,0.7)',
     fontSize: 11,
