@@ -173,7 +173,7 @@ export default function DateFilterSheet({ visible, onClose, onApply, onNavigateT
   const navGuardRef = useRef(false);
   const { profile, token, updateProfile } = useAuth();
   const isPro = profile?.subscription_tier === 'pro' || profile?.subscription_tier === 'premium_plus';
-  const isFaceVerified = profile?.verification_status === 'verified';
+  const isFaceVerified = profile?.is_verified === true || profile?.verification_status === 'verified';
 
   // ── Live lookup data from API (same source as EditProfilePage) ─────────────
   const { lookups } = useLookups();

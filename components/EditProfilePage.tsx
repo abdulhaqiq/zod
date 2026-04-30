@@ -556,21 +556,6 @@ export default function EditProfilePage() {
   }, [patch]);
 
   // ── Derived display values ────────────────────────────────────────────────
-  const workLabel = (() => {
-    const we = profile?.work_experience;
-    if (!we?.length) return undefined;
-    const latest = we[0];
-    const parts = [latest.job_title, latest.company].filter(Boolean);
-    return parts.join(' · ') || undefined;
-  })();
-
-  const eduLabel = (() => {
-    const ed = profile?.education;
-    if (!ed?.length) return undefined;
-    const latest = ed[0];
-    const parts = [latest.institution, latest.course].filter(Boolean);
-    return parts.join(' – ') || undefined;
-  })();
 
   const handleSave = async () => {
     setSaving(true);
@@ -811,92 +796,72 @@ export default function EditProfilePage() {
             </Group>
           </View>
 
-          {/* ── WORK, EDUCATION & HALAL ─────────────────────────────────── */}
-          <View style={styles.section}>
-            <SectionLabel title="WORK & EDUCATION" colors={colors} />
-            <Group colors={colors}>
-              <EditRow
-                icon="briefcase-outline"
-                label="Work"
-                value={workLabel}
-                preview={workLabel ? undefined : 'Tap to add'}
-                onPress={() => navPush('/work-experience')}
-                colors={colors}
-              />
-              <EditRow
-                icon="school-outline"
-                label="Education"
-                value={eduLabel}
-                preview={eduLabel ? undefined : 'Tap to add'}
-                onPress={() => navPush('/education')}
-                colors={colors}
-                last={!isMuslim}
-              />
-
-              {/* Halal mode toggle — only for Muslim users */}
-              {isMuslim && (
-                <>
-                  <View style={[
-                    styles.editRow,
-                    halalMode && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
-                  ]}>
-                    <Squircle style={styles.editIconWrap} cornerRadius={10} cornerSmoothing={1} fillColor={colors.surface2}>
-                      <Ionicons name="moon-outline" size={16} color={colors.text} />
-                    </Squircle>
-                    <View style={{ flex: 1, gap: 1 }}>
-                      <Text style={[styles.editLabel, { color: colors.text }]}>Halal mode</Text>
-                      <Text style={[styles.editPreview, { color: colors.textSecondary }]}>
-                        {halalMode ? 'Enabled — only visible to Halal users' : 'Disabled'}
-                      </Text>
-                    </View>
-                    <Switch
-                      value={halalMode}
-                      onValueChange={saveHalalMode}
-                      trackColor={{ false: colors.border, true: colors.text }}
-                      thumbColor={colors.bg}
-                    />
+          {/* ── HALAL MODE ─────────────────────────────────────────────────── */}
+          {isMuslim && (
+            <View style={styles.section}>
+              <SectionLabel title="HALAL MODE" colors={colors} />
+              <Group colors={colors}>
+                {/* Halal mode toggle */}
+                <View style={[
+                  styles.editRow,
+                  halalMode && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+                ]}>
+                  <Squircle style={styles.editIconWrap} cornerRadius={10} cornerSmoothing={1} fillColor={colors.surface2}>
+                    <Ionicons name="moon-outline" size={16} color={colors.text} />
+                  </Squircle>
+                  <View style={{ flex: 1, gap: 1 }}>
+                    <Text style={[styles.editLabel, { color: colors.text }]}>Halal mode</Text>
+                    <Text style={[styles.editPreview, { color: colors.textSecondary }]}>
+                      {halalMode ? 'Enabled — only visible to Halal users' : 'Disabled'}
+                    </Text>
                   </View>
+                  <Switch
+                    value={halalMode}
+                    onValueChange={saveHalalMode}
+                    trackColor={{ false: colors.border, true: colors.text }}
+                    thumbColor={colors.bg}
+                  />
+                </View>
 
-                  {/* Faith detail rows — only shown when Halal mode is ON */}
-                  {halalMode && (
-                    <>
-                      <EditRow
-                        icon="library-outline"
-                        label="Sect"
-                        value={sectLabel}
-                        preview={sectLabel ? undefined : 'Tap to set'}
-                        onPress={() => setShowSect(true)}
-                        colors={colors}
-                      />
-                      <EditRow
-                        icon="time-outline"
-                        label="Prayer frequency"
-                        value={prayerLabel}
-                        preview={prayerLabel ? undefined : 'Tap to set'}
-                        onPress={() => setShowPrayer(true)}
-                        colors={colors}
-                      />
-                      <EditRow
-                        icon="heart-circle-outline"
-                        label="Marriage timeline"
-                        value={marriageLabel}
-                        preview={marriageLabel ? undefined : 'Tap to set'}
-                        onPress={() => setShowMarriage(true)}
-                        colors={colors}
-                        last
-                      />
-                    </>
-                  )}
-                </>
-              )}
-            </Group>
-          </View>
+                {/* Faith detail rows — only shown when Halal mode is ON */}
+                {halalMode && (
+                  <>
+                    <EditRow
+                      icon="library-outline"
+                      label="Sect"
+                      value={sectLabel}
+                      preview={sectLabel ? undefined : 'Tap to set'}
+                      onPress={() => setShowSect(true)}
+                      colors={colors}
+                    />
+                    <EditRow
+                      icon="time-outline"
+                      label="Prayer frequency"
+                      value={prayerLabel}
+                      preview={prayerLabel ? undefined : 'Tap to set'}
+                      onPress={() => setShowPrayer(true)}
+                      colors={colors}
+                    />
+                    <EditRow
+                      icon="heart-circle-outline"
+                      label="Marriage timeline"
+                      value={marriageLabel}
+                      preview={marriageLabel ? undefined : 'Tap to set'}
+                      onPress={() => setShowMarriage(true)}
+                      colors={colors}
+                      last
+                    />
+                  </>
+                )}
+              </Group>
+            </View>
+          )}
 
           {/* ── LOCATION ────────────────────────────────────────────────── */}
           <View style={styles.section}>
             <SectionLabel title="LOCATION" colors={colors} />
             <Text style={[styles.sectionNote, { color: colors.textSecondary }]}>
-              These are shown on your profile · Use Travel Mode below to change matching
+              These are shown on your profile
             </Text>
             <Group colors={colors}>
               <EditRow
@@ -916,74 +881,6 @@ export default function EditProfilePage() {
                 colors={colors}
                 last
               />
-            </Group>
-          </View>
-
-          {/* ── TRAVEL MODE ─────────────────────────────────────────────────── */}
-          <View style={styles.section}>
-            <SectionLabel title="TRAVEL MODE" colors={colors} />
-            <Text style={[styles.sectionNote, { color: colors.textSecondary }]}>
-              Changes where you match with people · Your profile location stays the same
-            </Text>
-            <Group colors={colors}>
-              {/* Travel Mode Toggle */}
-              <View style={[
-                styles.editRow,
-                { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
-              ]}>
-                <Squircle style={styles.editIconWrap} cornerRadius={10} cornerSmoothing={1} fillColor="#833ab4">
-                  <Ionicons name="airplane" size={16} color="#fff" />
-                </Squircle>
-                <View style={{ flex: 1, gap: 1 }}>
-                  <Text style={[styles.editLabel, { color: colors.text }]}>Travel Mode</Text>
-                  <Text style={[styles.editPreview, { color: colors.textSecondary }]}>
-                    {profile?.travel_mode_enabled 
-                      ? 'Active — matching by travel location' 
-                      : 'Match with people in any city'}
-                  </Text>
-                </View>
-                <Switch
-                  value={profile?.travel_mode_enabled ?? false}
-                  onValueChange={async (val) => {
-                    if (!token) return;
-                    if (!val) {
-                      try {
-                        const updated = await apiFetch<any>('/profile/me', {
-                          method: 'PATCH',
-                          token,
-                          body: JSON.stringify({ 
-                            travel_mode_enabled: false, 
-                            travel_city: null, 
-                            travel_country: null 
-                          }),
-                        });
-                        updateProfile(updated);
-                      } catch { /* silent */ }
-                    } else {
-                      navPush('/location-search?type=city');
-                    }
-                  }}
-                  thumbColor={colors.bg}
-                  trackColor={{ false: colors.surface2, true: colors.text }}
-                />
-              </View>
-
-              {/* Show location picker only if travel mode is enabled */}
-              {profile?.travel_mode_enabled && (
-                <EditRow
-                  icon="location-outline"
-                  label="Search Location"
-                  value={
-                    profile?.travel_city
-                      ? `${profile.travel_city}${profile.travel_country ? `, ${profile.travel_country}` : ''}`
-                      : undefined
-                  }
-                  preview={profile?.travel_city ? 'Currently matching here' : 'Tap to select city'}
-                  onPress={() => navPush('/location-search?type=city')}
-                  colors={colors}
-                  last
-                />
-              )}
             </Group>
           </View>
 

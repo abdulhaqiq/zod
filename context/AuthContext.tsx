@@ -264,6 +264,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           if (data.type === 'ping' && ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({ type: 'pong' }));
           }
+          // Force logout if account was deleted
+          if (data.type === 'account_deleted' && data.force_logout) {
+            console.log('[Auth] Account deleted notification received, logging out...');
+            logout();
+          }
         } catch {}
       };
 

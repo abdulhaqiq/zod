@@ -207,8 +207,8 @@ export const FaceTab = forwardRef<FaceTabHandle, FaceTabProps>(function FaceTab(
     };
 
     const connect = () => {
-      if (settled) return;
-      const ws = new WebSocket(`${WS_V1}/ws/verify-face/${profile.id}`);
+      if (settled || !token) return;
+      const ws = new WebSocket(`${WS_V1}/ws/verify-face/${profile.id}?token=${token}`);
       wsRef.current = ws;
       ws.onmessage = (e) => {
         try {
@@ -664,8 +664,8 @@ function IDTab({ colors, active = true }: { colors: AppColors; active?: boolean 
     };
 
     const connect = () => {
-      if (settled) return;
-      const ws = new WebSocket(`${WS_V1}/ws/verify-face/${profile.id}?type=id`);
+      if (settled || !token) return;
+      const ws = new WebSocket(`${WS_V1}/ws/verify-face/${profile.id}?type=id&token=${token}`);
       wsIdRef.current = ws;
       ws.onmessage = (e) => {
         try {
@@ -1030,8 +1030,8 @@ export default function VerificationPage() {
   const isFullyVerified =
     profile?.is_verified === true || profile?.verification_status === 'verified';
 
-  // If fully verified and caller didn't force-open face tab, show the already-verified screen.
-  if (isFullyVerified && params.tab !== 'face') {
+  // If fully verified, ALWAYS show the already-verified screen (regardless of tab param)
+  if (isFullyVerified) {
     return <AlreadyVerifiedScreen colors={colors} onClose={() => router.back()} />;
   }
 

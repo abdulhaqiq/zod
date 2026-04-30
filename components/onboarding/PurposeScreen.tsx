@@ -1,5 +1,5 @@
 import { navPush, navReplace } from '@/utils/nav';
-// Step 3 — Relationship intent (multi-select)
+// Step 3 — Looking For (single select)
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text } from 'react-native';
@@ -16,19 +16,18 @@ export default function PurposeScreen() {
   const { profile } = useAuth();
   const options = useLookupsCategory('looking_for');
 
-  const [selected, setSelected] = useState<number[]>(
-    Array.isArray(profile?.purpose) ? profile.purpose : []
+  // Single select for looking_for_id
+  const [selected, setSelected] = useState<number | null>(
+    profile?.looking_for_id ?? null
   );
 
-  const toggle = (id: number) => {
-    setSelected((prev) =>
-      prev.includes(id) ? prev.filter((v) => v !== id) : [...prev, id]
-    );
+  const handleSelect = (id: number) => {
+    setSelected(id);
   };
 
   const handleContinue = async () => {
-    if (selected.length === 0) return;
-    const ok = await save({ purpose: selected });
+    if (!selected) return;
+    const ok = await save({ looking_for_id: selected });
     if (ok) navPush('/goals');
   };
 
@@ -36,9 +35,9 @@ export default function PurposeScreen() {
     <OnboardingShell
       step={3}
       title="What are you looking for?"
-      subtitle={`${selected.length} selected`}
+      subtitle={selected ? '1 selected' : 'Select one'}
       onContinue={handleContinue}
-      continueDisabled={selected.length === 0}
+      continueDisabled={!selected}
       loading={saving}
       fallbackHref="/gender"
     >
@@ -47,11 +46,11 @@ export default function PurposeScreen() {
         showsVerticalScrollIndicator={false}
       >
         {options.map((opt) => {
-          const active = selected.includes(opt.id);
+          const active = selected === opt.id;
           return (
             <Pressable
               key={opt.id}
-              onPress={() => toggle(opt.id)}
+              onPress={() => handleSelect(opt.id)}
               style={[
                 styles.chip,
                 {
