@@ -731,6 +731,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const setOnboarded = async () => {
     setIsOnboarded(true);
+    // Refresh profile to get face_scan_required flag set by backend
+    if (token) {
+      const me = await _fetchProfile(token);
+      if (me && me !== 'network_error' && me !== 'suspended') {
+        setProfile(me as UserProfile);
+        return;
+      }
+    }
+    // Fallback: just update locally if fetch fails
     setProfile((p) => p ? { ...p, is_onboarded: true } : p);
   };
 

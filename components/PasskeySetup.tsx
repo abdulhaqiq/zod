@@ -45,16 +45,9 @@ export default function PasskeySetup() {
     router.replace(next as any);
   };
 
-  // If keychain is already saved for this device, skip immediately — never show twice
+  // DISABLED: Passkey/Keychain save page is disabled - auto-skip immediately
   useEffect(() => {
-    loadRecentAccount().then(existing => {
-      if (existing) {
-        proceed();
-      } else {
-        setChecking(false);
-      }
-    }).catch(() => setChecking(false));
-  // proceed reference is stable (router is stable), deps intentionally empty
+    proceed();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

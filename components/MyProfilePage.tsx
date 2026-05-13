@@ -802,19 +802,27 @@ export default function MyProfilePage({ colors, insets }: { colors: AppColors; i
               <Text style={{ fontSize: 18, fontFamily: 'ProductSans-Black', color: colors.text }}>
                 {displayName}
               </Text>
+              {/* Verification Badge - Blue for face only, Green for face + ID */}
               {profile?.is_verified && (
-                <View style={{ 
-                  backgroundColor: '#16a34a', 
-                  borderRadius: 10, 
-                  paddingHorizontal: 6, 
-                  paddingVertical: 3, 
-                  flexDirection: 'row', 
-                  alignItems: 'center', 
-                  gap: 2 
-                }}>
-                  <Ionicons name="shield-checkmark" size={10} color="#fff" />
-                  <Text style={{ fontSize: 10, fontFamily: 'ProductSans-Bold', color: '#fff' }}>Verified</Text>
-                </View>
+                <Pressable
+                  onPress={() => navPush('/verification')}
+                  style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}
+                >
+                  <View style={{
+                    backgroundColor: profile?.id_scan_required ? '#3b82f6' : '#16a34a', // Blue if ID still needed, Green if fully verified
+                    borderRadius: 10,
+                    paddingHorizontal: 6,
+                    paddingVertical: 3,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 2
+                  }}>
+                    <Ionicons name="shield-checkmark" size={10} color="#fff" />
+                    <Text style={{ fontSize: 10, fontFamily: 'ProductSans-Bold', color: '#fff' }}>
+                      {profile?.id_scan_required ? 'Face Verified' : 'Verified'}
+                    </Text>
+                  </View>
+                </Pressable>
               )}
             </View>
 

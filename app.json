@@ -2,8 +2,8 @@
   "expo": {
     "name": "Zod",
     "slug": "zod",
-    "version": "1.0.3",
-    "orientation": "portrait",
+    "version": "1.0.19",
+      "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "zod",
     "userInterfaceStyle": "automatic",
@@ -17,7 +17,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.zod.ai",
-      "buildNumber": "16",
+      "buildNumber": "33",
       "infoPlist": {
         "CFBundleDevelopmentRegion": "en",
         "CFBundleLocalizations": [
@@ -68,6 +68,14 @@
     },
     "plugins": [
       "./plugins/withNotificationServiceExtension",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/icon.png",
+          "color": "#000000",
+          "sounds": []
+        }
+      ],
       "expo-router",
       "expo-apple-authentication",
       [
@@ -80,13 +88,6 @@
           "dark": {
             "backgroundColor": "#000000"
           }
-        }
-      ],
-      [
-        "expo-camera",
-        {
-          "cameraPermission": "Allow Zod to take photos for your profile and face verification.",
-          "microphonePermission": "Allow Zod to record voice messages and calls."
         }
       ],
       "@react-native-community/datetimepicker",
@@ -132,6 +133,6 @@
         "projectId": "fec81194-6a20-43f7-bf00-fb4638346ba2"
       }
     },
-    "owner": "abdulkumshey"
+    "owner": "newlo"
   }
 }

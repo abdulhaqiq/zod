@@ -43,7 +43,7 @@ import { AppThemeProvider, useAppTheme } from '@/context/ThemeContext';
 import { API_V1 } from '@/constants/api';
 import { darkColors, lightColors } from '@/constants/appColors';
 import { useAutoLocation } from '@/hooks/useAutoLocation';
-import * as Camera from 'expo-camera';
+import { Camera } from 'react-native-vision-camera';
 import * as MediaLibrary from 'expo-media-library';
 import * as TrackingTransparency from 'expo-tracking-transparency';
 
@@ -54,7 +54,7 @@ export const unstable_settings = {
 const AUTH_SCREENS = ['welcome', 'phone', 'otp', 'email'];
 
 const ONBOARDING_SCREENS = [
-  'passkey',
+  // 'passkey',  // DISABLED: Keychain save page commented out
   'profile', 'gender', 'purpose', 'goals', 'height',
   'interests', 'lifestyle', 'values', 'prompts', 'photos',
   'religion', 'faith',
@@ -192,9 +192,23 @@ function RootLayoutInner() {
           await TrackingTransparency.requestTrackingPermissionsAsync();
         }
       } catch {}
-      try { await Camera.requestCameraPermissionsAsync(); }        catch {}
-      try { await MediaLibrary.requestPermissionsAsync(); }        catch {}
-      try { await Camera.requestMicrophonePermissionsAsync(); }    catch {}
+      try { await Camera.requestCameraPermission(); }        catch {}
+      try { await MediaLibrary.requestPermissionsAsync(); }  catch {}
+      try { await Camera.requestMicrophonePermission(); }    catch {}
+      // Request notification permission
+      try {
+        const Notifications = await import('expo-notifications');
+        const { status: existingStatus } = await Notifications.getPermissionsAsync();
+        if (existingStatus !== 'granted') {
+          await Notifications.requestPermissionsAsync({
+            ios: {
+              allowAlert: true,
+              allowBadge: true,
+              allowSound: true,
+            },
+          });
+        }
+      } catch {}
     })();
   }, [splashDone, token]);
 
@@ -397,9 +411,16 @@ function RootLayoutInner() {
 
     } else if (isLoggedIn && isOnboarded && isOnOnboardingScreen) {
       // User just completed onboarding while on an onboarding screen (e.g. pressed
-      // Finish on FaithScreen or Continue on ReligionScreen). Redirect to the app.
-      router.replace('/(tabs)' as any);
-      didNavigate = true;
+      // Finish on FaithScreen or Continue on ReligionScreen).
+      // BUT: If face verification is required, redirect to verification first!
+      if (!profile?.is_verified && (profile?.face_scan_required || profile?.id_scan_required)) {
+        router.replace('/face-scan-required' as any);
+        didNavigate = true;
+      } else {
+        // No verification required, redirect to the app.
+        router.replace('/(tabs)' as any);
+        didNavigate = true;
+      }
     }
 
     // Signal splash it may begin fading out — routing has been decided.
@@ -441,7 +462,7 @@ function RootLayoutInner() {
           <Stack.Screen name="(tabs)"          options={{ headerShown: false, gestureEnabled: false }} />
           <Stack.Screen name="phone"           options={{ headerShown: false }} />
           <Stack.Screen name="otp"             options={{ headerShown: false }} />
-          <Stack.Screen name="passkey"         options={{ headerShown: false }} />
+          {/* <Stack.Screen name="passkey"         options={{ headerShown: false }} /> */}
           <Stack.Screen name="profile"         options={{ headerShown: false }} />
           <Stack.Screen name="gender"          options={{ headerShown: false }} />
           <Stack.Screen name="purpose"         options={{ headerShown: false }} />

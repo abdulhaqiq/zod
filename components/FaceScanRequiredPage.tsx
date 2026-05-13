@@ -1,5 +1,6 @@
 import { navReplace } from '@/utils/nav';
 import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import { useRef, useState } from 'react';
 import {
   Platform,
@@ -22,11 +23,12 @@ export default function FaceScanRequiredPage() {
   const faceTabRef  = useRef<FaceTabHandle>(null);
   const [scanState, setScanState] = useState<string>('idle');
 
-  const handlePassed = () => {
+  const handlePassed = async () => {
     if (clearedRef.current) return;
     clearedRef.current = true;
-    updateProfile({ face_scan_required: false, needs_face_verification: false, is_verified: true });
-    navReplace('/(tabs)' as any);
+    await updateProfile({ face_scan_required: false, needs_face_verification: false, is_verified: true });
+    // Bypass throttle — use router directly since this is a post-verification nav
+    setTimeout(() => router.replace('/(tabs)/' as any), 400);
   };
 
   // Only show the sticky button while the user still needs to act

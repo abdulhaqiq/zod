@@ -38,12 +38,17 @@ function PackCard({
   onBuy,
   purchasing,
   colors,
+  localizedPrice,
 }: {
   pack: AiCreditPack;
   onBuy: (p: AiCreditPack) => void;
   purchasing: boolean;
   colors: any;
+  localizedPrice?: string | null;
 }) {
+  // Use localized price from RevenueCat if available, fallback to hardcoded
+  const displayPrice = localizedPrice ?? pack.price;
+  
   return (
     <Pressable
       onPress={() => !purchasing && onBuy(pack)}
@@ -74,7 +79,7 @@ function PackCard({
 
         {/* Price + buy CTA */}
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
-          <Text style={[s.packPrice, { color: colors.text }]}>{pack.price}</Text>
+          <Text style={[s.packPrice, { color: colors.text }]}>{displayPrice}</Text>
           
           <Squircle
             style={[s.buyBtn, { backgroundColor: colors.text }]}
@@ -102,7 +107,7 @@ export default function AiCreditsSheet({
   onClose: () => void;
 }) {
   const { colors } = useAppTheme();
-  const { myFeatures, purchaseAiCredits, purchasingCredits } = useSubscription();
+  const { myFeatures, purchaseAiCredits, purchasingCredits, getAiCreditPrice } = useSubscription();
   const insets = useSafeAreaInsets();
 
   const balance  = myFeatures?.ai_credits_balance  ?? 0;
@@ -223,6 +228,7 @@ export default function AiCreditsSheet({
                   onBuy={handleBuy}
                   purchasing={purchasingCredits}
                   colors={colors}
+                  localizedPrice={getAiCreditPrice?.(pack.id)}
                 />
               ))}
             </View>

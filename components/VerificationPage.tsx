@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { CameraView, useCameraPermissions } from 'expo-camera';
+import { Camera, useCameraDevice, useCameraPermission, usePhotoOutput } from 'react-native-vision-camera';
 import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
@@ -113,9 +113,13 @@ export const FaceTab = forwardRef<FaceTabHandle, FaceTabProps>(function FaceTab(
   ref,
 ) {
   const { token, profile } = useAuth();
-  const [permission, requestPermission] = useCameraPermissions();
-  const cameraRef = useRef<CameraView>(null);
+  const { hasPermission, requestPermission } = useCameraPermission();
+  const device = useCameraDevice('front');
+  const cameraRef = useRef<any>(null);
+  const photoOutput = usePhotoOutput({ qualityPrioritization: 'speed' });
   const wsRef     = useRef<WebSocket | null>(null);
+  // Set to true by EITHER onStarted OR onSessionConfigSelected — whichever fires first
+  const cameraSessionReadyRef = useRef(false);
 
   const [state,        setState]        = useState<FaceState>('idle');
   const [challenges,   setChallenges]   = useState(pickChallenges(2));
@@ -123,9 +127,6 @@ export const FaceTab = forwardRef<FaceTabHandle, FaceTabProps>(function FaceTab(
   const [failReason,   setFailReason]   = useState<string | null>(null);
   const [matchScore,   setMatchScore]   = useState<number | null>(null);
   const [initializing, setInitializing] = useState(true);
-  // Hide camera until the native layer reports it's ready — prevents the
-  // brief back-camera flash that occurs while CameraView initialises.
-  const [cameraReady,  setCameraReady]  = useState(false);
 
   const CHALLENGE_MS = 3000;
 
@@ -161,9 +162,14 @@ export const FaceTab = forwardRef<FaceTabHandle, FaceTabProps>(function FaceTab(
         }
         // No attempt yet → stay idle (fresh start)
       })
-      .catch(() => {})
+      .catch((err) => {
+        // Status check failed - continue without status
+      })
       .finally(() => setInitializing(false));
   }, [token]);
+
+  // Ref to track submission state (avoids stale closure issues)
+  const submittingRef = useRef(false);
 
   // Auto-advance challenges then capture
   useEffect(() => {
@@ -173,8 +179,13 @@ export const FaceTab = forwardRef<FaceTabHandle, FaceTabProps>(function FaceTab(
         setChallengeIdx(i => i + 1);
       } else {
         setState('capturing');
-        await new Promise(r => setTimeout(r, 600));
-        await captureAndSubmit();
+        // Give camera more time to fully initialize before capture
+        await new Promise(r => setTimeout(r, 1000));
+        // Use ref to prevent double submission (avoids stale closure issues)
+        if (!submittingRef.current) {
+          submittingRef.current = true;
+          await captureAndSubmit();
+        }
       }
     }, CHALLENGE_MS);
     return () => clearTimeout(timer);
@@ -210,16 +221,23 @@ export const FaceTab = forwardRef<FaceTabHandle, FaceTabProps>(function FaceTab(
       if (settled || !token) return;
       const ws = new WebSocket(`${WS_V1}/ws/verify-face/${profile.id}?token=${token}`);
       wsRef.current = ws;
+      ws.onopen = () => {
+        // Connected
+      };
       ws.onmessage = (e) => {
         try {
           const data = JSON.parse(e.data);
           if (data.status === 'heartbeat') return;
           applyResult(data);
-        } catch {}
+        } catch (err) {
+          // WS message parse error - ignore
+        }
       };
-      ws.onerror = () => ws.close();
+      ws.onerror = (err) => {
+        ws.close();
+      };
       // Reconnect after 3s if closed before a result arrives
-      ws.onclose = () => {
+      ws.onclose = (e) => {
         if (!settled) {
           reconnectTimer = setTimeout(connect, 3000);
         }
@@ -237,29 +255,72 @@ export const FaceTab = forwardRef<FaceTabHandle, FaceTabProps>(function FaceTab(
   }, [state, profile?.id]);
 
   const startScan = async () => {
-    if (!permission?.granted) {
+    if (!hasPermission) {
       const result = await requestPermission();
-      if (!result.granted) return;
+      if (!result) return;
     }
+    
+    // Reset submission lock so user can retry
+    submittingRef.current = false;
+    cameraSessionReadyRef.current = false;
     setChallenges(pickChallenges(2));
     setChallengeIdx(0);
     setFailReason(null);
     setMatchScore(null);
-    setCameraReady(false);  // reset so the black cover shows until front cam is ready
+    
+    // Set to 'camera' state which activates the camera via 'isActive' prop
     setState('camera');
-    setTimeout(() => setState('challenge'), 1200);
+    
+    // Start challenges after longer delay — gives camera session time to configure
+    setTimeout(() => setState('challenge'), 1500);
   };
 
   const captureAndSubmit = async () => {
-    setState('submitting');
-    try {
-      const photo = await cameraRef.current?.takePictureAsync({ base64: false, quality: 0.92, exif: true });
-      if (!photo?.uri) throw new Error('No photo captured');
+    console.log('[Capture] Starting capture process...');
 
+    if (state === 'submitting' || state === 'pending') return;
+    setState('submitting');
+
+    if (!device) {
+      setFailReason('No camera device found. Please check camera permissions.');
+      setState('failed');
+      return;
+    }
+
+    // Poll until session is ready (max 5s), then capture
+    const MAX_WAIT_MS = 5000;
+    const POLL_INTERVAL_MS = 100;
+    let waited = 0;
+    while (!cameraSessionReadyRef.current && waited < MAX_WAIT_MS) {
+      await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
+      waited += POLL_INTERVAL_MS;
+    }
+
+    if (!cameraSessionReadyRef.current) {
+      console.error('[Capture] Timed out waiting for camera session');
+      setFailReason('Camera timed out. Please try again.');
+      setState('failed');
+      return;
+    }
+
+    console.log(`[Capture] Session ready after ${waited}ms, taking photo...`);
+
+    try {
+      const photoFile = await photoOutput.capturePhotoToFile({}, {});
+      console.log('[Capture] Photo saved:', { filePath: photoFile?.filePath });
+
+      if (!photoFile?.filePath) {
+        setFailReason('Could not capture photo. Please try again.');
+        setState('failed');
+        return;
+      }
+
+      const uri = photoFile.filePath.startsWith('file://') ? photoFile.filePath : `file://${photoFile.filePath}`;
+      
       const formData = new FormData();
-      formData.append('file', { uri: photo.uri, name: 'face.jpg', type: 'image/jpeg' } as any);
-      formData.append('platform', Platform.OS);
-      formData.append('device_model', `${Platform.OS} ${Platform.Version}`);
+      formData.append('file', { uri, name: 'face.jpg', type: 'image/jpeg' } as any);
+      formData.append('platform', String(Platform.OS));
+      formData.append('device_model', String(Platform.OS) + ' ' + String(Platform.Version));
 
       const res = await fetch(`${API_V1}/upload/verify-face`, {
         method: 'POST',
@@ -271,7 +332,6 @@ export const FaceTab = forwardRef<FaceTabHandle, FaceTabProps>(function FaceTab(
       if (data.status === 'pending') {
         setState('pending');
       } else if (res.status === 429) {
-        // Cooldown — show the backend's message directly (e.g. "Try again in 15 minutes")
         setFailReason(data.detail ?? 'Too many attempts. Please wait before trying again.');
         setState('failed');
       } else {
@@ -279,8 +339,19 @@ export const FaceTab = forwardRef<FaceTabHandle, FaceTabProps>(function FaceTab(
         setState('failed');
       }
     } catch (err: any) {
-      console.error('[FaceScan] captureAndSubmit error:', err?.message ?? err);
-      setFailReason('Could not submit scan. Check your connection and try again.');
+      // Log the error for debugging
+      console.error('Face scan error:', err);
+      
+      // Show more specific error messages
+      if (err?.message?.includes('takePhoto')) {
+        setFailReason('Camera failed to capture photo. Please try again.');
+      } else if (err?.message?.includes('permission')) {
+        setFailReason('Camera permission denied. Please enable camera access.');
+      } else if (err?.message?.includes('network') || err?.message?.includes('fetch')) {
+        setFailReason('Network error. Check your connection and try again.');
+      } else {
+        setFailReason(err?.message || 'Could not submit scan. Check your connection and try again.');
+      }
       setState('failed');
     }
   };
@@ -291,6 +362,13 @@ export const FaceTab = forwardRef<FaceTabHandle, FaceTabProps>(function FaceTab(
     state === 'passed'  ? '#22c55e' :
     state === 'failed'  ? colors.error :
     state === 'pending' ? '#f59e0b' : colors.text;
+
+  // Reset session readiness only when fully done (not during capture)
+  useEffect(() => {
+    if (state === 'idle' || state === 'failed' || state === 'passed') {
+      cameraSessionReadyRef.current = false;
+    }
+  }, [state]);
 
   // While checking existing status — show neutral spinner
   if (initializing) {
@@ -364,20 +442,35 @@ export const FaceTab = forwardRef<FaceTabHandle, FaceTabProps>(function FaceTab(
         <PulseRing color={ringColor} />
 
         <View style={[styles.facePreview, { borderRadius: 56, overflow: 'hidden', borderWidth: 2, borderColor: ringColor }]}>
-          {isLiveCamera ? (
-            <>
-              <CameraView
-                ref={cameraRef}
-                style={StyleSheet.absoluteFill}
-                facing="front"
-                onCameraReady={() => setCameraReady(true)}
-              />
-              {/* Black cover hides the back-camera flash while the front cam initialises */}
-              {!cameraReady && (
-                <View style={[StyleSheet.absoluteFill, { backgroundColor: '#000' }]} />
-              )}
-            </>
-
+          {/* Camera always mounted when permission granted and device available, use 'isActive' prop to control session */}
+          {hasPermission && device && (
+            <Camera
+              ref={cameraRef}
+              style={StyleSheet.absoluteFill}
+              device={device}
+              isActive={isLiveCamera}
+              outputs={[photoOutput]}
+              onSessionConfigSelected={() => {
+                console.log('[Camera] onSessionConfigSelected fired — session ready');
+                cameraSessionReadyRef.current = true;
+              }}
+              onStarted={() => {
+                console.log('[Camera] onStarted fired — marking ready');
+                cameraSessionReadyRef.current = true;
+              }}
+              onError={(error) => {
+                console.error('[Camera] Error:', error);
+              }}
+            />
+          )}
+          
+          {/* Overlays based on state */}
+          {!hasPermission ? (
+            <View style={[StyleSheet.absoluteFill, styles.overlayCenter, { backgroundColor: colors.surface }]}>
+              <Ionicons name="camera-outline" size={56} color={colors.textTertiary} />
+              <Text style={[styles.cameraHint, { color: colors.textTertiary }]}>Camera permission needed</Text>
+            </View>
+          
           ) : state === 'failed' ? (
             <View style={[StyleSheet.absoluteFill, styles.overlayCenter, { backgroundColor: '#1a0800' }]}>
               <Ionicons name="close-circle" size={56} color={colors.error} />
@@ -402,12 +495,12 @@ export const FaceTab = forwardRef<FaceTabHandle, FaceTabProps>(function FaceTab(
               <Text style={[styles.cameraHint, { color: '#fff', marginTop: 12 }]}>Submitting…</Text>
             </View>
 
-          ) : (
+          ) : !isLiveCamera ? (
             <View style={[StyleSheet.absoluteFill, styles.overlayCenter, { backgroundColor: colors.surface }]}>
               <Ionicons name="person-outline" size={56} color={colors.textTertiary} />
               <Text style={[styles.cameraHint, { color: colors.textTertiary }]}>Position your face here</Text>
             </View>
-          )}
+          ) : null}
 
           {/* Challenge overlay */}
           {state === 'challenge' && currentChallenge && (
@@ -633,7 +726,9 @@ function IDTab({ colors, active = true }: { colors: AppColors; active?: boolean 
           setIdState('failed');
         }
       })
-      .catch(() => {})
+      .catch((err) => {
+        // Status check failed - continue without status
+      })
       .finally(() => setIdInitializing(false));
   }, [token, active]);
 
@@ -667,16 +762,23 @@ function IDTab({ colors, active = true }: { colors: AppColors; active?: boolean 
       if (settled || !token) return;
       const ws = new WebSocket(`${WS_V1}/ws/verify-face/${profile.id}?type=id&token=${token}`);
       wsIdRef.current = ws;
+      ws.onopen = () => {
+        // Connected
+      };
       ws.onmessage = (e) => {
         try {
           const data = JSON.parse(e.data);
           if (data.status === 'heartbeat') return;
           applyResult(data);
-        } catch {}
+        } catch (err) {
+          // WS message parse error - ignore
+        }
       };
-      ws.onerror = () => ws.close();
+      ws.onerror = (err) => {
+        ws.close();
+      };
       // Reconnect after 3s if closed before a result arrives
-      ws.onclose = () => {
+      ws.onclose = (e) => {
         if (!settled) {
           reconnectTimer = setTimeout(connect, 3000);
         }
@@ -718,7 +820,6 @@ function IDTab({ colors, active = true }: { colors: AppColors; active?: boolean 
         setIdState('failed');
       }
     } catch (err: any) {
-      console.error('[IDScan] captureAndSubmit error:', err?.message ?? err);
       setIdResult({ rejection_reason: 'Could not submit. Check your connection.', id_face_match_score: null, id_has_name: null, id_has_dob: null, id_has_expiry: null, id_has_number: null, id_name_match: null, id_dob_match: null });
       setIdState('failed');
     }

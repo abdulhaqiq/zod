@@ -738,69 +738,81 @@ export default function ZodWorkPage() {
           {/* ── Username + Import inside Group squircle ── */}
           <Group colors={colors}>
 
-            {/* LinkedIn Username */}
+            {/* LinkedIn Username - Disabled when OAuth connected */}
             <View style={[styles.row, { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border }]}>
-              <Squircle style={styles.iconWrap} cornerRadius={10} cornerSmoothing={1} fillColor="#0A66C2">
-                <Text style={{ fontSize: 11, fontFamily: 'ProductSans-Black', color: '#fff' }}>in</Text>
+              <Squircle style={styles.iconWrap} cornerRadius={10} cornerSmoothing={1} fillColor={linkedInVerified ? '#16a34a' : '#0A66C2'}>
+                <Ionicons name={linkedInVerified ? 'checkmark' : 'logo-linkedin'} size={14} color="#fff" />
               </Squircle>
               <View style={{ flex: 1, gap: 4 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Text style={[styles.rowLabel, { color: colors.text }]}>LinkedIn Username</Text>
+                  <Text style={[styles.rowLabel, { color: colors.text }]}>
+                    {linkedInVerified ? 'LinkedIn Connected' : 'LinkedIn Username'}
+                  </Text>
                   {linkedInVerified && (
-                    <Ionicons name="checkmark-circle" size={14} color="#0A66C2" />
+                    <Ionicons name="checkmark-circle" size={14} color="#16a34a" />
                   )}
                 </View>
                 <View style={[
                   styles.urlInput,
-                  { flexDirection: 'row', alignItems: 'center', borderColor: liUrlFocused ? '#0A66C2' : colors.border, borderWidth: 1, paddingVertical: 0, paddingHorizontal: 8 },
+                  { flexDirection: 'row', alignItems: 'center', borderColor: linkedInVerified ? '#16a34a' : (liUrlFocused ? '#0A66C2' : colors.border), borderWidth: 1, paddingVertical: 0, paddingHorizontal: 8, backgroundColor: linkedInVerified ? 'rgba(22,163,74,0.05)' : 'transparent' },
                 ]}>
                   <Text style={{ fontSize: 12, fontFamily: 'ProductSans-Regular', color: colors.textSecondary }}>
                     linkedin.com/in/
                   </Text>
                   <TextInput
                     value={linkedInUrl}
-                    onChangeText={(v) => setLinkedInUrl(v.replace(/\s/g, ''))}
-                    onFocus={() => setLiUrlFocused(true)}
+                    onChangeText={(v) => !linkedInVerified && setLinkedInUrl(v.replace(/\s/g, ''))}
+                    onFocus={() => !linkedInVerified && setLiUrlFocused(true)}
                     onBlur={() => {
                       setLiUrlFocused(false);
-                      const fullUrl = linkedInUrl.trim() ? `${LI_PREFIX}${linkedInUrl.trim()}` : '';
-                      save({ linkedin_url: fullUrl });
+                      if (!linkedInVerified) {
+                        const fullUrl = linkedInUrl.trim() ? `${LI_PREFIX}${linkedInUrl.trim()}` : '';
+                        save({ linkedin_url: fullUrl });
+                      }
                     }}
-                    placeholder="yourname"
+                    placeholder={linkedInVerified ? 'Connected via OAuth' : 'yourname'}
                     placeholderTextColor={colors.textSecondary}
                     autoCapitalize="none"
                     autoCorrect={false}
                     keyboardType="url"
-                    style={{ flex: 1, fontSize: 12, fontFamily: 'ProductSans-Regular', color: colors.text, paddingVertical: 6 }}
+                    editable={!linkedInVerified}
+                    style={{ flex: 1, fontSize: 12, fontFamily: 'ProductSans-Regular', color: linkedInVerified ? '#16a34a' : colors.text, paddingVertical: 6 }}
                   />
                 </View>
+                {linkedInVerified && (
+                  <Text style={{ fontSize: 11, fontFamily: 'ProductSans-Regular', color: '#16a34a' }}>
+                    Auto-filled from OAuth. Disconnect to edit manually.
+                  </Text>
+                )}
               </View>
             </View>
 
-            {/* Import from LinkedIn */}
+            {/* Import from LinkedIn - Only enabled when username exists */}
             <View style={{ paddingHorizontal: 14, paddingVertical: 12, gap: 8 }}>
               <Pressable
                 onPress={handleLinkedInImport}
-                disabled={importing}
-                style={({ pressed }) => ({ opacity: pressed || importing ? 0.7 : 1 })}
+                disabled={importing || !linkedInUrl.trim() || isAtImportLimit}
+                style={({ pressed }) => ({ opacity: pressed || importing || !linkedInUrl.trim() || isAtImportLimit ? 0.5 : 1 })}
               >
                 <Squircle
                   cornerRadius={14}
                   cornerSmoothing={1}
-                  fillColor={isAtImportLimit ? colors.surface2 : '#0A66C2'}
+                  fillColor={isAtImportLimit || !linkedInUrl.trim() ? colors.surface2 : '#0A66C2'}
                   style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 11, paddingHorizontal: 16 }}
                 >
                   {importing ? (
-                    <ActivityIndicator size="small" color={isAtImportLimit ? colors.textSecondary : '#fff'} />
+                    <ActivityIndicator size="small" color={isAtImportLimit || !linkedInUrl.trim() ? colors.textSecondary : '#fff'} />
                   ) : isAtImportLimit ? (
                     <Ionicons name="lock-closed-outline" size={14} color={colors.textSecondary} />
+                  ) : !linkedInUrl.trim() ? (
+                    <Ionicons name="logo-linkedin" size={14} color={colors.textSecondary} />
                   ) : (
                     <Squircle style={{ width: 22, height: 22, alignItems: 'center', justifyContent: 'center' }} cornerRadius={6} cornerSmoothing={1} fillColor="#fff">
                       <Text style={{ fontSize: 10, fontFamily: 'ProductSans-Black', color: '#0A66C2' }}>in</Text>
                     </Squircle>
                   )}
-                  <Text style={{ fontSize: 13, fontFamily: 'ProductSans-Bold', color: isAtImportLimit ? colors.textSecondary : '#fff' }}>
-                    {importing ? 'Importing…' : isAtImportLimit ? `Limit reached (${effectiveUsed}/${effectiveLimit} this month)` : 'Import from LinkedIn'}
+                  <Text style={{ fontSize: 13, fontFamily: 'ProductSans-Bold', color: isAtImportLimit || !linkedInUrl.trim() ? colors.textSecondary : '#fff' }}>
+                    {importing ? 'Importing…' : isAtImportLimit ? `Limit reached (${effectiveUsed}/${effectiveLimit} this month)` : !linkedInUrl.trim() ? 'Enter username to import' : 'Import from LinkedIn'}
                   </Text>
                 </Squircle>
               </Pressable>

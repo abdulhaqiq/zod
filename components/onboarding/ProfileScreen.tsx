@@ -67,6 +67,7 @@ export default function ProfileScreen() {
   const [pickerTemp, setPickerTemp] = useState<Date>(existingDob ?? DEFAULT_PICKER_DATE);
   const [showAgeConfirm, setShowAgeConfirm] = useState(false);
   const [pendingDob, setPendingDob] = useState<Date | null>(null);
+  const [hasConfirmedAge, setHasConfirmedAge] = useState(false);
 
   // Debounce ref — avoid firing on every keystroke
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -261,8 +262,9 @@ export default function ProfileScreen() {
             <TouchableOpacity
               onPress={() => {
                 const age = calculateAge(pickerTemp);
-                // Show confirmation if user is exactly 18 or 19 (just met minimum age)
-                if (age === 18 || age === 19) {
+                // Show confirmation for any age - ask "Are you sure you're X years old?"
+                // Only ask once per session - skip if already confirmed
+                if (!hasConfirmedAge) {
                   setPendingDob(pickerTemp);
                   setShowPicker(false);
                   setShowAgeConfirm(true);
@@ -302,49 +304,72 @@ export default function ProfileScreen() {
       >
         <View style={styles.confirmBackdrop}>
           <Squircle
-            style={[styles.confirmBox, { backgroundColor: colors.surface }]}
-            cornerRadius={24}
+            style={styles.confirmBox}
+            cornerRadius={28}
             cornerSmoothing={1}
+            fillColor={colors.surface}
           >
-            <View style={styles.confirmIcon}>
-              <Ionicons name="calendar-outline" size={32} color={colors.text} />
-            </View>
-            
-            <Text style={[styles.confirmTitle, { color: colors.text }]}>
-              Confirm Your Age
-            </Text>
-            
-            <Text style={[styles.confirmMessage, { color: colors.textSecondary }]}>
-              You selected birth year {pendingDob?.getFullYear()}. Are you sure you are at least 18 years old?
-            </Text>
-
-            <View style={styles.confirmButtons}>
-              <TouchableOpacity
-                style={[styles.confirmBtn, styles.cancelBtn, { backgroundColor: colors.bg }]}
-                onPress={() => {
-                  setShowAgeConfirm(false);
-                  setPendingDob(null);
-                }}
+            <View style={styles.confirmContent}>
+              <Squircle
+                style={styles.confirmIconSquircle}
+                cornerRadius={20}
+                cornerSmoothing={1}
+                fillColor={colors.bg}
               >
-                <Text style={[styles.confirmBtnText, { color: colors.textSecondary }]}>
-                  Change Date
-                </Text>
-              </TouchableOpacity>
+                <Ionicons name="calendar-outline" size={28} color={colors.text} />
+              </Squircle>
+              
+              <Text style={[styles.confirmTitle, { color: colors.text }]}>
+                Confirm Your Age
+              </Text>
+              
+              <Text style={[styles.confirmMessage, { color: colors.textSecondary }]}>
+                You selected birth year {pendingDob?.getFullYear()}. Are you sure you are {pendingDob ? calculateAge(pendingDob) : ''} years old?
+              </Text>
 
-              <TouchableOpacity
-                style={[styles.confirmBtn, styles.confirmBtnPrimary, { backgroundColor: colors.text }]}
-                onPress={() => {
-                  if (pendingDob) {
-                    setDob(pendingDob);
-                  }
-                  setShowAgeConfirm(false);
-                  setPendingDob(null);
-                }}
-              >
-                <Text style={[styles.confirmBtnText, { color: colors.bg }]}>
-                  Yes, I'm 18+
-                </Text>
-              </TouchableOpacity>
+              <View style={styles.confirmButtons}>
+                <Squircle
+                  style={styles.confirmBtnSquircle}
+                  cornerRadius={16}
+                  cornerSmoothing={1}
+                  fillColor={colors.bg}
+                >
+                  <TouchableOpacity
+                    style={styles.confirmBtnTouchable}
+                    onPress={() => {
+                      setShowAgeConfirm(false);
+                      setPendingDob(null);
+                    }}
+                  >
+                    <Text style={[styles.confirmBtnText, { color: colors.textSecondary }]}>
+                      Change Date
+                    </Text>
+                  </TouchableOpacity>
+                </Squircle>
+
+                <Squircle
+                  style={styles.confirmBtnSquircle}
+                  cornerRadius={16}
+                  cornerSmoothing={1}
+                  fillColor={colors.text}
+                >
+                  <TouchableOpacity
+                    style={styles.confirmBtnTouchable}
+                    onPress={() => {
+                      if (pendingDob) {
+                        setDob(pendingDob);
+                      }
+                      setHasConfirmedAge(true);
+                      setShowAgeConfirm(false);
+                      setPendingDob(null);
+                    }}
+                  >
+                    <Text style={[styles.confirmBtnText, { color: colors.bg }]}>
+                      Yes, Confirm
+                    </Text>
+                  </TouchableOpacity>
+                </Squircle>
+              </View>
             </View>
           </Squircle>
         </View>
@@ -397,12 +422,19 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   confirmBox: {
-    width: '100%',
+    width: '90%',
     maxWidth: 340,
-    padding: 24,
+  },
+  confirmContent: {
+    paddingVertical: 32,
+    paddingHorizontal: 24,
     alignItems: 'center',
   },
-  confirmIcon: {
+  confirmIconSquircle: {
+    width: 56,
+    height: 56,
+    justifyContent: 'center',
+    alignItems: 'center',
     marginBottom: 16,
   },
   confirmTitle: {
@@ -423,18 +455,15 @@ const styles = StyleSheet.create({
     gap: 12,
     width: '100%',
   },
-  confirmBtn: {
+  confirmBtnSquircle: {
     flex: 1,
     height: 50,
-    borderRadius: 14,
+  },
+  confirmBtnTouchable: {
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  cancelBtn: {
-    borderWidth: 1.5,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  confirmBtnPrimary: {},
   confirmBtnText: {
     fontSize: 16,
     fontFamily: 'ProductSans-Bold',

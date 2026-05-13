@@ -1,7 +1,7 @@
 import Constants from 'expo-constants';
 
 const PROD_API_URL = 'https://dev.zod.pro.ailoo.co';
-const LOCAL_BACKEND_IP = 'http://10.98.182.239:8000';
+const LOCAL_BACKEND_IP = 'http://10.215.90.239:8000';
 
 // Set to true to always point at production, even when running in dev/Expo Go.
 // Set to false to use local backend at LOCAL_BACKEND_IP.
@@ -20,7 +20,8 @@ function getApiBaseUrl(): string {
 
 export const API_BASE = getApiBaseUrl();
 export const API_V1 = `${API_BASE}/api/v1`;
-export const WS_V1 = `${API_BASE.replace('http', 'ws')}/api/v1`;
+// Robust WebSocket URL: handles both http:// and https:// correctly
+export const WS_V1 = API_BASE.replace(/^http:\/\//, 'ws://').replace(/^https:\/\//, 'wss://') + '/api/v1';
 
 // ── Global fetch interceptor ──────────────────────────────────────────────────
 // Patches the native fetch so that EVERY request to our own API — whether made
@@ -137,6 +138,23 @@ export async function apiFetch<T = unknown>(
       typeof data?.detail === 'string'
         ? data.detail
         : JSON.stringify(data?.detail ?? data);
+    
+    // Check if account was deleted - force logout
+    if (message === 'ACCOUNT_DELETED') {
+      console.log('[API] Account deleted, forcing logout...');
+      await _signOut?.();
+      throw new Error('Your account has been deleted. Please contact support if you believe this was an error.');
+    }
+    
+    // Check if face verification is required (HTTP 423)
+    if (res.status === 423 && data?.code === 'face_scan_required') {
+      console.log('[API] Face scan required, redirecting to verification...');
+      // Import router dynamically to avoid circular dependency
+      const { router } = await import('expo-router');
+      router.push({ pathname: '/verification', params: { tab: 'face' } });
+      throw new Error('Face verification required. Please verify to continue.');
+    }
+    
     throw new Error(message);
   }
 

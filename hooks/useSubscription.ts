@@ -9,7 +9,7 @@
  *  - Verifying entitlement with our backend after a successful purchase
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
 import Purchases, {
   LOG_LEVEL,
@@ -90,6 +90,7 @@ export function useSubscription() {
 
   const [offering,         setOffering]         = useState<PurchasesOffering | null>(null);
   const [premiumOffering,  setPremiumOffering]  = useState<PurchasesOffering | null>(null);
+  const [creditsOffering,    setCreditsOffering]  = useState<PurchasesOffering | null>(null);
   const [plans,            setPlans]            = useState<BackendPlan[]>([]);
   const [plansLoading,     setPlansLoading]     = useState(true);
   const [myFeatures,       setMyFeatures]       = useState<MyFeatures | null>(null);
@@ -257,7 +258,9 @@ export function useSubscription() {
       setOffering(off ?? null);
       const premOff = offerings.all[RC_PREMIUM_OFFERING] ?? null;
       setPremiumOffering(premOff);
-      // AI Credits offering is loaded on-demand in purchaseAiCredits
+      // Also load AI Credits offering for localized pricing
+      const credOff = offerings.all[RC_CREDITS_OFFERING] ?? null;
+      setCreditsOffering(credOff);
     } catch (e: any) {
       setError(e?.message ?? 'Failed to load offerings');
     }
@@ -502,9 +505,25 @@ export function useSubscription() {
   const getMyFeature = (key: string): PlanFeature | null =>
     myFeatures?.features.find(f => f.key === key) ?? null;
 
+  // ── AI Credits packages with localized prices from RevenueCat ───────────
+  const aiCreditPackages = useMemo(() => {
+    if (!creditsOffering) return null;
+    return creditsOffering.availablePackages;
+  }, [creditsOffering]);
+
+  /** Get localized price for an AI credit pack ID */
+  const getAiCreditPrice = useCallback((packId: string): string | null => {
+    if (!aiCreditPackages) return null;
+    const pkg = aiCreditPackages.find(p => p.product?.identifier === packId);
+    return pkg?.product?.priceString ?? null;
+  }, [aiCreditPackages]);
+
   return {
     offering,
     premiumOffering,
+    creditsOffering,
+    aiCreditPackages,
+    getAiCreditPrice,
     plans,
     plansLoading,
     proPlans,
